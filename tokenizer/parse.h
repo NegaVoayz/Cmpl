@@ -1,0 +1,100 @@
+
+typedef enum {
+    // key
+    TOK_IF, TOK_ELSE, TOK_WHILE, TOK_FOR, TOK_RETURN,
+    TOK_INT, TOK_CHAR, TOK_VOID, TOK_STRUCT, TOK_TYPEDEF,
+    TOK_SIZEOF, TOK_BREAK, TOK_CONTINUE, TOK_SWITCH, TOK_CASE,
+    TOK_DEFAULT, TOK_DO, TOK_GOTO, TOK_ENUM, TOK_UNION,
+    TOK_CONST, TOK_VOLATILE, TOK_STATIC, TOK_EXTERN, TOK_REGISTER,
+    TOK_SIGNED, TOK_UNSIGNED, TOK_SHORT, TOK_LONG, TOK_DOUBLE,
+    TOK_FLOAT,
+
+    // lit
+    TOK_INT_LIT,      // 42
+    TOK_LONG_LIT,      // 42l
+    TOK_CHAR_LIT,     // 'a'
+    TOK_STRING_LIT,   // "hello"
+    TOK_FLOAT_LIT,    // 3.14f
+    TOK_DOUBLE_LIT,    // 3.14
+
+    // id
+    TOK_IDENT,        // foo, bar
+
+    // op
+    TOK_PLUS,         // +
+    TOK_MINUS,        // -
+    TOK_STAR,         // *
+    TOK_SLASH,        // /
+    TOK_PERCENT,      // %
+    TOK_EQ,           // =
+    TOK_EQEQ,         // ==
+    TOK_BANGEQ,       // !=
+    TOK_LT,           // <
+    TOK_GT,           // >
+    TOK_LTEQ,         // <=
+    TOK_GTEQ,         // >=
+    TOK_AMPAMP,       // &&
+    TOK_PIPEPIPE,     // ||
+    TOK_BANG,         // !
+    TOK_AMP,          // &
+    TOK_PIPE,         // |
+    TOK_CARET,        // ^
+    TOK_TILDE,        // ~
+    TOK_LTLT,         // <<
+    TOK_GTGT,         // >>
+    TOK_PLUSEQ,       // +=
+    TOK_MINUSEQ,      // -=
+    TOK_STAREQ,       // *=
+    TOK_SLASHEQ,      // /=
+    TOK_PLUSPLUS,     // ++
+    TOK_MINUSMINUS,   // --
+    TOK_ARROW,        // ->
+    TOK_DOT,          // .
+
+    // sep
+    TOK_LPAREN,       // (
+    TOK_RPAREN,       // )
+    TOK_LBRACKET,     // [
+    TOK_RBRACKET,     // ]
+    TOK_LBRACE,       // {
+    TOK_RBRACE,       // }
+    TOK_SEMI,         // ;
+    TOK_COMMA,        // ,
+    TOK_COLON,        // :
+    TOK_QUESTION,     // ?
+
+    // spec
+    TOK_EOF,
+    TOK_ERROR
+} TokenKind;
+
+typedef struct {
+    int line;
+    int col;
+} SourceLoc;
+
+typedef struct {
+    const char* data;
+    int length;
+} String;
+
+typedef struct Token Token;
+
+// the char* here is a copy, so the caller is responsible for freeing up the char* if required.
+struct Token {
+    TokenKind kind;
+    SourceLoc loc;
+    Token*    next;
+
+    union {
+        long int_val;           // TOK_INT_LIT
+        char char_val;          // TOK_CHAR_LIT
+        double float_val;       // TOK_FLOAT_LIT
+        String str_val;              // TOK_STRING_LIT
+        String ident;                // TOK_IDENT
+    } body;
+};
+
+// the caller is responsible for cleaning up.
+// return a link list of Token
+Token* parse(const char* code);
