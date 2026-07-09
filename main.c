@@ -4,6 +4,82 @@
 #include <stdlib.h>
 #include <string.h>
 
+static void
+dump_ast(AST_Node* n, int depth)
+{
+    if (!n) return;
+
+    for (int i = 0; i < depth; i++)
+        printf("  ");
+
+    switch (n->type) {
+    case AST_INT_LIT:
+        printf("INT_LIT: %ld\n", n->body.literal.int_val);
+        break;
+    case AST_LONG_LIT:
+        printf("LONG_LIT: %ldL\n", n->body.literal.int_val);
+        break;
+    case AST_CHAR_LIT:
+        printf("CHAR_LIT: '%c'\n", n->body.literal.char_val);
+        break;
+    case AST_STRING_LIT:
+        printf("STRING_LIT: \"%.*s\"\n", n->body.literal.str_val.length,
+               n->body.literal.str_val.data);
+        break;
+    case AST_FLOAT_LIT:
+        printf("FLOAT_LIT: %gf\n", n->body.literal.float_val);
+        break;
+    case AST_DOUBLE_LIT:
+        printf("DOUBLE_LIT: %g\n", n->body.literal.float_val);
+        break;
+    case AST_IDENT:
+        printf("IDENT: %.*s\n", n->body.ident.name.length,
+               n->body.ident.name.data);
+        break;
+    case AST_BINARY:
+        printf("BINARY: %d\n", n->body.binary.op);
+        dump_ast(n->body.binary.left, depth + 1);
+        dump_ast(n->body.binary.right, depth + 1);
+        break;
+    case AST_UNARY:
+        printf("UNARY: %d\n", n->body.unary.op);
+        dump_ast(n->body.unary.operand, depth + 1);
+        break;
+    case AST_POSTFIX:
+        printf("POSTFIX: %d\n", n->body.postfix.op);
+        dump_ast(n->body.postfix.operand, depth + 1);
+        break;
+    case AST_CALL:
+        printf("CALL\n");
+        dump_ast(n->body.call.callee, depth + 1);
+        dump_ast(n->body.call.args, depth + 1);
+        break;
+    case AST_INDEX:
+        printf("INDEX\n");
+        dump_ast(n->body.subscript.array, depth + 1);
+        dump_ast(n->body.subscript.index, depth + 1);
+        break;
+    case AST_MEMBER:
+        printf("MEMBER: %d %.*s\n", n->body.member.op,
+               n->body.member.member.length, n->body.member.member.data);
+        dump_ast(n->body.member.record, depth + 1);
+        break;
+    case AST_TERNARY:
+        printf("TERNARY\n");
+        dump_ast(n->body.ternary.cond, depth + 1);
+        dump_ast(n->body.ternary.then_expr, depth + 1);
+        dump_ast(n->body.ternary.else_expr, depth + 1);
+        break;
+    case AST_SIZEOF_EXPR:
+        printf("SIZEOF_EXPR\n");
+        dump_ast(n->body.sizeof_expr.expr, depth + 1);
+        break;
+    default:
+        printf("AST_Type=%d\n", n->type);
+        break;
+    }
+}
+
 static const char*
 token_kind_name(TokenKind kind)
 {
@@ -143,41 +219,20 @@ main(int argc, char** argv)
     }
 
     Token* tokens = parse(code);
-    int    count = 0;
 
-    for (Token* t = tokens; t; t = t->next) {
-        printf("%d:%d  %-16s", t->loc.line, t->loc.col, token_kind_name(t->kind));
+    /* Parse the first expression */
+    printf("\n--- Parsing expression ---\n");
+    LR1_Parser* parser = lr1_parser_new(tokens);
+    AST_Node*   expr = lr1_parse_expr(parser);
 
-        switch (t->kind) {
-        case TOK_INT_LIT:
-            printf(" %ld", t->body.int_val);
-            break;
-        case TOK_LONG_LIT:
-            printf(" %ldL", t->body.int_val);
-            break;
-        case TOK_CHAR_LIT:
-            printf(" '%c'", t->body.char_val);
-            break;
-        case TOK_STRING_LIT:
-            printf(" \"%.*s\"", t->body.str_val.length, t->body.str_val.data);
-            break;
-        case TOK_FLOAT_LIT:
-            printf(" %gf", t->body.float_val);
-            break;
-        case TOK_DOUBLE_LIT:
-            printf(" %g", t->body.float_val);
-            break;
-        case TOK_IDENT:
-            printf(" %.*s", t->body.ident.length, t->body.ident.data);
-            break;
-        default:
-            break;
-        }
-        printf("\n");
-        count++;
+    if (expr) {
+        printf("\nAST:\n");
+        dump_ast(expr, 0);
+    } else {
+        printf("Parse error!\n");
     }
 
-    printf("\nTotal: %d tokens\n", count);
+    lr1_parser_free(parser);
     free_tokens(tokens);
     free(code);
     return 0;

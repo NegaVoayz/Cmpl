@@ -1,7 +1,7 @@
 #ifndef LEXER_H
 #define LEXER_H
 
-#include "parse.h"
+#include "token.h"
 
 /* Internal lexer state shared across split files */
 typedef struct {

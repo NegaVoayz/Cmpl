@@ -1,3 +1,5 @@
+#ifndef PARSE_H
+#define PARSE_H
 
 typedef enum {
     // key
@@ -98,3 +100,5 @@ struct Token {
 // the caller is responsible for cleaning up.
 // return a link list of Token
 Token* parse(const char* code);
+
+#endif /* PARSE_H */

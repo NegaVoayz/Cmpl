@@ -1,0 +1,154 @@
+/* lr1.h -- LR(1) expression parser with function-pointer table */
+
+#ifndef LR1_H
+#define LR1_H
+
+#include <stddef.h>
+
+#include "token.h"
+#include "ast.h"
+
+/* ---------------------------------------------------------------
+ *  Parser states
+ *
+ *  Token-shifted states (0-19): a single terminal token was just
+ *  pushed onto the stack. These states expect a reduce, or more
+ *  tokens to complete the production.
+ *
+ *  Have-expr states (20-39): after reducing a subexpression.
+ *  These states encode the precedence level of the expression
+ *  on top of the value stack.
+ * --------------------------------------------------------------- */
+
+typedef enum {
+    /* token-shifted states */
+    S_ENTRY = 0,
+    S_LIT,              /* shifted a literal token */
+    S_IDENT,            /* shifted TOK_IDENT */
+    S_LPAREN,           /* shifted ( -- disambiguate paren-expr vs cast */
+    S_UNARY_OP,         /* shifted + - ! ~ * & as prefix unary op */
+    S_SIZEOF,           /* shifted TOK_SIZEOF */
+    S_PREFIX_INC,       /* shifted prefix ++ */
+    S_PREFIX_DEC,       /* shifted prefix -- */
+    S_POSTFIX_LBRACK,   /* shifted [ for array index */
+    S_POSTFIX_LPAREN,   /* shifted ( for function call */
+    S_POSTFIX_DOT,      /* shifted . for member access */
+    S_POSTFIX_ARROW,    /* shifted -> for member access */
+    S_POSTFIX_INC,      /* shifted postfix ++ */
+    S_POSTFIX_DEC,      /* shifted postfix -- */
+    S_POSTFIX_MEMBER,   /* shifted member name after . or -> */
+    S_BINARY_OP,        /* shifted a binary operator token */
+    S_ASSIGN_OP,        /* shifted = += -= *= /= */
+    S_TERNARY_Q,        /* shifted ? */
+    S_TERNARY_COLON,    /* shifted : */
+    S_BINARY_RHS,       /* have LHS, shifted op, RHS at cast_expr+ -- ready to reduce or shift */
+    S_BINRHS_PRIMARY,   /* RHS is primary, needs passthrough to higher level */
+    S_BINRHS_POSTFIX,   /* RHS is postfix, needs passthrough */
+    S_BINRHS_UNARY,     /* RHS is unary, needs passthrough to cast_expr */
+    S_UNARY_RHS,        /* shifted unary prefix op, parsed operand -- ready to reduce */
+    S_ASSIGN_RHS,       /* shifted assign op, parsed RHS -- ready to reduce */
+    S_TERNARY_RHS,      /* have cond ? then : else -- ready to reduce ternary */
+
+    /* have-expr states (after reducing a subexpression) */
+    HS_PRIMARY = 30,
+    HS_POSTFIX,
+    HS_UNARY,
+    HS_CAST_EXPR,
+    HS_MULT,
+    HS_ADD,
+    HS_SHIFT,
+    HS_REL,
+    HS_EQ,
+    HS_BAND,
+    HS_BXOR,
+    HS_BOR,
+    HS_LAND,
+    HS_LOR,
+    HS_COND,
+    HS_ASSIGN,
+    HS_EXPR,
+
+    NUM_STATES
+} LR1_State;
+
+/* ---------------------------------------------------------------
+ *  Nonterminal symbols for the GOTO table
+ * --------------------------------------------------------------- */
+
+typedef enum {
+    SYM_PRIMARY = 0,
+    SYM_POSTFIX,
+    SYM_UNARY,
+    SYM_CAST_EXPR,
+    SYM_MULT,
+    SYM_ADD,
+    SYM_SHIFT,
+    SYM_REL,
+    SYM_EQ,
+    SYM_BAND,
+    SYM_BXOR,
+    SYM_BOR,
+    SYM_LAND,
+    SYM_LOR,
+    SYM_COND,
+    SYM_ASSIGN,
+    SYM_EXPR,
+    SYM_ARG_LIST,
+    NUM_SYMBOLS
+} LR1_Symbol;
+
+/* ---------------------------------------------------------------
+ *  Action result and function pointer type
+ * --------------------------------------------------------------- */
+
+typedef enum {
+    LR_ACCEPT,
+    LR_SHIFT,
+    LR_REDUCE,
+    LR_ERROR
+} LR_Action;
+
+typedef struct LR1_Parser LR1_Parser;
+
+typedef LR_Action (*LR1_Func)(LR1_Parser* p);
+
+/* ---------------------------------------------------------------
+ *  Parse stack and parser state
+ * --------------------------------------------------------------- */
+
+#define MAX_STACK 256
+
+typedef struct {
+    int       state;
+    Token*    token;
+    AST_Node* node;
+} StackFrame;
+
+struct LR1_Parser {
+    Token*     tok;
+    StackFrame stack[MAX_STACK];
+    int        sp;
+    int        error;
+};
+
+/* ---------------------------------------------------------------
+ *  Table access (defined in lr1_table.c)
+ * --------------------------------------------------------------- */
+
+extern LR1_Func action_table[NUM_STATES][81];
+extern int     goto_table[NUM_STATES][NUM_SYMBOLS];
+
+void lr1_table_init(void);
+
+/* ---------------------------------------------------------------
+ *  Public API
+ * --------------------------------------------------------------- */
+
+LR1_Parser* lr1_parser_new(Token* first_tok);
+AST_Node*   lr1_parse_expr(LR1_Parser* p);
+void        lr1_parser_free(LR1_Parser* p);
+
+/* stack helper used by reduce functions */
+void goto_push(LR1_Parser* p, AST_Node* node, int lhs_sym);
+
+#endif /* LR1_H */
