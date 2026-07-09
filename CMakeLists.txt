@@ -9,7 +9,7 @@ add_subdirectory(pp)
 add_subdirectory(parser)
 
 add_executable(cmpl main.c)
-target_link_libraries(cmpl tokenizer parser)
+target_link_libraries(cmpl tokenizer pp parser)
 
 add_executable(cmpl-pp main_pp.c)
 target_link_libraries(cmpl-pp tokenizer pp parser)

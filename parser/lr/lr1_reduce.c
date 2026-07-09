@@ -135,7 +135,10 @@ LR_Action reduce_call_close(LR1_Parser* p)
 
     n->body.call.callee = callee;
     n->body.call.args = args;
-    p->sp = lparen_idx - 1;
+
+    /* skip both LPAREN and callee frames so dead callee doesn't
+     * interfere with passthrough chain */
+    p->sp = lparen_idx - 2;
     p->tok = p->tok->next;
     goto_push(p, n, SYM_POSTFIX);
 
@@ -312,14 +315,15 @@ LR_Action reduce_to_expr(LR1_Parser* p)
 
 LR_Action reduce_index(LR1_Parser* p)
 {
-    /* pop 4: postfix, TOK_LBRACKET, expr, TOK_RBRACKET */
-    AST_Node* array = p->stack[p->sp - 3].node;
-    AST_Node* idx   = p->stack[p->sp - 1].node;
+    /* pop 3: postfix, TOK_LBRACKET, expr.  ] is the current token. */
+    AST_Node* array = p->stack[p->sp - 2].node;
+    AST_Node* idx   = p->stack[p->sp].node;
     AST_Node* n = ast_node_new(AST_INDEX, array->loc.line, array->loc.col);
 
     n->body.subscript.array = array;
     n->body.subscript.index = idx;
-    p->sp -= 4;
+    p->sp -= 3;
+    p->tok = p->tok->next;
     goto_push(p, n, SYM_POSTFIX);
 
     return LR_REDUCE;
@@ -354,32 +358,17 @@ LR_Action reduce_call_args(LR1_Parser* p)
     return LR_REDUCE;
 }
 
-LR_Action reduce_member_dot(LR1_Parser* p)
+LR_Action reduce_member_access(LR1_Parser* p)
 {
-    /* pop 3: postfix, TOK_DOT, TOK_IDENT */
+    /* pop 3: postfix, op_token (DOT or ARROW), TOK_IDENT */
     AST_Node* record = p->stack[p->sp - 2].node;
+    Token*    op_tok = p->stack[p->sp - 1].token;
     Token*    id_tok = p->stack[p->sp].token;
     AST_Node* n = ast_node_new(AST_MEMBER, record->loc.line, record->loc.col);
 
     n->body.member.record = record;
     n->body.member.member = id_tok->body.ident;
-    n->body.member.op = TOK_DOT;
-    p->sp -= 3;
-    goto_push(p, n, SYM_POSTFIX);
-
-    return LR_REDUCE;
-}
-
-LR_Action reduce_member_arrow(LR1_Parser* p)
-{
-    /* pop 3: postfix, TOK_ARROW, TOK_IDENT */
-    AST_Node* record = p->stack[p->sp - 2].node;
-    Token*    id_tok = p->stack[p->sp].token;
-    AST_Node* n = ast_node_new(AST_MEMBER, record->loc.line, record->loc.col);
-
-    n->body.member.record = record;
-    n->body.member.member = id_tok->body.ident;
-    n->body.member.op = TOK_ARROW;
+    n->body.member.op = op_tok->kind;
     p->sp -= 3;
     goto_push(p, n, SYM_POSTFIX);
 
@@ -672,6 +661,31 @@ LR_Action reduce_unary_rhs(LR1_Parser* p)
 }
 
 /* ===========================================================
+ *  Context-aware , handler (arg separator vs binary comma)
+ * =========================================================== */
+
+LR_Action lr1_handle_comma(LR1_Parser* p)
+{
+    /* check if we're inside a function call argument list */
+    for (int i = p->sp; i >= 0; i--) {
+        if (p->stack[i].state == S_POSTFIX_LPAREN) {
+            /* Inside call args -- current expr is an argument.
+             * Reduce it to SYM_ARG_LIST and consume comma. */
+            AST_Node* expr = p->stack[p->sp].node;
+
+            p->sp--;
+            goto_push(p, expr, SYM_ARG_LIST);
+            p->tok = p->tok->next;
+
+            return LR_REDUCE;
+        }
+    }
+
+    /* Not in args -- regular comma operator */
+    return shift_binary_op(p);
+}
+
+/* ===========================================================
  *  Context-aware : handler (ternary vs label)
  * =========================================================== */
 
@@ -692,15 +706,27 @@ LR_Action lr1_handle_colon(LR1_Parser* p)
 
 LR_Action lr1_handle_rparen(LR1_Parser* p)
 {
-    /* look for matching LPAREN on the stack */
+    int is_rbracket = (p->tok->kind == TOK_RBRACKET);
+    TokenKind match_kind = is_rbracket ? TOK_LBRACKET : TOK_LPAREN;
+
+    /* look for matching LPAREN or LBRACKET on the stack */
     for (int i = p->sp; i >= 0; i--) {
-        if (p->stack[i].token && p->stack[i].token->kind == TOK_LPAREN) {
-            if (p->stack[i].state == S_LPAREN)
+        if (p->stack[i].token && p->stack[i].token->kind == match_kind) {
+            if (is_rbracket && p->stack[i].state == S_POSTFIX_LBRACK)
+                return reduce_index(p);
+            if (!is_rbracket && p->stack[i].state == S_LPAREN)
                 return reduce_primary_paren_close(p);
-            if (p->stack[i].state == S_POSTFIX_LPAREN)
+            if (!is_rbracket && p->stack[i].state == S_POSTFIX_LPAREN)
                 return reduce_call_close(p);
             return LR_ERROR;
         }
+    }
+
+    /* no matching bracket -- if caller allows, consume and accept */
+    if (p->allow_unmatched_rparen) {
+        p->allow_unmatched_rparen = 0;
+        p->tok = p->tok->next;
+        return LR_ACCEPT;
     }
 
     return LR_ERROR;

@@ -60,8 +60,7 @@ LR_Action reduce_to_expr(LR1_Parser* p);
 LR_Action reduce_index(LR1_Parser* p);
 LR_Action reduce_call_empty(LR1_Parser* p);
 LR_Action reduce_call_args(LR1_Parser* p);
-LR_Action reduce_member_dot(LR1_Parser* p);
-LR_Action reduce_member_arrow(LR1_Parser* p);
+LR_Action reduce_member_access(LR1_Parser* p);
 LR_Action reduce_postfix_inc(LR1_Parser* p);
 LR_Action reduce_postfix_dec(LR1_Parser* p);
 
@@ -93,6 +92,7 @@ LR_Action reduce_arg_append(LR1_Parser* p);
 
 LR_Action lr1_handle_rparen(LR1_Parser* p);
 LR_Action lr1_handle_colon(LR1_Parser* p);
+LR_Action lr1_handle_comma(LR1_Parser* p);
 LR_Action lr1_binary_rhs_action(LR1_Parser* p);
 LR_Action reduce_binary_op(LR1_Parser* p);
 LR_Action reduce_unary_rhs(LR1_Parser* p);
@@ -269,9 +269,7 @@ void lr1_table_init(void)
      *  S_POSTFIX_MEMBER -- shifted member name after . or ->
      * ---------------------------------------------------------- */
 
-    fill_row(S_POSTFIX_MEMBER, lr1_error);
-    set_cell(S_POSTFIX_MEMBER, TOK_IDENT, lr1_error);
-    /* handled by S_POSTFIX_DOT/S_POSTFIX_ARROW + TOK_IDENT transition */
+    fill_row(S_POSTFIX_MEMBER, reduce_member_access);
 
     /* ----------------------------------------------------------
      *  S_POSTFIX_DOT / S_POSTFIX_ARROW -- expecting member name
@@ -528,8 +526,8 @@ void lr1_table_init(void)
                 set_cell(s, t, shift_assign_op);
         }
 
-        /* comma: always shift (lowest precedence, left-assoc) */
-        set_cell(s, TOK_COMMA, shift_binary_op);
+        /* comma: context-aware (arg separator or binary op) */
+        set_cell(s, TOK_COMMA, lr1_handle_comma);
 
         /* ternary ? always shifts, : handled by context */
         set_cell(s, TOK_QUESTION, shift_ternary_q);
@@ -557,14 +555,28 @@ void lr1_table_init(void)
         if (is_assign_op(t) || is_terminator(t))
             set_cell(S_BINARY_RHS, t, reduce_binary_op);
     }
+    set_cell(S_BINARY_RHS, TOK_QUESTION, shift_ternary_q);
+    set_cell(S_BINARY_RHS, TOK_COLON, lr1_handle_colon);
 
-    /* S_BINRHS_PRIMARY -- RHS is primary, passthrough to postfix */
+    /* S_BINRHS_PRIMARY -- RHS is primary, shift postfix ops else passthrough */
     fill_row(S_BINRHS_PRIMARY, reduce_to_postfix);
+    set_cell(S_BINRHS_PRIMARY, TOK_LBRACKET,   shift_postfix_lbrack);
+    set_cell(S_BINRHS_PRIMARY, TOK_LPAREN,     shift_postfix_lparen);
+    set_cell(S_BINRHS_PRIMARY, TOK_DOT,        shift_postfix_dot);
+    set_cell(S_BINRHS_PRIMARY, TOK_ARROW,      shift_postfix_arrow);
+    set_cell(S_BINRHS_PRIMARY, TOK_PLUSPLUS,   shift_postfix_inc);
+    set_cell(S_BINRHS_PRIMARY, TOK_MINUSMINUS, shift_postfix_dec);
 
-    /* S_BINRHS_POSTFIX -- RHS is postfix, passthrough to unary */
+    /* S_BINRHS_POSTFIX -- RHS is postfix, shift postfix ops else passthrough */
     fill_row(S_BINRHS_POSTFIX, reduce_to_unary);
+    set_cell(S_BINRHS_POSTFIX, TOK_LBRACKET,   shift_postfix_lbrack);
+    set_cell(S_BINRHS_POSTFIX, TOK_LPAREN,     shift_postfix_lparen);
+    set_cell(S_BINRHS_POSTFIX, TOK_DOT,        shift_postfix_dot);
+    set_cell(S_BINRHS_POSTFIX, TOK_ARROW,      shift_postfix_arrow);
+    set_cell(S_BINRHS_POSTFIX, TOK_PLUSPLUS,   shift_postfix_inc);
+    set_cell(S_BINRHS_POSTFIX, TOK_MINUSMINUS, shift_postfix_dec);
 
-    /* S_BINRHS_UNARY -- RHS is unary, passthrough to cast_expr */
+    /* S_BINRHS_UNARY -- RHS is unary, passthrough to cast_expr (no postfix from here) */
     fill_row(S_BINRHS_UNARY, reduce_to_cast);
 
     /* S_UNARY_RHS -- just parsed operand of unary prefix op, reduce it */
@@ -578,9 +590,19 @@ void lr1_table_init(void)
         if (is_assign_op(t))
             set_cell(S_ASSIGN_RHS, t, shift_assign_op);
     }
+    set_cell(S_ASSIGN_RHS, TOK_QUESTION, shift_ternary_q);
+    set_cell(S_ASSIGN_RHS, TOK_COLON, lr1_handle_colon);
 
-    /* S_TERNARY_RHS -- just parsed else-expr of ternary, reduce it */
+    /* S_TERNARY_RHS -- just parsed else-expr of ternary, reduce it.
+     * Allow postfix ops on the else-expr before reducing. */
     fill_row(S_TERNARY_RHS, reduce_ternary);
+    set_cell(S_TERNARY_RHS, TOK_LPAREN,    shift_postfix_lparen);
+    set_cell(S_TERNARY_RHS, TOK_LBRACKET,  shift_postfix_lbrack);
+    set_cell(S_TERNARY_RHS, TOK_DOT,       shift_postfix_dot);
+    set_cell(S_TERNARY_RHS, TOK_ARROW,     shift_postfix_arrow);
+    set_cell(S_TERNARY_RHS, TOK_PLUSPLUS,  shift_postfix_inc);
+    set_cell(S_TERNARY_RHS, TOK_MINUSMINUS, shift_postfix_dec);
+    set_cell(S_TERNARY_RHS, TOK_QUESTION,  shift_ternary_q);
 
     /* ===========================================================
      *  GOTO table
@@ -616,42 +638,61 @@ void lr1_table_init(void)
         goto_table[st][SYM_COND]      = HS_COND;
         goto_table[st][SYM_ASSIGN]    = HS_ASSIGN;
         goto_table[st][SYM_EXPR]      = HS_EXPR;
-        goto_table[st][SYM_ARG_LIST]  = HS_PRIMARY;
     }
 
-    /* unary prefix operators: all reduce to S_UNARY_RHS */
-    goto_table[S_UNARY_OP][SYM_PRIMARY]   = S_UNARY_RHS;
-    goto_table[S_UNARY_OP][SYM_POSTFIX]   = S_UNARY_RHS;
+    /* S_ENTRY and S_POSTFIX_LPAREN: arg_list → operand-expecting state
+     * so next arg starts fresh after comma */
+    goto_table[S_ENTRY][SYM_ARG_LIST]           = S_ENTRY;
+    goto_table[S_POSTFIX_LPAREN][SYM_ARG_LIST]  = S_ENTRY;
+
+    /* other operand states */
+    for (int i = 1; operand_states[i] >= 0; i++) {
+        goto_table[operand_states[i]][SYM_ARG_LIST] = S_ENTRY;
+    }
+
+    /* postfix reductions from have-expr states → HS_POSTFIX */
+    for (int s = HS_PRIMARY; s <= HS_EXPR; s++)
+        goto_table[s][SYM_POSTFIX] = HS_POSTFIX;
+
+    /* postfix reductions from BINRHS states → continue in BINRHS chain */
+    goto_table[S_BINRHS_PRIMARY][SYM_POSTFIX] = S_BINRHS_POSTFIX;
+    goto_table[S_BINRHS_POSTFIX][SYM_POSTFIX] = S_BINRHS_POSTFIX;
+
+    /* unary prefix operators: use BINRHS chain for primary/postfix
+     * so postfix ops (call, index, member) bind tighter than unary */
+    goto_table[S_UNARY_OP][SYM_PRIMARY]   = S_BINRHS_PRIMARY;
+    goto_table[S_UNARY_OP][SYM_POSTFIX]   = S_BINRHS_POSTFIX;
     goto_table[S_UNARY_OP][SYM_UNARY]     = S_UNARY_RHS;
     goto_table[S_UNARY_OP][SYM_CAST_EXPR] = S_UNARY_RHS;
     goto_table[S_UNARY_OP][SYM_MULT]      = S_UNARY_RHS;
     goto_table[S_UNARY_OP][SYM_ADD]       = S_UNARY_RHS;
 
-    goto_table[S_SIZEOF][SYM_PRIMARY]   = S_UNARY_RHS;
-    goto_table[S_SIZEOF][SYM_POSTFIX]   = S_UNARY_RHS;
+    goto_table[S_SIZEOF][SYM_PRIMARY]   = S_BINRHS_PRIMARY;
+    goto_table[S_SIZEOF][SYM_POSTFIX]   = S_BINRHS_POSTFIX;
     goto_table[S_SIZEOF][SYM_UNARY]     = S_UNARY_RHS;
     goto_table[S_SIZEOF][SYM_CAST_EXPR] = S_UNARY_RHS;
     goto_table[S_SIZEOF][SYM_MULT]      = S_UNARY_RHS;
     goto_table[S_SIZEOF][SYM_ADD]       = S_UNARY_RHS;
 
-    goto_table[S_PREFIX_INC][SYM_PRIMARY]   = S_UNARY_RHS;
-    goto_table[S_PREFIX_INC][SYM_POSTFIX]   = S_UNARY_RHS;
+    goto_table[S_PREFIX_INC][SYM_PRIMARY]   = S_BINRHS_PRIMARY;
+    goto_table[S_PREFIX_INC][SYM_POSTFIX]   = S_BINRHS_POSTFIX;
     goto_table[S_PREFIX_INC][SYM_UNARY]     = S_UNARY_RHS;
     goto_table[S_PREFIX_INC][SYM_CAST_EXPR] = S_UNARY_RHS;
     goto_table[S_PREFIX_INC][SYM_MULT]      = S_UNARY_RHS;
     goto_table[S_PREFIX_INC][SYM_ADD]       = S_UNARY_RHS;
 
-    goto_table[S_PREFIX_DEC][SYM_PRIMARY]   = S_UNARY_RHS;
-    goto_table[S_PREFIX_DEC][SYM_POSTFIX]   = S_UNARY_RHS;
+    goto_table[S_PREFIX_DEC][SYM_PRIMARY]   = S_BINRHS_PRIMARY;
+    goto_table[S_PREFIX_DEC][SYM_POSTFIX]   = S_BINRHS_POSTFIX;
     goto_table[S_PREFIX_DEC][SYM_UNARY]     = S_UNARY_RHS;
     goto_table[S_PREFIX_DEC][SYM_CAST_EXPR] = S_UNARY_RHS;
     goto_table[S_PREFIX_DEC][SYM_MULT]      = S_UNARY_RHS;
     goto_table[S_PREFIX_DEC][SYM_ADD]       = S_UNARY_RHS;
 
-    /* S_ASSIGN_OP: all RHS reductions → S_ASSIGN_RHS */
-    goto_table[S_ASSIGN_OP][SYM_PRIMARY]   = S_ASSIGN_RHS;
-    goto_table[S_ASSIGN_OP][SYM_POSTFIX]   = S_ASSIGN_RHS;
-    goto_table[S_ASSIGN_OP][SYM_UNARY]     = S_ASSIGN_RHS;
+    /* S_ASSIGN_OP: lower levels use passthrough chain (like S_BINARY_OP)
+     * so postfix ops (call, index, member) can be applied to RHS before reduction */
+    goto_table[S_ASSIGN_OP][SYM_PRIMARY]   = S_BINRHS_PRIMARY;
+    goto_table[S_ASSIGN_OP][SYM_POSTFIX]   = S_BINRHS_POSTFIX;
+    goto_table[S_ASSIGN_OP][SYM_UNARY]     = S_BINRHS_UNARY;
     goto_table[S_ASSIGN_OP][SYM_CAST_EXPR] = S_ASSIGN_RHS;
     goto_table[S_ASSIGN_OP][SYM_MULT]      = S_ASSIGN_RHS;
     goto_table[S_ASSIGN_OP][SYM_ADD]       = S_ASSIGN_RHS;
@@ -666,7 +707,7 @@ void lr1_table_init(void)
     goto_table[S_ASSIGN_OP][SYM_COND]      = S_ASSIGN_RHS;
     goto_table[S_ASSIGN_OP][SYM_ASSIGN]    = S_ASSIGN_RHS;
     goto_table[S_ASSIGN_OP][SYM_EXPR]      = S_ASSIGN_RHS;
-    goto_table[S_ASSIGN_OP][SYM_ARG_LIST]  = S_ASSIGN_RHS;
+    goto_table[S_ASSIGN_OP][SYM_ARG_LIST]  = S_BINRHS_PRIMARY;
 
     /* S_TERNARY_COLON: all RHS reductions → S_TERNARY_RHS */
     goto_table[S_TERNARY_COLON][SYM_PRIMARY]   = S_TERNARY_RHS;

@@ -120,17 +120,30 @@ process_source(PPCtx* ctx, const char* src, int srclen)
 
 /* --- Public API --- */
 
-char*
-preprocess(const char* filename)
+void
+pp_ctx_init(PPCtx* ctx)
 {
-    PPCtx ctx;
+    memset(ctx, 0, sizeof(*ctx));
+    macro_init(&ctx->macros);
+    cond_init(&ctx->cond);
+    buf_init(&ctx->out);
+    ctx->n_include_paths = 0;
+}
 
-    memset(&ctx, 0, sizeof(ctx));
-    macro_init(&ctx.macros);
-    cond_init(&ctx.cond);
-    buf_init(&ctx.out);
+void
+pp_add_include_path(PPCtx* ctx, const char* dir)
+{
+    if (ctx->n_include_paths < MAX_INCLUDES) {
+        strncpy(ctx->include_paths[ctx->n_include_paths], dir, MAX_PATH - 1);
+        ctx->include_paths[ctx->n_include_paths][MAX_PATH - 1] = '\0';
+        ctx->n_include_paths++;
+    }
+}
 
-    dir_of(filename, ctx.base_dir, MAX_PATH);
+char*
+pp_preprocess(PPCtx* ctx, const char* filename)
+{
+    dir_of(filename, ctx->base_dir, MAX_PATH);
 
     int  len;
     char* src = read_file(filename, &len);
@@ -140,14 +153,35 @@ preprocess(const char* filename)
         return NULL;
     }
 
-    process_source(&ctx, src, len);
+    process_source(ctx, src, len);
 
     free(src);
-    macro_free(&ctx.macros);
 
-    for (int i = 0; i < ctx.seen_count; i++)
-        free(ctx.seen[i]);
+    buf_append(&ctx->out, "\0", 1);
+    return ctx->out.data;
+}
 
-    buf_append(&ctx.out, "\0", 1);
-    return ctx.out.data;
+void
+pp_ctx_free(PPCtx* ctx)
+{
+    macro_free(&ctx->macros);
+
+    for (int i = 0; i < ctx->seen_count; i++)
+        free(ctx->seen[i]);
+
+    /* NOTE: ctx->out is NOT freed — the caller owns the
+     * preprocessed buffer returned by pp_preprocess(). */
+}
+
+char*
+preprocess(const char* filename)
+{
+    PPCtx ctx;
+
+    pp_ctx_init(&ctx);
+
+    char* result = pp_preprocess(&ctx, filename);
+
+    pp_ctx_free(&ctx);
+    return result;
 }

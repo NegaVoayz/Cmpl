@@ -145,7 +145,7 @@ handle_include_dir(PPCtx* ctx, const char** pp, const char* end)
     skip_to_eol(&p, end);
     *pp = p;
 
-    include_resolve(ctx, ctx->base_dir, inc_path, is_local);
+    include_resolve(ctx, inc_path, is_local);
 }
 
 int

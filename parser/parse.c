@@ -7,8 +7,6 @@
 
 #include "parse.h"
 
-#include <stdlib.h>
-
 AST_Node* parse_program(const char* code)
 {
     Token* tokens = parse(code);
@@ -21,17 +19,9 @@ AST_Node* parse_program(const char* code)
 
     lr1_parser_free(p);
 
-    /* free token list */
-    Token* t = tokens;
-
-    while (t) {
-        Token* next = t->next;
-
-        if (t->kind == TOK_STRING_LIT && t->body.str_val.data)
-            free((void*)t->body.str_val.data);
-        free(t);
-        t = next;
-    }
+    /* NOTE: token list is leaked intentionally. AST String fields
+     * (identifiers, string literals) are non-owning pointers into
+     * token data which references the source text. */
 
     return root;
 }

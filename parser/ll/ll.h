@@ -14,7 +14,16 @@ AST_Node* ll_parse_stmt(LR1_Parser* p);
 /* parse a declaration (var/func/struct/union/enum/typedef) */
 AST_Node* ll_parse_decl(LR1_Parser* p);
 
-/* parse a type expression, returns Type tree */
-Type* ll_parse_type(LR1_Parser* p);
+/* dispatch: declaration if token starts a type, else statement */
+AST_Node* ll_parse_decl_or_stmt(LR1_Parser* p);
+
+/* parse type specifiers (int, long, char, ...) returning a Type chain */
+Type* ll_parse_type_specs(LR1_Parser* p);
+
+/* parse a C declarator (*x, x[10], f(int), etc.), returns full Type and fills name */
+Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name);
+
+/* check if a token kind starts a type/declaration */
+int is_type_start(Token* tok);
 
 #endif /* LL_H */

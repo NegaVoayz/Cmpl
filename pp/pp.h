@@ -89,7 +89,19 @@ typedef struct PPCtx {
     char*      seen[MAX_INCLUDES];
     int        seen_count;
     char       base_dir[MAX_PATH];
+    char       include_paths[MAX_INCLUDES][MAX_PATH];
+    int        n_include_paths;
 } PPCtx;
+
+/* Two-step API: init context, add include paths, run preprocessing.
+ * pp_ctx_init        — zero-initialize context
+ * pp_add_include_path — add a -I style search directory
+ * pp_preprocess      — run the preprocessor, returns malloc'd buffer or NULL
+ * pp_ctx_free        — release internal resources (but NOT the returned buffer) */
+void  pp_ctx_init(PPCtx* ctx);
+void  pp_add_include_path(PPCtx* ctx, const char* dir);
+char* pp_preprocess(PPCtx* ctx, const char* filename);
+void  pp_ctx_free(PPCtx* ctx);
 
 /* Expand all macros in a line (fixed-point iteration) */
 void expand_line(MacroTable* mt, const char* line, Buffer* out);
@@ -98,8 +110,7 @@ void expand_line(MacroTable* mt, const char* line, Buffer* out);
 void process_source(PPCtx* ctx, const char* src, int srclen);
 
 /* Include resolution: returns 0 on success, -1 on error */
-int include_resolve(PPCtx* ctx, const char* base_dir,
-                    const char* inc_path, int is_local);
+int include_resolve(PPCtx* ctx, const char* inc_path, int is_local);
 
 /* Directive handler: process one directive at *pp, advance *pp past it */
 int handle_directive(PPCtx* ctx, const char** pp, const char* end);

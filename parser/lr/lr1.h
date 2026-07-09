@@ -129,6 +129,7 @@ struct LR1_Parser {
     StackFrame stack[MAX_STACK];
     int        sp;
     int        error;
+    int        allow_unmatched_rparen;  /* for for-loop update expr terminated by ')' */
 };
 
 /* ---------------------------------------------------------------

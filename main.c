@@ -1,18 +1,35 @@
 #include "parse.h"
+#include "pp.h"
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-static void
-dump_ast(AST_Node* n, int depth)
+static void dump_ast(AST_Node* n, int depth);
+
+static void dump_indent(int depth)
+{
+    for (int i = 0; i < depth; i++)
+        printf("  ");
+}
+
+static void dump_node_list(AST_Node* n, int depth, const char* label)
 {
     if (!n) return;
 
-    for (int i = 0; i < depth; i++)
-        printf("  ");
+    dump_indent(depth);
+    printf("%s:\n", label);
+
+    for (AST_Node* cur = n; cur; cur = cur->next)
+        dump_ast(cur, depth + 1);
+}
+
+static void dump_ast(AST_Node* n, int depth)
+{
+    if (!n) return;
+
+    dump_indent(depth);
 
     switch (n->type) {
+    /* literals */
     case AST_INT_LIT:
         printf("INT_LIT: %ld\n", n->body.literal.int_val);
         break;
@@ -32,10 +49,14 @@ dump_ast(AST_Node* n, int depth)
     case AST_DOUBLE_LIT:
         printf("DOUBLE_LIT: %g\n", n->body.literal.float_val);
         break;
+
+    /* primary */
     case AST_IDENT:
         printf("IDENT: %.*s\n", n->body.ident.name.length,
                n->body.ident.name.data);
         break;
+
+    /* expressions */
     case AST_BINARY:
         printf("BINARY: %d\n", n->body.binary.op);
         dump_ast(n->body.binary.left, depth + 1);
@@ -52,7 +73,7 @@ dump_ast(AST_Node* n, int depth)
     case AST_CALL:
         printf("CALL\n");
         dump_ast(n->body.call.callee, depth + 1);
-        dump_ast(n->body.call.args, depth + 1);
+        dump_node_list(n->body.call.args, depth + 1, "ARGS");
         break;
     case AST_INDEX:
         printf("INDEX\n");
@@ -74,166 +95,212 @@ dump_ast(AST_Node* n, int depth)
         printf("SIZEOF_EXPR\n");
         dump_ast(n->body.sizeof_expr.expr, depth + 1);
         break;
-    default:
-        printf("AST_Type=%d\n", n->type);
+    case AST_SIZEOF_TYPE:
+        printf("SIZEOF_TYPE\n");
+        break;
+    case AST_CAST:
+        printf("CAST\n");
+        dump_ast(n->body.cast.cast_expr, depth + 1);
+        break;
+
+    /* statements */
+    case AST_BLOCK:
+        printf("BLOCK\n");
+        dump_node_list(n->body.block.stmts, depth + 1, "STMTS");
+        break;
+    case AST_IF:
+        printf("IF\n");
+        dump_ast(n->body.if_stmt.condition, depth + 1);
+        dump_ast(n->body.if_stmt.then_branch, depth + 1);
+
+        if (n->body.if_stmt.else_branch) {
+            dump_indent(depth + 1);
+            printf("ELSE:\n");
+            dump_ast(n->body.if_stmt.else_branch, depth + 2);
+        }
+        break;
+    case AST_WHILE:
+        printf("WHILE\n");
+        dump_ast(n->body.loop.condition, depth + 1);
+        dump_ast(n->body.loop.body, depth + 1);
+        break;
+    case AST_DO_WHILE:
+        printf("DO_WHILE\n");
+        dump_ast(n->body.loop.body, depth + 1);
+        dump_ast(n->body.loop.condition, depth + 1);
+        break;
+    case AST_FOR:
+        printf("FOR\n");
+
+        if (n->body.for_stmt.init) {
+            dump_indent(depth + 1);
+            printf("INIT:\n");
+            dump_ast(n->body.for_stmt.init, depth + 2);
+        }
+
+        if (n->body.for_stmt.condition) {
+            dump_indent(depth + 1);
+            printf("COND:\n");
+            dump_ast(n->body.for_stmt.condition, depth + 2);
+        }
+
+        if (n->body.for_stmt.update) {
+            dump_indent(depth + 1);
+            printf("UPDATE:\n");
+            dump_ast(n->body.for_stmt.update, depth + 2);
+        }
+        dump_ast(n->body.for_stmt.body, depth + 1);
+        break;
+    case AST_RETURN:
+        printf("RETURN\n");
+
+        if (n->body.ret.expr)
+            dump_ast(n->body.ret.expr, depth + 1);
+        break;
+    case AST_BREAK:
+        printf("BREAK\n");
+        break;
+    case AST_CONTINUE:
+        printf("CONTINUE\n");
+        break;
+    case AST_SWITCH:
+        printf("SWITCH\n");
+        dump_ast(n->body.switch_stmt.condition, depth + 1);
+        dump_ast(n->body.switch_stmt.body, depth + 1);
+        break;
+    case AST_CASE:
+        printf("CASE\n");
+
+        if (n->body.case_stmt.value)
+            dump_ast(n->body.case_stmt.value, depth + 1);
+        else {
+            dump_indent(depth + 1);
+            printf("DEFAULT\n");
+        }
+        dump_ast(n->body.case_stmt.stmt, depth + 1);
+        break;
+    case AST_DEFAULT:
+        printf("DEFAULT\n");
+        dump_ast(n->body.case_stmt.stmt, depth + 1);
+        break;
+    case AST_GOTO:
+        printf("GOTO: %.*s\n", n->body.jump.label.length,
+               n->body.jump.label.data);
+        break;
+    case AST_LABEL:
+        printf("LABEL: %.*s\n", n->body.label.name.length,
+               n->body.label.name.data);
+        dump_ast(n->body.label.stmt, depth + 1);
+        break;
+    case AST_EXPR_STMT:
+        printf("EXPR_STMT\n");
+
+        if (n->body.expr_stmt.expr)
+            dump_ast(n->body.expr_stmt.expr, depth + 1);
+        break;
+
+    /* declarations */
+    case AST_VAR_DECL:
+        printf("VAR_DECL: %.*s\n", n->body.var_decl.name.length,
+               n->body.var_decl.name.data);
+
+        if (n->body.var_decl.init) {
+            dump_indent(depth + 1);
+            printf("INIT:\n");
+            dump_ast(n->body.var_decl.init, depth + 2);
+        }
+        break;
+    case AST_FUNC_DEF:
+        printf("FUNC_DEF: %.*s\n", n->body.func_def.name.length,
+               n->body.func_def.name.data);
+        dump_node_list(n->body.func_def.params, depth + 1, "PARAMS");
+
+        if (n->body.func_def.body)
+            dump_ast(n->body.func_def.body, depth + 1);
+        break;
+    case AST_STRUCT_DEF:
+        printf("STRUCT_DEF: %.*s\n", n->body.struct_def.name.length,
+               n->body.struct_def.name.data);
+        dump_node_list(n->body.struct_def.fields, depth + 1, "FIELDS");
+        break;
+    case AST_UNION_DEF:
+        printf("UNION_DEF: %.*s\n", n->body.struct_def.name.length,
+               n->body.struct_def.name.data);
+        dump_node_list(n->body.struct_def.fields, depth + 1, "FIELDS");
+        break;
+    case AST_ENUM_DEF:
+        printf("ENUM_DEF: %.*s\n", n->body.enum_def.name.length,
+               n->body.enum_def.name.data);
+        dump_node_list(n->body.enum_def.enumerators, depth + 1, "ENUMERATORS");
+        break;
+    case AST_ENUMERATOR:
+        printf("ENUMERATOR: %.*s", n->body.enumerator.name.length,
+               n->body.enumerator.name.data);
+
+        if (n->body.enumerator.value) {
+            printf(" = ");
+            /* value is an expression, print inline */
+        }
+        printf("\n");
+        break;
+    case AST_TYPEDEF:
+        printf("TYPEDEF: %.*s\n", n->body.typedef_decl.name.length,
+               n->body.typedef_decl.name.data);
+        break;
+    case AST_PARAM_DECL:
+        printf("PARAM: %.*s\n", n->body.param_decl.name.length,
+               n->body.param_decl.name.data);
+        break;
+    case AST_PROGRAM:
+        printf("PROGRAM\n");
+        dump_node_list(n->body.program.decls, depth + 1, "DECLS");
         break;
     }
-}
-
-static const char*
-token_kind_name(TokenKind kind)
-{
-    static const char* names[] = {
-        [TOK_IF]          = "TOK_IF",
-        [TOK_ELSE]        = "TOK_ELSE",
-        [TOK_WHILE]       = "TOK_WHILE",
-        [TOK_FOR]         = "TOK_FOR",
-        [TOK_RETURN]      = "TOK_RETURN",
-        [TOK_INT]         = "TOK_INT",
-        [TOK_CHAR]        = "TOK_CHAR",
-        [TOK_VOID]        = "TOK_VOID",
-        [TOK_STRUCT]      = "TOK_STRUCT",
-        [TOK_TYPEDEF]     = "TOK_TYPEDEF",
-        [TOK_SIZEOF]      = "TOK_SIZEOF",
-        [TOK_BREAK]       = "TOK_BREAK",
-        [TOK_CONTINUE]    = "TOK_CONTINUE",
-        [TOK_SWITCH]      = "TOK_SWITCH",
-        [TOK_CASE]        = "TOK_CASE",
-        [TOK_DEFAULT]     = "TOK_DEFAULT",
-        [TOK_DO]          = "TOK_DO",
-        [TOK_GOTO]        = "TOK_GOTO",
-        [TOK_ENUM]        = "TOK_ENUM",
-        [TOK_UNION]       = "TOK_UNION",
-        [TOK_CONST]       = "TOK_CONST",
-        [TOK_VOLATILE]    = "TOK_VOLATILE",
-        [TOK_STATIC]      = "TOK_STATIC",
-        [TOK_EXTERN]      = "TOK_EXTERN",
-        [TOK_REGISTER]    = "TOK_REGISTER",
-        [TOK_SIGNED]      = "TOK_SIGNED",
-        [TOK_UNSIGNED]    = "TOK_UNSIGNED",
-        [TOK_SHORT]       = "TOK_SHORT",
-        [TOK_LONG]        = "TOK_LONG",
-        [TOK_DOUBLE]      = "TOK_DOUBLE",
-        [TOK_FLOAT]       = "TOK_FLOAT",
-        [TOK_INT_LIT]     = "TOK_INT_LIT",
-        [TOK_LONG_LIT]    = "TOK_LONG_LIT",
-        [TOK_CHAR_LIT]    = "TOK_CHAR_LIT",
-        [TOK_STRING_LIT]  = "TOK_STRING_LIT",
-        [TOK_FLOAT_LIT]   = "TOK_FLOAT_LIT",
-        [TOK_DOUBLE_LIT]  = "TOK_DOUBLE_LIT",
-        [TOK_IDENT]       = "TOK_IDENT",
-        [TOK_PLUS]        = "TOK_PLUS",
-        [TOK_MINUS]       = "TOK_MINUS",
-        [TOK_STAR]        = "TOK_STAR",
-        [TOK_SLASH]       = "TOK_SLASH",
-        [TOK_PERCENT]     = "TOK_PERCENT",
-        [TOK_EQ]          = "TOK_EQ",
-        [TOK_EQEQ]        = "TOK_EQEQ",
-        [TOK_BANGEQ]      = "TOK_BANGEQ",
-        [TOK_LT]          = "TOK_LT",
-        [TOK_GT]          = "TOK_GT",
-        [TOK_LTEQ]        = "TOK_LTEQ",
-        [TOK_GTEQ]        = "TOK_GTEQ",
-        [TOK_AMPAMP]      = "TOK_AMPAMP",
-        [TOK_PIPEPIPE]    = "TOK_PIPEPIPE",
-        [TOK_BANG]        = "TOK_BANG",
-        [TOK_AMP]         = "TOK_AMP",
-        [TOK_PIPE]        = "TOK_PIPE",
-        [TOK_CARET]       = "TOK_CARET",
-        [TOK_TILDE]       = "TOK_TILDE",
-        [TOK_LTLT]        = "TOK_LTLT",
-        [TOK_GTGT]        = "TOK_GTGT",
-        [TOK_PLUSEQ]      = "TOK_PLUSEQ",
-        [TOK_MINUSEQ]     = "TOK_MINUSEQ",
-        [TOK_STAREQ]      = "TOK_STAREQ",
-        [TOK_SLASHEQ]     = "TOK_SLASHEQ",
-        [TOK_PLUSPLUS]    = "TOK_PLUSPLUS",
-        [TOK_MINUSMINUS]  = "TOK_MINUSMINUS",
-        [TOK_ARROW]       = "TOK_ARROW",
-        [TOK_DOT]         = "TOK_DOT",
-        [TOK_LPAREN]      = "TOK_LPAREN",
-        [TOK_RPAREN]      = "TOK_RPAREN",
-        [TOK_LBRACKET]    = "TOK_LBRACKET",
-        [TOK_RBRACKET]    = "TOK_RBRACKET",
-        [TOK_LBRACE]      = "TOK_LBRACE",
-        [TOK_RBRACE]      = "TOK_RBRACE",
-        [TOK_SEMI]        = "TOK_SEMI",
-        [TOK_COMMA]       = "TOK_COMMA",
-        [TOK_COLON]       = "TOK_COLON",
-        [TOK_QUESTION]    = "TOK_QUESTION",
-        [TOK_EOF]         = "TOK_EOF",
-        [TOK_ERROR]       = "TOK_ERROR",
-    };
-
-    return names[kind] ? names[kind] : "UNKNOWN";
-}
-
-static void
-free_tokens(Token* head)
-{
-    while (head) {
-        Token* next = head->next;
-
-        if (head->kind == TOK_STRING_LIT && head->body.str_val.data) {
-            free((void*)head->body.str_val.data);
-        }
-        free(head);
-        head = next;
-    }
-}
-
-static char*
-read_file(const char* path)
-{
-    FILE* f = fopen(path, "rb");
-
-    if (!f) {
-        fprintf(stderr, "Error: cannot open '%s'\n", path);
-        return NULL;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    char* buf = malloc(size + 1);
-
-    fread(buf, 1, size, f);
-    buf[size] = '\0';
-    fclose(f);
-    return buf;
 }
 
 int
 main(int argc, char** argv)
 {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <source-file>\n", argv[0]);
+    const char* filename = NULL;
+    PPCtx       pp_ctx;
+
+    pp_ctx_init(&pp_ctx);
+
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-' && argv[i][1] == 'I' && argv[i][2] != '\0') {
+            pp_add_include_path(&pp_ctx, argv[i] + 2);
+        } else if (argv[i][0] == '-' && argv[i][1] == 'I' && argv[i][2] == '\0'
+                   && i + 1 < argc) {
+            pp_add_include_path(&pp_ctx, argv[++i]);
+        } else {
+            filename = argv[i];
+        }
+    }
+
+    if (!filename) {
+        fprintf(stderr, "Usage: %s [-I dir]... <source-file>\n", argv[0]);
+        pp_ctx_free(&pp_ctx);
         return 1;
     }
 
-    char* code = read_file(argv[1]);
+    char* code = pp_preprocess(&pp_ctx, filename);
 
     if (!code) {
+        pp_ctx_free(&pp_ctx);
         return 1;
     }
 
-    Token* tokens = parse(code);
+    printf("--- Parsing ---\n");
+    AST_Node* root = parse_program(code);
 
-    /* Parse the first expression */
-    printf("\n--- Parsing expression ---\n");
-    LR1_Parser* parser = lr1_parser_new(tokens);
-    AST_Node*   expr = lr1_parse_expr(parser);
-
-    if (expr) {
+    if (root) {
         printf("\nAST:\n");
-        dump_ast(expr, 0);
+        dump_ast(root, 0);
     } else {
         printf("Parse error!\n");
     }
 
-    lr1_parser_free(parser);
-    free_tokens(tokens);
-    free(code);
+    /* NOTE: code must not be freed here -- AST String fields are
+     * non-owning pointers into token data which references source text. */
     return 0;
 }
