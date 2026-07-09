@@ -1,5 +1,5 @@
 #include "parse.h"
-#include "preprocess.h"
+#include "pp.h"
 
 #include <stdio.h>
 #include <stdlib.h>

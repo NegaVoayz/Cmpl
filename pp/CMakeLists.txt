@@ -1,0 +1,13 @@
+add_library(pp STATIC
+    pp.c
+    pp_cond.c
+    pp_line.c
+    pp_macro.c
+    pp_expand.c
+    pp_directive.c
+    pp_if.c
+    pp_include.c
+    pp_eval.c
+)
+
+target_include_directories(pp PUBLIC .)
