@@ -145,7 +145,7 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
                         if (depth > 0) p->tok = p->tok->next;
                     }
                 } else {
-                    vd->body.var_decl.init = lr1_parse_expr(p);
+                    vd->body.var_decl.init = ll_parse_expr(p);
                 }
             }
 
@@ -243,7 +243,7 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
                     if (depth > 0) p->tok = p->tok->next;
                 }
             } else {
-                vd->body.var_decl.init = lr1_parse_expr(p);
+                vd->body.var_decl.init = ll_parse_expr(p);
             }
         }
 

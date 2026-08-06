@@ -114,10 +114,18 @@ read_operator(Lexer* lex)
         if (peek(lex) == '=') { advance(lex); return token_new(TOK_BANGEQ, line, col); }
         return token_new(TOK_BANG, line, col);
     case '<':
+        if (peek(lex) == '<' && peek_next(lex) == '<') {
+            advance(lex); advance(lex);
+            return token_new(TOK_LTLTLT, line, col);
+        }
         if (peek(lex) == '=') { advance(lex); return token_new(TOK_LTEQ, line, col); }
         if (peek(lex) == '<') { advance(lex); return token_new(TOK_LTLT, line, col); }
         return token_new(TOK_LT, line, col);
     case '>':
+        if (peek(lex) == '>' && peek_next(lex) == '>') {
+            advance(lex); advance(lex);
+            return token_new(TOK_GTGTGT, line, col);
+        }
         if (peek(lex) == '=') { advance(lex); return token_new(TOK_GTEQ, line, col); }
         if (peek(lex) == '>') { advance(lex); return token_new(TOK_GTGT, line, col); }
         return token_new(TOK_GT, line, col);

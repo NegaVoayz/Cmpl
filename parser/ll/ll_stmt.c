@@ -95,7 +95,7 @@ static AST_Node* ll_parse_block(LR1_Parser* p)
 
 static AST_Node* ll_parse_expr_stmt(LR1_Parser* p)
 {
-    AST_Node* expr = lr1_parse_expr(p);
+    AST_Node* expr = ll_parse_expr(p);
     AST_Node* n = ast_node_new(AST_EXPR_STMT, expr->loc.line, expr->loc.col);
 
     n->body.expr_stmt.expr = expr;

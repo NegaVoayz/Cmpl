@@ -102,6 +102,12 @@ static void dump_ast(AST_Node* n, int depth)
         printf("CAST\n");
         dump_ast(n->body.cast.cast_expr, depth + 1);
         break;
+    case AST_KERNEL_LAUNCH:
+        printf("KERNEL_LAUNCH\n");
+        dump_ast(n->body.kernel_launch.callee, depth + 1);
+        dump_node_list(n->body.kernel_launch.config, depth + 1, "CONFIG");
+        dump_node_list(n->body.kernel_launch.args, depth + 1, "ARGS");
+        break;
 
     /* statements */
     case AST_BLOCK:

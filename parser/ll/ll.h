@@ -8,6 +8,9 @@
 /* parse a full translation unit (program) */
 AST_Node* ll_parse_program(LR1_Parser* p);
 
+/* parse an expression, detecting kernel launch <<<>>>() */
+AST_Node* ll_parse_expr(LR1_Parser* p);
+
 /* parse a single statement (if/while/for/return/block/etc.) */
 AST_Node* ll_parse_stmt(LR1_Parser* p);
 

@@ -24,7 +24,7 @@ AST_Node* ll_parse_if(LR1_Parser* p)
     AST_Node* n = ast_node_new(AST_IF, tok->loc.line, tok->loc.col);
 
     p->allow_unmatched_rparen = 1;
-    n->body.if_stmt.condition = lr1_parse_expr(p);
+    n->body.if_stmt.condition = ll_parse_expr(p);
     n->body.if_stmt.then_branch = ll_parse_stmt(p);
     n->body.if_stmt.else_branch = NULL;
 
@@ -50,7 +50,7 @@ AST_Node* ll_parse_while(LR1_Parser* p)
     AST_Node* n = ast_node_new(AST_WHILE, tok->loc.line, tok->loc.col);
 
     p->allow_unmatched_rparen = 1;
-    n->body.loop.condition = lr1_parse_expr(p);
+    n->body.loop.condition = ll_parse_expr(p);
     n->body.loop.body = ll_parse_stmt(p);
 
     return n;
@@ -72,7 +72,7 @@ AST_Node* ll_parse_do_while(LR1_Parser* p)
     ll_expect(p, TOK_WHILE);
     ll_expect(p, TOK_LPAREN);
     p->allow_unmatched_rparen = 1;
-    n->body.loop.condition = lr1_parse_expr(p);
+    n->body.loop.condition = ll_parse_expr(p);
     ll_expect(p, TOK_SEMI);
 
     return n;
@@ -96,7 +96,7 @@ AST_Node* ll_parse_for(LR1_Parser* p)
         if (is_type_start(p->tok))
             n->body.for_stmt.init = ll_parse_decl(p);
         else
-            n->body.for_stmt.init = lr1_parse_expr(p);
+            n->body.for_stmt.init = ll_parse_expr(p);
     } else {
         n->body.for_stmt.init = NULL;
     }
@@ -105,7 +105,7 @@ AST_Node* ll_parse_for(LR1_Parser* p)
 
     /* condition */
     if (p->tok->kind != TOK_SEMI)
-        n->body.for_stmt.condition = lr1_parse_expr(p);
+        n->body.for_stmt.condition = ll_parse_expr(p);
     else
         n->body.for_stmt.condition = NULL;
 
@@ -114,7 +114,7 @@ AST_Node* ll_parse_for(LR1_Parser* p)
     /* update */
     if (p->tok->kind != TOK_RPAREN) {
         p->allow_unmatched_rparen = 1;
-        n->body.for_stmt.update = lr1_parse_expr(p);
+        n->body.for_stmt.update = ll_parse_expr(p);
     } else {
         n->body.for_stmt.update = NULL;
         p->tok = p->tok->next;
@@ -138,7 +138,7 @@ AST_Node* ll_parse_return(LR1_Parser* p)
     AST_Node* n = ast_node_new(AST_RETURN, tok->loc.line, tok->loc.col);
 
     if (p->tok->kind != TOK_SEMI)
-        n->body.ret.expr = lr1_parse_expr(p);
+        n->body.ret.expr = ll_parse_expr(p);
     else
         n->body.ret.expr = NULL;
 
@@ -191,7 +191,7 @@ AST_Node* ll_parse_switch(LR1_Parser* p)
     AST_Node* n = ast_node_new(AST_SWITCH, tok->loc.line, tok->loc.col);
 
     p->allow_unmatched_rparen = 1;
-    n->body.switch_stmt.condition = lr1_parse_expr(p);
+    n->body.switch_stmt.condition = ll_parse_expr(p);
     n->body.switch_stmt.body = ll_parse_stmt(p);
 
     return n;
@@ -205,7 +205,7 @@ AST_Node* ll_parse_case(LR1_Parser* p)
 
     AST_Node* n = ast_node_new(AST_CASE, tok->loc.line, tok->loc.col);
 
-    n->body.case_stmt.value = lr1_parse_expr(p);
+    n->body.case_stmt.value = ll_parse_expr(p);
     ll_expect(p, TOK_COLON);
     n->body.case_stmt.stmt = ll_parse_stmt(p);
 

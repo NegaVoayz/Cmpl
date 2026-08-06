@@ -171,7 +171,8 @@ static int is_terminator(TokenKind k)
 {
     return k == TOK_EOF     || k == TOK_SEMI    ||
            k == TOK_RPAREN  || k == TOK_RBRACKET ||
-           k == TOK_RBRACE;
+           k == TOK_RBRACE  || k == TOK_LTLTLT  ||
+           k == TOK_GTGTGT;
 }
 
 /* precedence level of a have-expr state (1=highest, 12=lowest) */
@@ -240,6 +241,8 @@ void lr1_table_init(void)
     set_cell(S_ENTRY, TOK_SIZEOF,   shift_sizeof);
     set_cell(S_ENTRY, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_ENTRY, TOK_MINUSMINUS, shift_prefix_dec);
+    set_cell(S_ENTRY, TOK_RPAREN,   lr1_handle_rparen);
+    set_cell(S_ENTRY, TOK_RBRACKET, lr1_handle_rparen);
 
     for (int t = 0; t < 81; t++) {
         if (is_unary_op(t))

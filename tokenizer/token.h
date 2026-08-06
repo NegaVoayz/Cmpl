@@ -50,6 +50,8 @@ typedef enum {
     TOK_SLASHEQ,      // /=
     TOK_PLUSPLUS,     // ++
     TOK_MINUSMINUS,   // --
+    TOK_LTLTLT,       // <<<
+    TOK_GTGTGT,       // >>>
     TOK_ARROW,        // ->
     TOK_DOT,          // .
 

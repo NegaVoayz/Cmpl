@@ -59,6 +59,7 @@ typedef enum {
     AST_TERNARY,      /* ?: */
     AST_CAST,         /* (type)expr */
     AST_CALL,         /* f(args) */
+    AST_KERNEL_LAUNCH, /* kernel<<<config>>>(args) */
     AST_INDEX,        /* a[i] */
     AST_MEMBER,       /* .  or  -> */
     AST_SIZEOF_EXPR,  /* sizeof expr */
@@ -157,6 +158,13 @@ struct AST_Node {
             AST_Node* callee;
             AST_Node* args;
         } call;
+
+        /* kernel launch <<<config>>>(args) */
+        struct {
+            AST_Node* callee;
+            AST_Node* config;
+            AST_Node* args;
+        } kernel_launch;
 
         /* array subscript */
         struct {
