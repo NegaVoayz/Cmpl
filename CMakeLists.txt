@@ -7,9 +7,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 add_subdirectory(tokenizer)
 add_subdirectory(pp)
 add_subdirectory(parser)
+add_subdirectory(optimize)
 
 add_executable(cmpl main.c)
-target_link_libraries(cmpl tokenizer pp parser)
+target_link_libraries(cmpl tokenizer pp parser optimize)
 
 add_executable(cmpl-pp main_pp.c)
 target_link_libraries(cmpl-pp tokenizer pp parser)

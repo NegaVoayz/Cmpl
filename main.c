@@ -1,5 +1,6 @@
 #include "parse.h"
 #include "pp.h"
+#include "optimize.h"
 
 #include <stdio.h>
 
@@ -300,6 +301,9 @@ main(int argc, char** argv)
     AST_Node* root = parse_program(code);
 
     if (root) {
+        printf("\n--- Optimizing ---\n");
+        root = optimize(root);
+
         printf("\nAST:\n");
         dump_ast(root, 0);
     } else {
