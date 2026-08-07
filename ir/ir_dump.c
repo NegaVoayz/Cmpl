@@ -108,8 +108,7 @@ void dump_value(FILE* out, IR_Value* val)
         break;
 
     case VAL_UNDEF:
-        dump_type(out, val->type);
-        fprintf(out, " undef");
+        fprintf(out, "undef");
         break;
 
     default: fprintf(out, "?"); break;

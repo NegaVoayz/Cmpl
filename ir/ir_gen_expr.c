@@ -10,7 +10,7 @@
 
 /* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
 typedef struct SymEntry { String name; IR_Value* alloca; struct SymEntry* next; } SymEntry;
-typedef struct { IR_Builder* b; SymEntry* syms; IR_Block *break_blk, *cont_blk; int is_device; } GenCtx;
+typedef struct { IR_Builder* b; SymEntry* syms; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; int is_device; } GenCtx;
 
 /* from ir_gen.c */
 extern IR_Value* sym_lookup(GenCtx* ctx, String name);
@@ -44,6 +44,21 @@ static IR_Value*
 gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
 {
     IR_Builder* b = ctx->b;
+
+    /* fixup: for comparisons, ptr vs int-0 → use null */
+    if (op == TOK_EQEQ || op == TOK_BANGEQ || op == TOK_LT ||
+        op == TOK_GT || op == TOK_LTEQ || op == TOK_GTEQ) {
+        if (lhs && rhs && lhs->type && lhs->type->kind == IR_PTR &&
+            rhs->kind == VAL_CONST_INT && rhs->body.int_val == 0) {
+            IR_Value* nv = calloc(1, sizeof(IR_Value));
+            nv->kind = VAL_CONST_NULL; nv->type = lhs->type; rhs = nv;
+        }
+        if (lhs && rhs && rhs->type && rhs->type->kind == IR_PTR &&
+            lhs->kind == VAL_CONST_INT && lhs->body.int_val == 0) {
+            IR_Value* nv = calloc(1, sizeof(IR_Value));
+            nv->kind = VAL_CONST_NULL; nv->type = rhs->type; lhs = nv;
+        }
+    }
 
     switch (op) {
     case TOK_PLUS:     return ir_build_add(b, lhs, rhs);
@@ -106,8 +121,17 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
 
     case AST_UNARY:
     { IR_Value* op = gen_expr(ctx, n->body.unary.operand);
-      if (n->body.unary.op == TOK_MINUS) return ir_build_sub(b, ir_const_int(b, op->type, 0), op);
-      if (n->body.unary.op == TOK_BANG) return ir_build_icmp(b, IR_COND_EQ, op, ir_const_int(b, op->type, 0));
+      if (n->body.unary.op == TOK_MINUS) return ir_build_sub(b, ir_const_int(b, t_i32, 0), op);
+      if (n->body.unary.op == TOK_BANG) {
+          IR_Value* zero;
+          if (op->type && op->type->kind == IR_PTR) {
+              zero = calloc(1, sizeof(IR_Value));
+              zero->kind = VAL_CONST_NULL; zero->type = op->type;
+          } else {
+              zero = ir_const_int(b, op->type ? op->type : t_i32, 0);
+          }
+          return ir_build_icmp(b, IR_COND_EQ, op, zero);
+      }
       return op; }
 
     case AST_CALL:

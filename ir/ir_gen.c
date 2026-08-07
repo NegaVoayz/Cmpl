@@ -27,6 +27,7 @@ typedef struct {
     SymEntry*     syms;
     IR_Block*     break_blk;    /* target for break */
     IR_Block*     cont_blk;     /* target for continue */
+    IR_Type*      ret_type;     /* enclosing function return type */
     int           is_device;    /* 1 = device IR gen (CUDA builtins), 0 = host */
 } GenCtx;
 
@@ -69,7 +70,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device)
 {
     AST_Node*   fd = func_def;
     IR_Builder* b = ir_builder_new(mod);
-    GenCtx      ctx = {b, NULL, NULL, NULL, is_device};
+    GenCtx      ctx = {b, NULL, NULL, NULL, NULL, is_device};
     IR_Func*    func = calloc(1, sizeof(IR_Func));
 
     func->name = fd->body.func_def.name;
@@ -77,6 +78,8 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device)
 
     if (!func->ret_type)
         func->ret_type = t_void;
+
+    ctx.ret_type = func->ret_type;
 
     /* map AST linkage to IR_Linkage */
     switch (fd->body.func_def.linkage) {
@@ -135,7 +138,15 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device)
                       term->opcode != IROP_COND_BR &&
                       term->opcode != IROP_UNREACHABLE)) {
             ir_builder_set_block(b, last_blk);
-            ir_build_ret(b, NULL);
+
+            if (func->ret_type && func->ret_type->kind != IR_VOID) {
+                IR_Value* undef = calloc(1, sizeof(IR_Value));
+                undef->kind = VAL_UNDEF;
+                undef->type = func->ret_type;
+                ir_build_ret(b, undef);
+            } else {
+                ir_build_ret(b, NULL);
+            }
         }
     }
 
@@ -167,7 +178,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     mod->data_layout = "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024";
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
-        if (decl->type == AST_FUNC_DEF)
+        if (decl->type == AST_FUNC_DEF && decl->body.func_def.body)
             ir_gen_function(mod, decl, is_device);
     }
 
