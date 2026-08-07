@@ -3,11 +3,15 @@
 #include "ir.h"
 
 #include <stdio.h>
+#include <string.h>
 
 /* from ir_dump.c and ir_dump_instr.c */
 extern void dump_type(FILE* out, IR_Type* ty);
 extern void dump_value(FILE* out, IR_Value* val);
 extern void dump_instr(FILE* out, IR_Instr* inst);
+extern void dump_str_reset(void);
+extern void dump_str_globals(FILE* out);
+extern void dump_str_collect_module(IR_Module* mod);
 
 /* ---------------------------------------------------------------
  *  Block printer
@@ -77,12 +81,67 @@ ir_dump_module(IR_Module* mod, FILE* out)
 {
     if (!mod || !out) return;
 
+    /* collect and emit string constant globals (before functions) */
+    dump_str_reset();
+    dump_str_collect_module(mod);
+
     /* target triple + data layout */
     if (mod->target_triple)
         fprintf(out, "target triple = \"%s\"\n\n", mod->target_triple);
 
     if (mod->data_layout)
         fprintf(out, "target datalayout = \"%s\"\n\n", mod->data_layout);
+
+    /* string constant globals */
+    dump_str_globals(out);
+
+    /* emit declare for external callees not in module */
+    {
+        String seen[32];
+        int n_seen = 0;
+
+        for (IR_Func* f = mod->funcs; f; f = f->next) {
+            if (!f->blocks) continue;
+
+            for (IR_Block* blk = f->blocks; blk; blk = blk->next) {
+                for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+                    if (inst->opcode != IROP_CALL) continue;
+                    if (!inst->callee.data) continue;
+
+                    /* check already emitted */
+                    int done = 0;
+                    for (int si = 0; si < n_seen; si++) {
+                        if (seen[si].length == inst->callee.length &&
+                            memcmp(seen[si].data, inst->callee.data,
+                                   inst->callee.length) == 0) {
+                            done = 1; break;
+                        }
+                    }
+                    if (done) continue;
+
+                    /* check if callee is in module */
+                    int found = 0;
+                    for (IR_Func* mf = mod->funcs; mf; mf = mf->next) {
+                        if (mf->name.length == inst->callee.length &&
+                            memcmp(mf->name.data, inst->callee.data,
+                                   inst->callee.length) == 0) {
+                            found = 1; break;
+                        }
+                    }
+                    if (found) continue;
+
+                    /* emit declare */
+                    if (n_seen < 32)
+                        seen[n_seen++] = inst->callee;
+
+                    fprintf(out, "declare ");
+                    dump_type(out, inst->type);
+                    fprintf(out, " @%.*s(...)\n\n",
+                            inst->callee.length, inst->callee.data);
+                }
+            }
+        }
+    }
 
     /* globals + declarations */
     for (IR_Func* func = mod->funcs; func; func = func->next) {

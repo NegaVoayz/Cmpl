@@ -3,7 +3,13 @@
 #include "ir.h"
 
 #include <stdio.h>
-#include <string.h>
+
+/* from ir_dump_str.c */
+extern int  dump_str_index(String s);
+
+/* ---------------------------------------------------------------
+ *  Type printer
+ * --------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------
  *  Type printer
@@ -80,7 +86,13 @@ void dump_value(FILE* out, IR_Value* val)
         break;
 
     case VAL_CONST_STRING:
-        fprintf(out, "c\"%.*s\"", val->body.str_val.length, val->body.str_val.data);
+        {
+            int idx = dump_str_index(val->body.str_val);
+            if (idx >= 0)
+                fprintf(out, "ptr @.str.%d", idx);
+            else
+                fprintf(out, "ptr null");
+        }
         break;
 
     case VAL_PARAM:
