@@ -136,7 +136,7 @@ struct LR1_Parser {
  *  Table access (defined in lr1_table.c)
  * --------------------------------------------------------------- */
 
-extern LR1_Func action_table[NUM_STATES][81];
+extern LR1_Func action_table[NUM_STATES][NUM_TOKENS];
 extern int     goto_table[NUM_STATES][NUM_SYMBOLS];
 
 void lr1_table_init(void);

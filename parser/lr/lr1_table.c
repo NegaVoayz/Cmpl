@@ -109,14 +109,14 @@ LR_Action lr1_error(LR1_Parser* p);
  *  Action table
  * =========================================================== */
 
-LR1_Func action_table[NUM_STATES][81];
+LR1_Func action_table[NUM_STATES][NUM_TOKENS];
 int     goto_table[NUM_STATES][NUM_SYMBOLS];
 static int table_ready = 0;
 
 /* fill every cell in a row */
 static void fill_row(int state, LR1_Func f)
 {
-    for (int t = 0; t < 81; t++)
+    for (int t = 0; t < NUM_TOKENS; t++)
         action_table[state][t] = f;
 }
 
@@ -232,7 +232,7 @@ void lr1_table_init(void)
      *  S_ENTRY -- expect operand
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_ENTRY, t, shift_lit);
     }
@@ -244,7 +244,7 @@ void lr1_table_init(void)
     set_cell(S_ENTRY, TOK_RPAREN,   lr1_handle_rparen);
     set_cell(S_ENTRY, TOK_RBRACKET, lr1_handle_rparen);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_ENTRY, t, shift_unary_op);
     }
@@ -285,7 +285,7 @@ void lr1_table_init(void)
      *  S_LPAREN -- inside ( ... ), expect expr or type
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_LPAREN, t, shift_lit);
     }
@@ -295,7 +295,7 @@ void lr1_table_init(void)
     set_cell(S_LPAREN, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_LPAREN, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_LPAREN, t, shift_unary_op);
     }
@@ -304,7 +304,7 @@ void lr1_table_init(void)
      *  S_UNARY_OP -- shifted a unary prefix op, expect operand
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_UNARY_OP, t, shift_lit);
     }
@@ -314,7 +314,7 @@ void lr1_table_init(void)
     set_cell(S_UNARY_OP, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_UNARY_OP, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_UNARY_OP, t, shift_unary_op);
     }
@@ -323,7 +323,7 @@ void lr1_table_init(void)
      *  S_SIZEOF -- shifted sizeof, expect operand or (type)
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_SIZEOF, t, shift_lit);
     }
@@ -332,7 +332,7 @@ void lr1_table_init(void)
     set_cell(S_SIZEOF, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_SIZEOF, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_SIZEOF, t, shift_unary_op);
     }
@@ -341,14 +341,14 @@ void lr1_table_init(void)
      *  S_PREFIX_INC / S_PREFIX_DEC -- shifted prefix ++/--, expect operand
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_PREFIX_INC, t, shift_lit);
     }
     set_cell(S_PREFIX_INC, TOK_IDENT,  shift_ident);
     set_cell(S_PREFIX_INC, TOK_LPAREN, shift_lparen);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_PREFIX_DEC, t, shift_lit);
     }
@@ -359,7 +359,7 @@ void lr1_table_init(void)
      *  S_POSTFIX_LBRACK -- shifted [, expect index expr
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_POSTFIX_LBRACK, t, shift_lit);
     }
@@ -369,7 +369,7 @@ void lr1_table_init(void)
     set_cell(S_POSTFIX_LBRACK, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_POSTFIX_LBRACK, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_POSTFIX_LBRACK, t, shift_unary_op);
     }
@@ -383,7 +383,7 @@ void lr1_table_init(void)
 
     set_cell(S_POSTFIX_LPAREN, TOK_RPAREN, reduce_empty_args);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_POSTFIX_LPAREN, t, shift_lit);
     }
@@ -393,7 +393,7 @@ void lr1_table_init(void)
     set_cell(S_POSTFIX_LPAREN, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_POSTFIX_LPAREN, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_POSTFIX_LPAREN, t, shift_unary_op);
     }
@@ -402,7 +402,7 @@ void lr1_table_init(void)
      *  S_BINARY_OP -- shifted a binary operator, expect RHS
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_BINARY_OP, t, shift_lit);
     }
@@ -412,7 +412,7 @@ void lr1_table_init(void)
     set_cell(S_BINARY_OP, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_BINARY_OP, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_BINARY_OP, t, shift_unary_op);
     }
@@ -421,7 +421,7 @@ void lr1_table_init(void)
      *  S_ASSIGN_OP -- shifted = += -= etc., expect RHS
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_ASSIGN_OP, t, shift_lit);
     }
@@ -431,7 +431,7 @@ void lr1_table_init(void)
     set_cell(S_ASSIGN_OP, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_ASSIGN_OP, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_ASSIGN_OP, t, shift_unary_op);
     }
@@ -440,7 +440,7 @@ void lr1_table_init(void)
      *  S_TERNARY_Q -- shifted ?, expect then-expr
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_TERNARY_Q, t, shift_lit);
     }
@@ -450,7 +450,7 @@ void lr1_table_init(void)
     set_cell(S_TERNARY_Q, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_TERNARY_Q, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_TERNARY_Q, t, shift_unary_op);
     }
@@ -459,7 +459,7 @@ void lr1_table_init(void)
      *  S_TERNARY_COLON -- shifted :, expect else-expr
      * ---------------------------------------------------------- */
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_literal(t))
             set_cell(S_TERNARY_COLON, t, shift_lit);
     }
@@ -469,7 +469,7 @@ void lr1_table_init(void)
     set_cell(S_TERNARY_COLON, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(S_TERNARY_COLON, TOK_MINUSMINUS, shift_prefix_dec);
 
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_unary_op(t))
             set_cell(S_TERNARY_COLON, t, shift_unary_op);
     }
@@ -509,7 +509,7 @@ void lr1_table_init(void)
         LR1_State st = (LR1_State)s;
         int sp = state_prec(st);
 
-        for (int t = 0; t < 81; t++) {
+        for (int t = 0; t < NUM_TOKENS; t++) {
             if (is_binary_op(t)) {
                 int op = prec_of(t);
 
@@ -524,7 +524,7 @@ void lr1_table_init(void)
         }
 
         /* assignment operators always shift (lowest precedence, right-assoc) */
-        for (int t = 0; t < 81; t++) {
+        for (int t = 0; t < NUM_TOKENS; t++) {
             if (is_assign_op(t))
                 set_cell(s, t, shift_assign_op);
         }
@@ -539,7 +539,7 @@ void lr1_table_init(void)
 
     /* Terminators -- accept from HS_EXPR, handle ) via context */
     for (int s = HS_PRIMARY; s <= HS_EXPR; s++) {
-        for (int t = 0; t < 81; t++) {
+        for (int t = 0; t < NUM_TOKENS; t++) {
             if (is_terminator(t)) {
                 if (t == TOK_RPAREN || t == TOK_RBRACKET)
                     set_cell(s, t, lr1_handle_rparen);
@@ -550,11 +550,11 @@ void lr1_table_init(void)
     }
 
     /* S_BINARY_RHS -- RHS at cast_expr+, ready for binary comparison */
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_binary_op(t) || t == TOK_COMMA)
             set_cell(S_BINARY_RHS, t, lr1_binary_rhs_action);
     }
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_assign_op(t) || is_terminator(t))
             set_cell(S_BINARY_RHS, t, reduce_binary_op);
     }
@@ -588,8 +588,14 @@ void lr1_table_init(void)
     /* S_ASSIGN_RHS -- just parsed RHS of assignment */
     fill_row(S_ASSIGN_RHS, reduce_binary_op);
 
+    /* override: binary ops check precedence before reducing */
+    for (int t = 0; t < NUM_TOKENS; t++) {
+        if (is_binary_op(t) || t == TOK_COMMA)
+            set_cell(S_ASSIGN_RHS, t, lr1_binary_rhs_action);
+    }
+
     /* override: on assign ops, shift for right-associativity */
-    for (int t = 0; t < 81; t++) {
+    for (int t = 0; t < NUM_TOKENS; t++) {
         if (is_assign_op(t))
             set_cell(S_ASSIGN_RHS, t, shift_assign_op);
     }

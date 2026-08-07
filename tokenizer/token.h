@@ -10,6 +10,11 @@ typedef enum {
     TOK_CONST, TOK_VOLATILE, TOK_STATIC, TOK_EXTERN, TOK_REGISTER,
     TOK_SIGNED, TOK_UNSIGNED, TOK_SHORT, TOK_LONG, TOK_DOUBLE,
     TOK_FLOAT,
+    TOK_KW_GLOBAL,     /* __global__ */
+    TOK_KW_DEVICE,     /* __device__ */
+    TOK_KW_HOST,       /* __host__ */
+    TOK_KW_SHARED,     /* __shared__ */
+    TOK_KW_CONSTANT,   /* __constant__ */
 
     // lit
     TOK_INT_LIT,      // 42
@@ -69,8 +74,11 @@ typedef enum {
 
     // spec
     TOK_EOF,
-    TOK_ERROR
+    TOK_ERROR,
+    NUM_TOKEN_KINDS
 } TokenKind;
+
+#define NUM_TOKENS NUM_TOKEN_KINDS
 
 typedef struct {
     int line;

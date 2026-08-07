@@ -253,6 +253,7 @@ struct AST_Node {
             Type*     var_type;
             String    name;
             AST_Node* init;
+            int       addr_space; /* 0=host, 1=device global, 2=shared, 3=constant */
         } var_decl;
 
         /* function definition */
@@ -261,6 +262,7 @@ struct AST_Node {
             String    name;
             AST_Node* params;
             AST_Node* body;
+            int       linkage;    /* 0=host, 1=device, 2=global, 3=host_device */
         } func_def;
 
         /* struct / union definition */

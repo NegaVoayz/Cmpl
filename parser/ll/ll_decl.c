@@ -5,6 +5,7 @@
  */
 
 #include "ll.h"
+#include "cuda.h"
 
 #include <string.h>
 
@@ -29,7 +30,9 @@ int is_type_start(Token* tok)
         k == TOK_DOUBLE  || k == TOK_SIGNED  || k == TOK_UNSIGNED ||
         k == TOK_STRUCT  || k == TOK_UNION   || k == TOK_ENUM ||
         k == TOK_STATIC  || k == TOK_EXTERN  || k == TOK_CONST ||
-        k == TOK_VOLATILE|| k == TOK_REGISTER|| k == TOK_TYPEDEF)
+        k == TOK_VOLATILE|| k == TOK_REGISTER|| k == TOK_TYPEDEF ||
+        k == TOK_KW_GLOBAL || k == TOK_KW_DEVICE || k == TOK_KW_HOST ||
+        k == TOK_KW_SHARED || k == TOK_KW_CONSTANT)
         return 1;
 
     /* User-defined types: peek past stars/qualifiers for another ident.
@@ -65,6 +68,10 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
 {
     Token* start = p->tok;
     int is_typedef = 0;
+
+    /* 0. GPU qualifiers (__global__ / __device__ / __host__ / __shared__ / __constant__) */
+    int linkage = cuda_parse_qualifiers(p);
+    int addr_space = cuda_parse_var_qualifiers(p);
 
     /* 1. Storage class / typedef */
     while (p->tok->kind == TOK_TYPEDEF || p->tok->kind == TOK_STATIC ||
@@ -202,6 +209,7 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
                 fn->body.func_def.ret_type = ret_type;
                 fn->body.func_def.name = dname;
                 fn->body.func_def.params = params;
+                fn->body.func_def.linkage = linkage;
                 fn->body.func_def.body = ll_parse_stmt(p);
 
                 *tail = fn;
@@ -216,6 +224,7 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
             fd->body.func_def.ret_type = ret_type;
             fd->body.func_def.name = dname;
             fd->body.func_def.params = params;
+            fd->body.func_def.linkage = linkage;
             fd->body.func_def.body = NULL;
             *tail = fd;
 
@@ -228,6 +237,7 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
 
         vd->body.var_decl.var_type = full;
         vd->body.var_decl.name = dname;
+        vd->body.var_decl.addr_space = addr_space;
         vd->body.var_decl.init = NULL;
 
         if (p->tok->kind == TOK_EQ) {

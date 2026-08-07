@@ -10,6 +10,11 @@ typedef struct {
 } Keyword;
 
 static const Keyword keywords[] = {
+    {"__constant__", TOK_KW_CONSTANT},
+    {"__device__",   TOK_KW_DEVICE},
+    {"__global__",   TOK_KW_GLOBAL},
+    {"__host__",     TOK_KW_HOST},
+    {"__shared__",   TOK_KW_SHARED},
     {"break",    TOK_BREAK},
     {"case",     TOK_CASE},
     {"char",     TOK_CHAR},
