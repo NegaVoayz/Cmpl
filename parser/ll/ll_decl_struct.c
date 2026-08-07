@@ -58,6 +58,46 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
     for (;;) {
         String dname = {NULL, 0};
         Type* full = ll_parse_declarator(p, stype, &dname);
+
+        /* function definition: struct Token* func(...) { ... } */
+        {
+            Type* scan = full;
+            int n_ptr = 0;
+
+            while (scan && scan->kind == TYPE_PTR) {
+                n_ptr++;
+                scan = scan->inner;
+            }
+
+            if (scan && scan->kind == TYPE_FUNC &&
+                p->tok->kind == TOK_LBRACE) {
+                AST_Node* params = scan->params;
+                Type* ret_type;
+
+                if (n_ptr > 0) {
+                    ret_type = type_new(TYPE_PTR);
+                    Type* tail = ret_type;
+                    for (int i = 1; i < n_ptr; i++) {
+                        tail->inner = type_new(TYPE_PTR);
+                        tail = tail->inner;
+                    }
+                    tail->inner = scan->inner;
+                } else {
+                    ret_type = scan->inner;
+                }
+
+                AST_Node* fn = ast_node_new(AST_FUNC_DEF,
+                                            stok->loc.line, stok->loc.col);
+                fn->body.func_def.ret_type = ret_type;
+                fn->body.func_def.name = dname;
+                fn->body.func_def.params = params;
+                fn->body.func_def.linkage = linkage;
+                fn->body.func_def.body = ll_parse_stmt(p);
+                *var_tail = fn;
+                return var_head ? var_head : fn;
+            }
+        }
+
         AST_Node* vd = ast_node_new(AST_VAR_DECL,
                                     stok->loc.line, stok->loc.col);
         vd->body.var_decl.var_type = full;

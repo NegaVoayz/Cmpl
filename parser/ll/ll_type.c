@@ -10,6 +10,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* from ll.c and ll_decl_agg.c */
+extern void      ll_expect(LR1_Parser* p, TokenKind k);
+extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
+
 /* ---------------------------------------------------------------
  *  Helpers
  * --------------------------------------------------------------- */
@@ -91,7 +95,8 @@ Type* ll_parse_type_specs(LR1_Parser* p)
         head = t;
     }
 
-    /* Struct / union tag reference: `struct Foo`, `union Bar` */
+    /* Struct / union tag reference or inline definition:
+       `struct Foo`, `union Bar`, `struct { int x; }`, `union { int a; }` */
     if (!head && (p->tok->kind == TOK_STRUCT || p->tok->kind == TOK_UNION)) {
         TypeKind tk = (p->tok->kind == TOK_STRUCT) ? TYPE_STRUCT : TYPE_UNION;
 
@@ -102,6 +107,13 @@ Type* ll_parse_type_specs(LR1_Parser* p)
         if (p->tok->kind == TOK_IDENT) {
             t->name = p->tok->body.ident;
             p->tok = p->tok->next;
+        }
+
+        /* inline body: struct { ... } or union { ... } */
+        if (p->tok->kind == TOK_LBRACE) {
+            p->tok = p->tok->next;
+            t->params = ll_parse_struct_fields(p);
+            ll_expect(p, TOK_RBRACE);
         }
         head = t;
     }

@@ -79,9 +79,33 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
         String dname = {NULL, 0};
         Type* full = ll_parse_declarator(p, base, &dname);
 
-        if (full->kind == TYPE_FUNC) {
-            Type* ret_type = full->inner;
-            AST_Node* params = full->params;
+        /* find function type through pointer layers (int* f(void) → PTR→FUNC→INT) */
+        {
+            Type* scan = full;
+            int n_ptr = 0;
+
+            while (scan && scan->kind == TYPE_PTR) {
+                n_ptr++;
+                scan = scan->inner;
+            }
+
+            if (scan && scan->kind == TYPE_FUNC) {
+                AST_Node* params = scan->params;
+                Type* ret_type;
+
+                if (n_ptr > 0) {
+                    /* rebuild pointer chain → FUNC.inner */
+                    ret_type = type_new(TYPE_PTR);
+                    Type* tail = ret_type;
+
+                    for (int i = 1; i < n_ptr; i++) {
+                        tail->inner = type_new(TYPE_PTR);
+                        tail = tail->inner;
+                    }
+                    tail->inner = scan->inner;
+                } else {
+                    ret_type = scan->inner;
+                }
 
             if (p->tok->kind == TOK_LBRACE) {
                 AST_Node* fn = ast_node_new(AST_FUNC_DEF,
@@ -105,6 +129,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             fd->body.func_def.body = NULL;
             *tail = fd;
             return head ? head : fd;
+            }
         }
 
         /* Variable declaration */
@@ -125,6 +150,8 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                     if (p->tok->kind == TOK_RBRACE) depth--;
                     if (depth > 0) p->tok = p->tok->next;
                 }
+                if (p->tok->kind == TOK_RBRACE)
+                    p->tok = p->tok->next;
             } else {
                 vd->body.var_decl.init = ll_parse_expr(p);
             }
@@ -170,7 +197,30 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
         int is_struct = (p->tok->kind == TOK_STRUCT);
         Token* stok = p->tok;
         p->tok = p->tok->next;
-        return parse_struct_union_decl(p, stok, is_struct, linkage, addr_space);
+        AST_Node* n = parse_struct_union_decl(p, stok, is_struct, linkage, addr_space);
+
+        /* wrap in typedef if needed */
+        if (is_typedef && n) {
+            /* find the variable decl at end of chain to convert */
+            AST_Node* last = n;
+            while (last->next) last = last->next;
+
+            if (last->type == AST_VAR_DECL) {
+                AST_Node* td = ast_node_new(AST_TYPEDEF,
+                                            last->loc.line, last->loc.col);
+                td->body.typedef_decl.aliased_type = last->body.var_decl.var_type;
+                td->body.typedef_decl.name = last->body.var_decl.name;
+
+                if (last == n)
+                    n = td;
+                else {
+                    AST_Node* prev = n;
+                    while (prev->next != last) prev = prev->next;
+                    prev->next = td;
+                }
+            }
+        }
+        return n;
     }
 
     if (p->tok->kind == TOK_ENUM)
