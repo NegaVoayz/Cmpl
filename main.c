@@ -24,6 +24,7 @@ main(int argc, char** argv)
     int         opt_level = 0;
     int         codegen_mode = 0;
     const char* out_file = NULL;
+    int         dump_preprocess = 0;
     PPCtx       pp_ctx;
 
     pp_ctx_init(&pp_ctx);
@@ -44,6 +45,8 @@ main(int argc, char** argv)
             opt_level = argv[i][2] - '0';
         } else if (strcmp(argv[i], "-c") == 0) {
             codegen_mode = CG_OUT_OBJECT;
+        } else if (strcmp(argv[i], "-E") == 0) {
+            dump_preprocess = 1;
         } else if (strcmp(argv[i], "-emit-llvm") == 0) {
             codegen_mode = CG_OUT_LLVM_IR;
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
@@ -59,11 +62,20 @@ main(int argc, char** argv)
     }
 
     if (!filename) {
-        fprintf(stderr, "Usage: %s [-I dir]... [-ir] [-cuda] [-c|-S|-emit-llvm] [-o outfile]\n"
+        fprintf(stderr, "Usage: %s [-E] [-I dir]... [-ir] [-cuda] [-c|-S|-emit-llvm] [-o outfile]\n"
                 "              [-O0|-O1|-O2] <source-file>\n",
                 argv[0]);
         pp_ctx_free(&pp_ctx);
         return 1;
+    }
+
+    if (dump_preprocess) {
+        char* pp_code = pp_preprocess(&pp_ctx, filename);
+        if (pp_code) {
+            fputs(pp_code, stdout);
+        }
+        pp_ctx_free(&pp_ctx);
+        return 0;
     }
 
     char* code = pp_preprocess(&pp_ctx, filename);

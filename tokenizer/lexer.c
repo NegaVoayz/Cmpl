@@ -111,7 +111,9 @@ read_operator(Lexer* lex)
     case '/':
         if (peek(lex) == '=') { advance(lex); return token_new(TOK_SLASHEQ, line, col); }
         return token_new(TOK_SLASH, line, col);
-    case '%': return token_new(TOK_PERCENT, line, col);
+    case '%':
+        if (peek(lex) == '=') { advance(lex); return token_new(TOK_PERCENTEQ, line, col); }
+        return token_new(TOK_PERCENT, line, col);
     case '=':
         if (peek(lex) == '=') { advance(lex); return token_new(TOK_EQEQ, line, col); }
         return token_new(TOK_EQ, line, col);
@@ -123,6 +125,10 @@ read_operator(Lexer* lex)
             advance(lex); advance(lex);
             return token_new(TOK_LTLTLT, line, col);
         }
+        if (peek(lex) == '<' && peek_next(lex) == '=') {
+            advance(lex); advance(lex);
+            return token_new(TOK_LTLTEQ, line, col);
+        }
         if (peek(lex) == '=') { advance(lex); return token_new(TOK_LTEQ, line, col); }
         if (peek(lex) == '<') { advance(lex); return token_new(TOK_LTLT, line, col); }
         return token_new(TOK_LT, line, col);
@@ -131,16 +137,24 @@ read_operator(Lexer* lex)
             advance(lex); advance(lex);
             return token_new(TOK_GTGTGT, line, col);
         }
+        if (peek(lex) == '>' && peek_next(lex) == '=') {
+            advance(lex); advance(lex);
+            return token_new(TOK_GTGTEQ, line, col);
+        }
         if (peek(lex) == '=') { advance(lex); return token_new(TOK_GTEQ, line, col); }
         if (peek(lex) == '>') { advance(lex); return token_new(TOK_GTGT, line, col); }
         return token_new(TOK_GT, line, col);
     case '&':
         if (peek(lex) == '&') { advance(lex); return token_new(TOK_AMPAMP, line, col); }
+        if (peek(lex) == '=') { advance(lex); return token_new(TOK_AMPEQ, line, col); }
         return token_new(TOK_AMP, line, col);
     case '|':
         if (peek(lex) == '|') { advance(lex); return token_new(TOK_PIPEPIPE, line, col); }
+        if (peek(lex) == '=') { advance(lex); return token_new(TOK_PIPEEQ, line, col); }
         return token_new(TOK_PIPE, line, col);
-    case '^': return token_new(TOK_CARET, line, col);
+    case '^':
+        if (peek(lex) == '=') { advance(lex); return token_new(TOK_CARETEQ, line, col); }
+        return token_new(TOK_CARET, line, col);
     case '~': return token_new(TOK_TILDE, line, col);
     case '(': return token_new(TOK_LPAREN, line, col);
     case ')': return token_new(TOK_RPAREN, line, col);

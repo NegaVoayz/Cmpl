@@ -15,6 +15,43 @@ static int is_type_keyword(TokenKind k)
            k == TOK_STRUCT || k == TOK_UNION  || k == TOK_ENUM;
 }
 
+/* Check if a token can start a type specifier inside a cast:
+ *   (type_keyword...)  e.g. (int*), (unsigned long)
+ *   (const ...)        e.g. (const int*), (const Keyword*)
+ *   (volatile ...)     e.g. (volatile int*)
+ *   (IDENT *)          e.g. (Keyword*)  -- typedef name with pointer
+ *   (IDENT)            e.g. (Keyword)   -- usable as a cast when
+ *                        followed by a unary expression (heuristic).
+ * Only called when the next token after '(' needs disambiguation. */
+static int is_cast_start(Token* tok)
+{
+    if (!tok) return 0;
+
+    TokenKind k = tok->kind;
+
+    /* type keywords and struct/union/enum -- always a cast */
+    if (is_type_keyword(k)) return 1;
+
+    /* const / volatile -- qualifiers only appear in types, never
+     * at the start of a parenthesised expression. */
+    if (k == TOK_CONST || k == TOK_VOLATILE) return 1;
+
+    /* typedef name: (TypeName*) or (TypeName **) is a cast;
+     * (x) without a pointer is treated as a parenthesised
+     * expression by default (ambiguous without a symbol table). */
+    if (k == TOK_IDENT) {
+        Token* next = tok->next;
+
+        while (next && (next->kind == TOK_CONST ||
+                        next->kind == TOK_VOLATILE))
+            next = next->next;
+
+        if (next && next->kind == TOK_STAR) return 1;
+    }
+
+    return 0;
+}
+
 /* states at or below cast-expr level -- where a pending cast should wrap */
 static int is_cast_level(int s)
 {
@@ -22,6 +59,15 @@ static int is_cast_level(int s)
            s == HS_CAST_EXPR ||
            s == S_BINRHS_PRIMARY || s == S_BINRHS_POSTFIX ||
            s == S_BINRHS_UNARY;
+}
+
+/* states where '(' starts a function call, not a cast/paren-expr */
+static int is_have_expr_state(LR1_State s)
+{
+    return (s >= HS_PRIMARY && s <= HS_EXPR) ||
+           s == S_BINRHS_PRIMARY || s == S_BINRHS_POSTFIX ||
+           s == S_BINRHS_UNARY ||
+           s == S_UNARY_RHS || s == S_ASSIGN_RHS || s == S_TERNARY_RHS;
 }
 
 LR1_Parser* lr1_parser_new(Token* first_tok)
@@ -80,11 +126,14 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
          * Detect before shifting '(' to avoid leaving a stray
          * LPAREN on the stack. Skip the entire (type) and parse
          * the cast target normally.
-         * NOTE: not inside sizeof -- (type) there is sizeof(type). */
-        if (next == TOK_LPAREN) {
+         * NOTE: not inside sizeof -- (type) there is sizeof(type).
+         * NOTE: skip when state == S_IDENT — after an ident, '(' is
+         *       always a function call, never a cast. */
+        if (next == TOK_LPAREN && state != S_IDENT
+            && !is_have_expr_state(state)) {
             Token* peek = p->tok->next;
 
-            if (peek && is_type_keyword(peek->kind)) {
+            if (peek && is_cast_start(peek)) {
                 /* check if we're inside sizeof -- if so, (type) is a type name */
                 int inside_sizeof = (state == S_SIZEOF);
                 for (int i = p->sp; !inside_sizeof && i >= 0; i--) {

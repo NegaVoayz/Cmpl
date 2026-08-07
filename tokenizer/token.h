@@ -53,6 +53,12 @@ typedef enum {
     TOK_MINUSEQ,      // -=
     TOK_STAREQ,       // *=
     TOK_SLASHEQ,      // /=
+    TOK_PERCENTEQ,    // %=
+    TOK_AMPEQ,        // &=
+    TOK_PIPEEQ,       // |=
+    TOK_CARETEQ,      // ^=
+    TOK_LTLTEQ,       // <<=
+    TOK_GTGTEQ,       // >>=
     TOK_PLUSPLUS,     // ++
     TOK_MINUSMINUS,   // --
     TOK_LTLTLT,       // <<<

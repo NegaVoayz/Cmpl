@@ -34,7 +34,7 @@ static int scan_pre(AST_Node* n, void* ctx)
         break;
 
     case AST_BINARY:
-        if (n->body.binary.op >= TOK_EQ && n->body.binary.op <= TOK_SLASHEQ
+        if (n->body.binary.op >= TOK_EQ && n->body.binary.op <= TOK_GTGTEQ
             && n->body.binary.left
             && n->body.binary.left->type == AST_IDENT)
             kill_entry(c->map, *c->count, n->body.binary.left->body.ident.name);

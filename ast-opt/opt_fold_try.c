@@ -24,7 +24,7 @@ static int has_side_effect(AST_Node* n)
     switch (n->type) {
     case AST_CALL: case AST_POSTFIX: return 1;
     case AST_BINARY:
-        return (n->body.binary.op >= TOK_EQ && n->body.binary.op <= TOK_SLASHEQ);
+        return (n->body.binary.op >= TOK_EQ && n->body.binary.op <= TOK_GTGTEQ);
     default: return 0;
     }
 }

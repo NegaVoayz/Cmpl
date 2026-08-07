@@ -71,7 +71,10 @@ int is_assign_op(TokenKind k)
 {
     return k == TOK_EQ      || k == TOK_PLUSEQ  ||
            k == TOK_MINUSEQ || k == TOK_STAREQ  ||
-           k == TOK_SLASHEQ;
+           k == TOK_SLASHEQ || k == TOK_PERCENTEQ ||
+           k == TOK_AMPEQ   || k == TOK_PIPEEQ  ||
+           k == TOK_CARETEQ || k == TOK_LTLTEQ  ||
+           k == TOK_GTGTEQ;
 }
 
 int is_terminator(TokenKind k)

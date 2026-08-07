@@ -91,18 +91,23 @@ AST_Node* ll_parse_for(LR1_Parser* p)
     ll_expect(p, TOK_LPAREN);
 
     AST_Node* n = ast_node_new(AST_FOR, tok->loc.line, tok->loc.col);
+    int       init_is_decl = 0;
 
     /* init -- may be expression or C99 declaration (int i = 0) */
     if (p->tok->kind != TOK_SEMI) {
-        if (is_type_start(p->tok))
+        if (is_type_start(p->tok)) {
             n->body.for_stmt.init = ll_parse_decl(p);
-        else
+            init_is_decl = 1;
+        } else {
             n->body.for_stmt.init = ll_parse_expr(p);
+        }
     } else {
         n->body.for_stmt.init = NULL;
     }
 
-    ll_expect(p, TOK_SEMI);
+    /* declaration already consumed its trailing semicolon */
+    if (!init_is_decl)
+        ll_expect(p, TOK_SEMI);
 
     /* condition */
     if (p->tok->kind != TOK_SEMI)
