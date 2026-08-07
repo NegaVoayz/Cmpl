@@ -65,6 +65,7 @@ typedef enum {
     TOK_GTGTGT,       // >>>
     TOK_ARROW,        // ->
     TOK_DOT,          // .
+    TOK_ELLIPSIS,     // ...
 
     // sep
     TOK_LPAREN,       // (

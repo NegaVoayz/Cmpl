@@ -29,6 +29,9 @@ main(int argc, char** argv)
 
     pp_ctx_init(&pp_ctx);
 
+    /* Add bundled include stubs for system headers */
+    pp_add_include_path(&pp_ctx, "../include");
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ir") == 0) {
             dump_ir = 1;

@@ -37,8 +37,8 @@ static int is_cast_start(Token* tok)
     if (k == TOK_CONST || k == TOK_VOLATILE) return 1;
 
     /* typedef name: (TypeName*) or (TypeName **) is a cast;
-     * (x) without a pointer is treated as a parenthesised
-     * expression by default (ambiguous without a symbol table). */
+     * (TypeName) without * is ambiguous — check if what follows
+     * ')' looks like a cast target (expr start). */
     if (k == TOK_IDENT) {
         Token* next = tok->next;
 
@@ -47,6 +47,26 @@ static int is_cast_start(Token* tok)
             next = next->next;
 
         if (next && next->kind == TOK_STAR) return 1;
+
+        /* (TypeName) — find closing ) and peek at what follows */
+        if (next && next->kind == TOK_RPAREN) {
+            Token* after = next->next;
+
+            if (after && (after->kind == TOK_IDENT ||
+                          after->kind == TOK_INT_LIT ||
+                          after->kind == TOK_LONG_LIT ||
+                          after->kind == TOK_FLOAT_LIT ||
+                          after->kind == TOK_DOUBLE_LIT ||
+                          after->kind == TOK_CHAR_LIT ||
+                          after->kind == TOK_STRING_LIT ||
+                          after->kind == TOK_LPAREN ||
+                          after->kind == TOK_PLUSPLUS ||
+                          after->kind == TOK_MINUSMINUS ||
+                          after->kind == TOK_BANG ||
+                          after->kind == TOK_TILDE ||
+                          after->kind == TOK_SIZEOF))
+                return 1;
+        }
     }
 
     return 0;
@@ -121,6 +141,21 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
         TokenKind next = p->tok->kind;
         LR1_State state = (LR1_State)p->stack[p->sp].state;
         LR1_Func  func = action_table[state][next];
+
+        /* When stop_at_comma is set, treat comma as terminator
+         * (enum values, init lists, etc.).  Return what we have. */
+        if (p->stop_at_comma && next == TOK_COMMA) {
+            AST_Node* result = p->stack[p->sp].node;
+            if (p->pending_cast && result) {
+                AST_Node* cast = ast_node_new(AST_CAST,
+                                              p->cast_loc.line, p->cast_loc.col);
+                cast->body.cast.type_expr = NULL;
+                cast->body.cast.cast_expr = result;
+                p->pending_cast = 0;
+                return cast;
+            }
+            return result;
+        }
 
         /* Cast expression: ( type-specs ) unary-expr
          * Detect before shifting '(' to avoid leaving a stray

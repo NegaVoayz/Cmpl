@@ -124,12 +124,6 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
         free(body);
     }
 
-    /* nparams cleanup -- malloc'd strings freed later when macro
-     * table is freed; we just copy the pointers into the macro */
-
-    for (int i = 0; i < nparams; i++)
-        free(params[i]);
-
     *pp = p;
 }
 

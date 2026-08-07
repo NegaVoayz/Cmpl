@@ -129,6 +129,12 @@ static AST_Node* ll_parse_params(LR1_Parser* p)
     if (p->tok->kind == TOK_RPAREN)
         return NULL;
 
+    /* variadic: (..., ...) or just (...) */
+    if (p->tok->kind == TOK_ELLIPSIS) {
+        p->tok = p->tok->next;
+        return NULL;
+    }
+
     AST_Node* head = NULL;
     AST_Node** tail = &head;
 
@@ -150,9 +156,15 @@ static AST_Node* ll_parse_params(LR1_Parser* p)
         *tail = param;
         tail = &param->next;
 
-        if (p->tok->kind == TOK_COMMA)
+        if (p->tok->kind == TOK_COMMA) {
             p->tok = p->tok->next;
-        else
+
+            /* variadic after last param: (type name, ...) */
+            if (p->tok->kind == TOK_ELLIPSIS) {
+                p->tok = p->tok->next;
+                break;
+            }
+        } else
             break;
     }
 

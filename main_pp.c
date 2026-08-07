@@ -82,6 +82,7 @@ token_kind_name(TokenKind kind)
         [TOK_MINUSMINUS]  = "TOK_MINUSMINUS",
         [TOK_ARROW]       = "TOK_ARROW",
         [TOK_DOT]         = "TOK_DOT",
+        [TOK_ELLIPSIS]    = "TOK_ELLIPSIS",
         [TOK_LPAREN]      = "TOK_LPAREN",
         [TOK_RPAREN]      = "TOK_RPAREN",
         [TOK_LBRACKET]    = "TOK_LBRACKET",

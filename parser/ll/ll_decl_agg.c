@@ -99,7 +99,9 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
 
         if (p->tok->kind == TOK_EQ) {
             p->tok = p->tok->next;
+            p->stop_at_comma = 1;
             en->body.enumerator.value = lr1_parse_expr(p);
+            p->stop_at_comma = 0;
         }
 
         *tail = en;

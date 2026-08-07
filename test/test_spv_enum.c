@@ -1,0 +1,26 @@
+enum {
+    SpvMagic = 0x07230203, SpvVersion = 0x00010000,
+    SpvOpNop = 0,
+    SpvOpCapability = 17, SpvOpMemoryModel = 14, SpvOpEntryPoint = 15,
+    SpvOpExecutionMode = 16, SpvOpTypeVoid = 19, SpvOpTypeBool = 20,
+    SpvOpTypeInt = 21, SpvOpTypeFloat = 22, SpvOpTypePointer = 32,
+    SpvOpTypeFunction = 33, SpvOpConstant = 43,
+    SpvOpFunction = 54, SpvOpFunctionParameter = 55, SpvOpFunctionEnd = 56,
+    SpvOpFunctionCall = 57, SpvOpVariable = 59,
+    SpvOpLoad = 61, SpvOpStore = 62,
+    SpvOpAccessChain = 65, SpvOpInBoundsAccessChain = 66,
+    SpvOpIAdd = 128, SpvOpISub = 130, SpvOpIMul = 132,
+    SpvOpSDiv = 143, SpvOpSRem = 145, SpvOpShiftLeftLogical = 138,
+    SpvOpBitwiseAnd = 198, SpvOpBitwiseOr = 199, SpvOpBitwiseXor = 200,
+    SpvOpIEqual = 176, SpvOpINotEqual = 177,
+    SpvOpSLessThan = 179, SpvOpSGreaterThan = 181,
+    SpvOpSLessThanEqual = 183, SpvOpSGreaterThanEqual = 185,
+    SpvOpSelect = 169, SpvOpBitcast = 124,
+    SpvOpPhi = 245, SpvOpLabel = 248,
+    SpvOpBranch = 249, SpvOpBranchConditional = 250,
+    SpvOpReturn = 253, SpvOpReturnValue = 254,
+    SpvStorageFunc = 7, SpvStorageCross = 5,
+    SpvStorageWorkgroup = 4, SpvStorageUniformC = 2,
+};
+
+void test() { int x = SpvMagic; }

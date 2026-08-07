@@ -167,6 +167,10 @@ read_operator(Lexer* lex)
     case ':': return token_new(TOK_COLON, line, col);
     case '?': return token_new(TOK_QUESTION, line, col);
     case '.':
+        if (peek(lex) == '.' && peek_next(lex) == '.') {
+            advance(lex); advance(lex);
+            return token_new(TOK_ELLIPSIS, line, col);
+        }
         if (isdigit((unsigned char)peek(lex))) {
             lex->cur--;
             lex->col--;
