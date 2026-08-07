@@ -155,6 +155,28 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
         }
         { IR_Value* v = calloc(1, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
 
-    default: return NULL;
+    case AST_SIZEOF_TYPE:
+    { IR_Type* t = ir_type_from_ast(n->body.sizeof_type.type_expr);
+      return ir_const_int(b, t_i32, ir_type_size(t)); }
+
+    case AST_SIZEOF_EXPR:
+    { IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);
+      int sz = sub ? ir_type_size(sub->type) : 4;
+      return ir_const_int(b, t_i32, sz); }
+
+    case AST_POSTFIX:
+    { IR_Value* ptr = NULL;
+      if (n->body.postfix.operand->type == AST_IDENT)
+          ptr = sym_lookup(ctx, n->body.postfix.operand->body.ident.name);
+      if (!ptr) { IR_Value* v = calloc(1, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+      IR_Value* old_val = ir_build_load(b, ptr);
+      IR_Value* one = ir_const_int(b, old_val->type, 1);
+      IR_Value* new_val = (n->body.postfix.op == TOK_PLUSPLUS) ? ir_build_add(b, old_val, one)
+                                                               : ir_build_sub(b, old_val, one);
+      ir_build_store(b, new_val, ptr);
+      return old_val; }
+
+    default:
+    { IR_Value* v = calloc(1, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
     }
 }

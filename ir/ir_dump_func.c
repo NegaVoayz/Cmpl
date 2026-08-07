@@ -134,10 +134,12 @@ ir_dump_module(IR_Module* mod, FILE* out)
                     if (n_seen < 32)
                         seen[n_seen++] = inst->callee;
 
-                    fprintf(out, "declare ");
-                    dump_type(out, inst->type);
-                    fprintf(out, " @%.*s(...)\n\n",
-                            inst->callee.length, inst->callee.data);
+                    if (inst->callee.length > 0) {
+                        fprintf(out, "declare ");
+                        dump_type(out, inst->type);
+                        fprintf(out, " @%.*s()\n\n",
+                                inst->callee.length, inst->callee.data);
+                    }
                 }
             }
         }

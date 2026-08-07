@@ -144,6 +144,31 @@ ir_type_from_ast(Type* ast_type)
  * --------------------------------------------------------------- */
 
 int
+ir_type_size(IR_Type* t)
+{
+    if (!t) return 0;
+
+    switch (t->kind) {
+    case IR_VOID:  return 0;
+    case IR_I1:    return 1;
+    case IR_I8:    return 1;
+    case IR_I16:   return 2;
+    case IR_I32:   return 4;
+    case IR_I64:   return 8;
+    case IR_F32:   return 4;
+    case IR_F64:   return 8;
+    case IR_PTR:   return 8;   /* 64-bit pointer */
+    case IR_ARRAY: return t->size * ir_type_size(t->inner);
+    case IR_STRUCT:
+    { int sz = 0;
+      for (IR_Type* f = t->members; f; f = f->next) sz += ir_type_size(f);
+      return sz; }
+    case IR_FUNC:  return 0;
+    default:       return 0;
+    }
+}
+
+int
 ir_type_eq(IR_Type* a, IR_Type* b)
 {
     if (a == b) return 1;
