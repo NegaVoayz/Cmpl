@@ -23,7 +23,10 @@ void dump_instr(FILE* out, IR_Instr* inst)
     case IROP_UNREACHABLE:
         break;
     case IROP_CALL:
-        if (inst->type && inst->type->kind == IR_VOID) break;
+        if (inst->type && inst->type->kind == IR_VOID) {
+            fprintf(out, "  ");
+            break;
+        }
         fprintf(out, "  %%%d = ", inst->result->id);
         break;
     default:
@@ -81,8 +84,8 @@ void dump_instr(FILE* out, IR_Instr* inst)
     case IROP_AND: case IROP_OR: case IROP_XOR:
     case IROP_SHL: case IROP_LSHR: case IROP_ASHR:
     {
-        const char* op_names[] = {"and","or","xor","shl","lshr","ashr"};
-        int idx = inst->opcode - IROP_AND;
+        const char* op_names[] = {"shl","lshr","ashr","and","or","xor"};
+        int idx = inst->opcode - IROP_SHL;
         fprintf(out, "%s ", op_names[idx]);
         dump_type(out, inst->type);
         fprintf(out, " ");
@@ -149,28 +152,63 @@ void dump_instr(FILE* out, IR_Instr* inst)
         dump_type(out, elem);
         fprintf(out, ", ptr ");
         dump_value(out, inst->operands[0]);
-        fprintf(out, ", ");
-        dump_type(out, inst->operands[1]->type);
-        fprintf(out, " ");
-        dump_value(out, inst->operands[1]);
 
-        if (inst->operands[2]) {
+        /* LLVM 19 opaque-ptr: scalar types can only have one index.
+         * For scalars (i8, i32, ptr, etc.), idx0 is the offset and
+         * a second index is invalid.  If idx0 is constant 0 and idx1
+         * is present, emit only idx1.  Otherwise emit idx0 then idx1. */
+        int idx0_is_zero = (inst->operands[1] &&
+                            inst->operands[1]->kind == VAL_CONST_INT &&
+                            inst->operands[1]->body.int_val == 0);
+
+        if (idx0_is_zero && inst->operands[2]) {
+            /* skip zero idx0, emit idx1 directly */
             fprintf(out, ", ");
             dump_type(out, inst->operands[2]->type);
             fprintf(out, " ");
             dump_value(out, inst->operands[2]);
+        } else {
+            fprintf(out, ", ");
+            dump_type(out, inst->operands[1]->type);
+            fprintf(out, " ");
+            dump_value(out, inst->operands[1]);
+
+            if (inst->operands[2]) {
+                fprintf(out, ", ");
+                dump_type(out, inst->operands[2]->type);
+                fprintf(out, " ");
+                dump_value(out, inst->operands[2]);
+            }
         }
         break;
     }
 
     case IROP_BITCAST:
-        fprintf(out, "bitcast ");
-        dump_type(out, inst->operands[0]->type);
+    {   IR_Type* src = inst->operands[0]->type;
+        IR_Type* dst = inst->type;
+        int src_ptr = src && src->kind == IR_PTR;
+        int dst_ptr = dst && dst->kind == IR_PTR;
+
+        if (src_ptr && !dst_ptr)
+            fprintf(out, "ptrtoint ");
+        else if (!src_ptr && dst_ptr)
+            fprintf(out, "inttoptr ");
+        else if (src && dst && !src_ptr && !dst_ptr &&
+                 ir_type_size(src) < ir_type_size(dst))
+            fprintf(out, "zext ");
+        else if (src && dst && !src_ptr && !dst_ptr &&
+                 ir_type_size(src) > ir_type_size(dst))
+            fprintf(out, "trunc ");
+        else
+            fprintf(out, "bitcast ");
+
+        dump_type(out, src);
         fprintf(out, " ");
         dump_value(out, inst->operands[0]);
         fprintf(out, " to ");
-        dump_type(out, inst->type);
+        dump_type(out, dst);
         break;
+    }
 
     case IROP_TRUNC:
         fprintf(out, "trunc ");

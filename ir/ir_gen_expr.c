@@ -48,6 +48,29 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
 {
     IR_Builder* b = ctx->b;
 
+    /* fixup: ptr + int or ptr += int → use GEP */
+    if (op == TOK_PLUS || op == TOK_MINUS ||
+        op == TOK_PLUSEQ || op == TOK_MINUSEQ) {
+        /* ptr ± int → GEP */
+        if (lhs && rhs && lhs->type && lhs->type->kind == IR_PTR &&
+            rhs->type && rhs->type->kind != IR_PTR) {
+            if (op == TOK_MINUS || op == TOK_MINUSEQ) {
+                /* ptr - int → negate index */
+                IR_Value* neg = ir_build_sub(b, ir_const_int(b, t_i32, 0), rhs);
+                return ir_build_gep(b, lhs, neg, ir_const_int(b, t_i32, 0));
+            }
+            return ir_build_gep(b, lhs, rhs, ir_const_int(b, t_i32, 0));
+        }
+        /* ptr - ptr → ptrtoint + sub */
+        if (op == TOK_MINUS && lhs && rhs &&
+            lhs->type && lhs->type->kind == IR_PTR &&
+            rhs->type && rhs->type->kind == IR_PTR) {
+            IR_Value* li = ir_build_bitcast(b, lhs, t_i64);
+            IR_Value* ri = ir_build_bitcast(b, rhs, t_i64);
+            return ir_build_sub(b, li, ri);
+        }
+    }
+
     /* fixup: for comparisons, ptr vs int-0 → use null */
     if (op == TOK_EQEQ || op == TOK_BANGEQ || op == TOK_LT ||
         op == TOK_GT || op == TOK_LTEQ || op == TOK_GTEQ) {
@@ -61,18 +84,30 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
             IR_Value* nv = calloc(1, sizeof(IR_Value));
             nv->kind = VAL_CONST_NULL; nv->type = rhs->type; lhs = nv;
         }
+        /* ptr vs non-zero int: can't fix without inttoptr —
+         * leave as-is; the C code being compiled is unusual
+         * (comparing pointer to non-zero integer literal) */
     }
 
     switch (op) {
-    case TOK_PLUS:     return ir_build_add(b, lhs, rhs);
-    case TOK_MINUS:    return ir_build_sub(b, lhs, rhs);
-    case TOK_STAR:     return ir_build_mul(b, lhs, rhs);
-    case TOK_SLASH:    return ir_build_sdiv(b, lhs, rhs);
-    case TOK_PERCENT:  return ir_build_srem(b, lhs, rhs);
-    case TOK_AMP:      return ir_build_and(b, lhs, rhs);
-    case TOK_PIPE:     return ir_build_or(b, lhs, rhs);
-    case TOK_CARET:    return ir_build_xor(b, lhs, rhs);
-    case TOK_LTLT:     return ir_build_shl(b, lhs, rhs);
+    case TOK_PLUS:  case TOK_PLUSEQ:
+        return ir_build_add(b, lhs, rhs);
+    case TOK_MINUS: case TOK_MINUSEQ:
+        return ir_build_sub(b, lhs, rhs);
+    case TOK_STAR:  case TOK_STAREQ:
+        return ir_build_mul(b, lhs, rhs);
+    case TOK_SLASH: case TOK_SLASHEQ:
+        return ir_build_sdiv(b, lhs, rhs);
+    case TOK_PERCENT: case TOK_PERCENTEQ:
+        return ir_build_srem(b, lhs, rhs);
+    case TOK_AMP:   case TOK_AMPEQ:
+        return ir_build_and(b, lhs, rhs);
+    case TOK_PIPE:  case TOK_PIPEEQ:
+        return ir_build_or(b, lhs, rhs);
+    case TOK_CARET: case TOK_CARETEQ:
+        return ir_build_xor(b, lhs, rhs);
+    case TOK_LTLT:  case TOK_LTLTEQ:
+        return ir_build_shl(b, lhs, rhs);
     case TOK_EQEQ:     return ir_build_icmp(b, IR_COND_EQ, lhs, rhs);
     case TOK_BANGEQ:   return ir_build_icmp(b, IR_COND_NE, lhs, rhs);
     case TOK_LT:       return ir_build_icmp(b, IR_COND_SLT, lhs, rhs);
@@ -211,9 +246,23 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
           ptr = sym_lookup(ctx, n->body.postfix.operand->body.ident.name);
       if (!ptr) { IR_Value* v = calloc(1, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
       IR_Value* old_val = ir_build_load(b, ptr);
-      IR_Value* one = ir_const_int(b, old_val->type, 1);
-      IR_Value* new_val = (n->body.postfix.op == TOK_PLUSPLUS) ? ir_build_add(b, old_val, one)
-                                                               : ir_build_sub(b, old_val, one);
+      IR_Value* new_val;
+      if (old_val->type && old_val->type->kind == IR_PTR) {
+          /* pointer +/- 1 → GEP */
+          IR_Value* idx;
+          if (n->body.postfix.op == TOK_PLUSPLUS)
+              idx = ir_const_int(b, t_i32, 1);
+          else {
+              IR_Value* neg = ir_build_sub(b, ir_const_int(b, t_i32, 0),
+                                           ir_const_int(b, t_i32, 1));
+              idx = neg;
+          }
+          new_val = ir_build_gep(b, old_val, idx, ir_const_int(b, t_i32, 0));
+      } else {
+          IR_Value* one = ir_const_int(b, old_val->type ? old_val->type : t_i32, 1);
+          new_val = (n->body.postfix.op == TOK_PLUSPLUS) ? ir_build_add(b, old_val, one)
+                                                         : ir_build_sub(b, old_val, one);
+      }
       ir_build_store(b, new_val, ptr);
       return old_val; }
 

@@ -119,7 +119,11 @@ ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
     inst->operands[0] = ptr;
     inst->operands[1] = idx0;
 
-    if (idx1) {
+    /* omit idx1 when it's constant 0 (LLVM 19 opaque-ptr rejects
+     * redundant trailing index on scalar types like i8) */
+    int skip_idx1 = (idx1 && idx1->kind == VAL_CONST_INT && idx1->body.int_val == 0);
+
+    if (idx1 && !skip_idx1) {
         inst->operands[2] = idx1;
         inst->call_args = calloc(1, sizeof(IR_Value*));
         inst->call_args[0] = idx1;

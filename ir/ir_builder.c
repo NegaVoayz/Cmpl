@@ -62,9 +62,7 @@ make_vreg(IR_Builder* b, IR_Type* ty)
     IR_Value* v = calloc(1, sizeof(IR_Value));
     v->kind = VAL_INSTR;
     v->type = ty;
-    /* void instructions don't consume a vreg (not printed as %N) */
-    if (!ty || ty->kind != IR_VOID)
-        v->id = b->next_vreg_id++;
+    v->id = b->next_vreg_id++;
     return v;
 }
 

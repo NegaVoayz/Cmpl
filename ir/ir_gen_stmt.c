@@ -144,10 +144,31 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
           IR_Value* undef = calloc(1, sizeof(IR_Value));
           undef->kind = VAL_UNDEF; undef->type = ctx->ret_type; rv = undef;
       }
-      /* zext i1 → ret_type when ret type is wider */
-      if (rv && rv->type && rv->type->kind == IR_I1 &&
-          ctx->ret_type && ctx->ret_type->kind != IR_I1 && ctx->ret_type->kind != IR_VOID)
-          rv = ir_build_zext(b, rv, ctx->ret_type);
+      /* coerce return value to function return type */
+      if (rv && rv->type && ctx->ret_type && ctx->ret_type->kind != IR_VOID) {
+          int rk = rv->type->kind;
+          int fk = ctx->ret_type->kind;
+
+          if (rk != fk || rk == IR_PTR) {
+              /* undef: just fix type */
+              if (rv->kind == VAL_UNDEF) {
+                  rv->type = ctx->ret_type;
+              }
+              /* int 0 → ptr null */
+              else if (fk == IR_PTR && rk != IR_PTR) {
+                  if (rv->kind == VAL_CONST_INT && rv->body.int_val == 0)
+                      rv = ir_const_null(ctx->ret_type);
+                  else
+                      rv = ir_build_bitcast(b, rv, ctx->ret_type);
+              }
+              /* i1 → wider int */
+              else if (rk == IR_I1 && fk != IR_I1)
+                  rv = ir_build_zext(b, rv, ctx->ret_type);
+              /* ptr → int or int→int: try trunc/zext/bitcast */
+              else if (rk != fk)
+                  rv = ir_build_bitcast(b, rv, ctx->ret_type);
+          }
+      }
       ir_build_ret(b, rv); break; }
     case AST_IF: gen_stmt_if(ctx, n); break;
     case AST_WHILE: gen_stmt_while(ctx, n); break;

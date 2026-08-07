@@ -33,6 +33,23 @@ dump_block(FILE* out, IR_Block* blk)
 static void
 dump_func(FILE* out, IR_Func* func)
 {
+    /* renumber vregs sequentially so LLVM validation passes.
+     * LLVM counts EVERY instruction (including void ones like store/ret)
+     * for validating sequential %N numbering, even though void
+     * instructions don't print a %N = prefix. */
+    if (func->blocks) {
+        int next_id = func->n_params;  /* params already use 0..n_params-1 */
+
+        for (IR_Block* blk = func->blocks; blk; blk = blk->next) {
+            for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+                /* every instruction advances the counter */
+                if (inst->result && inst->result->kind == VAL_INSTR)
+                    inst->result->id = next_id;
+                next_id++;
+            }
+        }
+    }
+
     /* linkage / define */
     switch (func->linkage) {
     case LINK_INTERNAL: fprintf(out, "internal "); break;
@@ -85,12 +102,7 @@ ir_dump_module(IR_Module* mod, FILE* out)
     dump_str_reset();
     dump_str_collect_module(mod);
 
-    /* target triple + data layout */
-    if (mod->target_triple)
-        fprintf(out, "target triple = \"%s\"\n\n", mod->target_triple);
-
-    if (mod->data_layout)
-        fprintf(out, "target datalayout = \"%s\"\n\n", mod->data_layout);
+    /* target triple + data layout — skip to avoid clang -Woverride-module */
 
     /* string constant globals */
     dump_str_globals(out);
