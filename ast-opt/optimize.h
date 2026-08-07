@@ -6,7 +6,7 @@
 #include "ast.h"
 
 /* Run all optimization passes to a fixed point.
- * Modifies the AST in place (no new allocations).
+ * Modifies the AST in place (zero heap allocations -- all overwrites).
  * Returns the root node. */
 AST_Node* optimize(AST_Node* root);
 

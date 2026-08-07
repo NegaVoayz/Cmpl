@@ -100,25 +100,14 @@ ast_to_ir_type(Type* ast)
 
     case TYPE_SIGNED:
     case TYPE_UNSIGNED:
-        /* skip qualifiers -- look at next in chain */
-        if (ast->next)
-            return ast_to_ir_type(ast->next);
+        if (ast->next) return ast_to_ir_type(ast->next);
         return t_i32;
-
     case TYPE_PTR:
-    {
-        IR_Type* inner = ast_to_ir_type(ast->inner);
-        int as = 0;
-        if (ast->is_const) as = 3;  /* constant → addrspace(3) UniformConstant */
-        return ir_ptr_type(inner, as);
-    }
-
+    { IR_Type* inner = ast_to_ir_type(ast->inner); int as = ast->is_const ? 3 : 0;
+      return ir_ptr_type(inner, as); }
     case TYPE_ARRAY:
-    {
-        IR_Type* inner = ast_to_ir_type(ast->inner);
-        return ir_array_type(inner, ast->arr_size > 0 ? ast->arr_size : 0);
-    }
-
+    { IR_Type* inner = ast_to_ir_type(ast->inner);
+      return ir_array_type(inner, ast->arr_size > 0 ? ast->arr_size : 0); }
     case TYPE_FUNC:
     {
         IR_Type* ret = ast_to_ir_type(ast->inner);
@@ -134,18 +123,10 @@ ast_to_ir_type(Type* ast)
 
     case TYPE_STRUCT:
     case TYPE_UNION:
-    {
-        IR_Type* t = ir_type_new(IR_STRUCT);
-        t->name = ast->name;
-        return t;
-    }
-
+    { IR_Type* t = ir_type_new(IR_STRUCT); t->name = ast->name; return t; }
     case TYPE_NAMED:
-        /* typedef -- follow the inner type if available */
-        if (ast->inner)
-            return ast_to_ir_type(ast->inner);
+        if (ast->inner) return ast_to_ir_type(ast->inner);
         return t_i32;
-
     default:
         return t_i32;
     }

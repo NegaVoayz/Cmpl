@@ -1,0 +1,61 @@
+/* ast_type.h -- AST node kind enumeration */
+
+#ifndef AST_TYPE_H
+#define AST_TYPE_H
+
+typedef enum {
+    /* literals */
+    AST_INT_LIT,
+    AST_LONG_LIT,
+    AST_CHAR_LIT,
+    AST_STRING_LIT,
+    AST_FLOAT_LIT,
+    AST_DOUBLE_LIT,
+
+    /* primary */
+    AST_IDENT,
+
+    /* expressions */
+    AST_BINARY,       /* all infix ops including assignment (= += -= ...) */
+    AST_UNARY,        /* prefix: + - ! ~ * & */
+    AST_POSTFIX,      /* postfix: ++ -- */
+    AST_TERNARY,      /* ?: */
+    AST_CAST,         /* (type)expr */
+    AST_CALL,         /* f(args) */
+    AST_KERNEL_LAUNCH, /* kernel<<<config>>>(args) */
+    AST_INDEX,        /* a[i] */
+    AST_MEMBER,       /* .  or  -> */
+    AST_SIZEOF_EXPR,  /* sizeof expr */
+    AST_SIZEOF_TYPE,  /* sizeof(type) */
+
+    /* statements */
+    AST_BLOCK,
+    AST_IF,
+    AST_WHILE,
+    AST_DO_WHILE,
+    AST_FOR,
+    AST_RETURN,
+    AST_BREAK,
+    AST_CONTINUE,
+    AST_SWITCH,
+    AST_CASE,
+    AST_DEFAULT,
+    AST_GOTO,
+    AST_LABEL,
+    AST_EXPR_STMT,
+
+    /* declarations */
+    AST_VAR_DECL,
+    AST_FUNC_DEF,
+    AST_STRUCT_DEF,
+    AST_UNION_DEF,
+    AST_ENUM_DEF,
+    AST_ENUMERATOR,
+    AST_TYPEDEF,
+    AST_PARAM_DECL,
+
+    /* top-level */
+    AST_PROGRAM
+} AST_Type;
+
+#endif /* AST_TYPE_H */

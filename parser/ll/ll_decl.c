@@ -13,9 +13,11 @@
 extern void ll_expect(LR1_Parser* p, TokenKind k);
 extern AST_Node* ll_parse_stmt(LR1_Parser* p);
 
-/* aggregate helpers from ll_decl_agg.c */
+/* aggregate helpers from ll_decl_agg.c and ll_decl_struct.c */
 extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
 extern AST_Node* ll_parse_enum_def(LR1_Parser* p);
+extern AST_Node* parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
+                                          int linkage, int addr_space);
 
 /* ---------------------------------------------------------------
  *  is_type_start -- tokens that begin a declaration
@@ -60,137 +62,16 @@ int is_type_start(Token* tok)
     return 0;
 }
 
+/* (parse_struct_union_decl moved to ll_decl_struct.c) */
+
 /* ---------------------------------------------------------------
- *  Main declaration parser
+ *  parse_var_list_decl -- declarator list (var decls, func defs)
  * --------------------------------------------------------------- */
 
-AST_Node* ll_parse_decl(LR1_Parser* p)
+static AST_Node*
+parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
+                     int linkage, int addr_space)
 {
-    Token* start = p->tok;
-    int is_typedef = 0;
-
-    /* 0. GPU qualifiers (__global__ / __device__ / __host__ / __shared__ / __constant__) */
-    int linkage = cuda_parse_qualifiers(p);
-    int addr_space = cuda_parse_var_qualifiers(p);
-
-    /* 1. Storage class / typedef */
-    while (p->tok->kind == TOK_TYPEDEF || p->tok->kind == TOK_STATIC ||
-           p->tok->kind == TOK_EXTERN  || p->tok->kind == TOK_REGISTER) {
-        if (p->tok->kind == TOK_TYPEDEF)  is_typedef = 1;
-        p->tok = p->tok->next;
-    }
-
-    /* 2. Struct / union */
-    if (p->tok->kind == TOK_STRUCT || p->tok->kind == TOK_UNION) {
-        int is_struct = (p->tok->kind == TOK_STRUCT);
-        Token* stok = p->tok;
-
-        p->tok = p->tok->next;            /* skip struct/union */
-
-        String tag = {NULL, 0};
-
-        if (p->tok->kind == TOK_IDENT) {
-            tag = p->tok->body.ident;
-            p->tok = p->tok->next;
-        }
-
-        AST_Node* def_node = NULL;
-
-        if (p->tok->kind == TOK_LBRACE) {
-            p->tok = p->tok->next;
-
-            def_node = ast_node_new(is_struct ? AST_STRUCT_DEF : AST_UNION_DEF,
-                                    stok->loc.line, stok->loc.col);
-            def_node->body.struct_def.name = tag;
-            def_node->body.struct_def.fields = ll_parse_struct_fields(p);
-
-            ll_expect(p, TOK_RBRACE);
-        }
-
-        if (p->tok->kind == TOK_SEMI) {
-            p->tok = p->tok->next;
-
-            if (def_node)
-                return def_node;
-
-            AST_Node* fwd = ast_node_new(is_struct ? AST_STRUCT_DEF : AST_UNION_DEF,
-                                         stok->loc.line, stok->loc.col);
-
-            fwd->body.struct_def.name = tag;
-            fwd->body.struct_def.fields = NULL;
-
-            return fwd;
-        }
-
-        Type* stype = type_new(is_struct ? TYPE_STRUCT : TYPE_UNION);
-
-        stype->name = tag;
-
-        AST_Node* var_head = NULL;
-        AST_Node** var_tail = &var_head;
-
-        for (;;) {
-            String dname = {NULL, 0};
-            Type* full = ll_parse_declarator(p, stype, &dname);
-
-            AST_Node* vd = ast_node_new(AST_VAR_DECL,
-                                        stok->loc.line, stok->loc.col);
-
-            vd->body.var_decl.var_type = full;
-            vd->body.var_decl.name = dname;
-            vd->body.var_decl.init = NULL;
-
-            if (p->tok->kind == TOK_EQ) {
-                p->tok = p->tok->next;
-
-                if (p->tok->kind == TOK_LBRACE) {
-                    int depth = 1;
-                    p->tok = p->tok->next;
-                    while (p->tok->kind != TOK_EOF && depth > 0) {
-                        if (p->tok->kind == TOK_LBRACE) depth++;
-                        if (p->tok->kind == TOK_RBRACE) depth--;
-                        if (depth > 0) p->tok = p->tok->next;
-                    }
-                } else {
-                    vd->body.var_decl.init = ll_parse_expr(p);
-                }
-            }
-
-            *var_tail = vd;
-            var_tail = &vd->next;
-
-            if (p->tok->kind == TOK_COMMA)
-                p->tok = p->tok->next;
-            else
-                break;
-        }
-
-        ll_expect(p, TOK_SEMI);
-
-        if (var_head)
-            return var_head;
-
-        return def_node;
-    }
-
-    /* 3. Enum */
-    if (p->tok->kind == TOK_ENUM)
-        return ll_parse_enum_def(p);
-
-    /* 4. Type specifiers */
-    Type* base = ll_parse_type_specs(p);
-
-    if (!base) {
-        p->tok = p->tok->next;
-        return NULL;
-    }
-
-    if (p->tok->kind == TOK_SEMI) {
-        p->tok = p->tok->next;
-        return NULL;
-    }
-
-    /* 5. Declarator(s) */
     AST_Node* head = NULL;
     AST_Node** tail = &head;
 
@@ -205,36 +86,30 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
             if (p->tok->kind == TOK_LBRACE) {
                 AST_Node* fn = ast_node_new(AST_FUNC_DEF,
                                             start->loc.line, start->loc.col);
-
                 fn->body.func_def.ret_type = ret_type;
                 fn->body.func_def.name = dname;
                 fn->body.func_def.params = params;
                 fn->body.func_def.linkage = linkage;
                 fn->body.func_def.body = ll_parse_stmt(p);
-
                 *tail = fn;
                 return head ? head : fn;
             }
 
             ll_expect(p, TOK_SEMI);
-
             AST_Node* fd = ast_node_new(AST_FUNC_DEF,
                                         start->loc.line, start->loc.col);
-
             fd->body.func_def.ret_type = ret_type;
             fd->body.func_def.name = dname;
             fd->body.func_def.params = params;
             fd->body.func_def.linkage = linkage;
             fd->body.func_def.body = NULL;
             *tail = fd;
-
             return head ? head : fd;
         }
 
         /* Variable declaration */
         AST_Node* vd = ast_node_new(AST_VAR_DECL,
                                     start->loc.line, start->loc.col);
-
         vd->body.var_decl.var_type = full;
         vd->body.var_decl.name = dname;
         vd->body.var_decl.addr_space = addr_space;
@@ -242,9 +117,7 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
 
         if (p->tok->kind == TOK_EQ) {
             p->tok = p->tok->next;
-
             if (p->tok->kind == TOK_LBRACE) {
-                /* brace-enclosed initializer: skip to matching } */
                 int depth = 1;
                 p->tok = p->tok->next;
                 while (p->tok->kind != TOK_EOF && depth > 0) {
@@ -260,7 +133,6 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
         if (is_typedef) {
             AST_Node* td = ast_node_new(AST_TYPEDEF,
                                         start->loc.line, start->loc.col);
-
             td->body.typedef_decl.aliased_type = full;
             td->body.typedef_decl.name = dname;
             vd = td;
@@ -269,13 +141,44 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
         *tail = vd;
         tail = &vd->next;
 
-        if (p->tok->kind == TOK_COMMA)
-            p->tok = p->tok->next;
-        else
-            break;
+        if (p->tok->kind == TOK_COMMA) p->tok = p->tok->next;
+        else break;
     }
 
     ll_expect(p, TOK_SEMI);
-
     return head;
+}
+
+/* ---------------------------------------------------------------
+ *  Main declaration parser
+ * --------------------------------------------------------------- */
+
+AST_Node* ll_parse_decl(LR1_Parser* p)
+{
+    Token* start = p->tok;
+    int is_typedef = 0;
+    int linkage = cuda_parse_qualifiers(p);
+    int addr_space = cuda_parse_var_qualifiers(p);
+
+    while (p->tok->kind == TOK_TYPEDEF || p->tok->kind == TOK_STATIC ||
+           p->tok->kind == TOK_EXTERN  || p->tok->kind == TOK_REGISTER) {
+        if (p->tok->kind == TOK_TYPEDEF) is_typedef = 1;
+        p->tok = p->tok->next;
+    }
+
+    if (p->tok->kind == TOK_STRUCT || p->tok->kind == TOK_UNION) {
+        int is_struct = (p->tok->kind == TOK_STRUCT);
+        Token* stok = p->tok;
+        p->tok = p->tok->next;
+        return parse_struct_union_decl(p, stok, is_struct, linkage, addr_space);
+    }
+
+    if (p->tok->kind == TOK_ENUM)
+        return ll_parse_enum_def(p);
+
+    Type* base = ll_parse_type_specs(p);
+    if (!base) { p->tok = p->tok->next; return NULL; }
+    if (p->tok->kind == TOK_SEMI) { p->tok = p->tok->next; return NULL; }
+
+    return parse_var_list_decl(p, start, base, is_typedef, linkage, addr_space);
 }

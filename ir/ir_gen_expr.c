@@ -1,0 +1,157 @@
+/* ir_gen_expr.c -- AST-to-IR expression generation */
+
+#include "ir.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "ast.h"
+
+/* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
+typedef struct SymEntry { String name; IR_Value* alloca; struct SymEntry* next; } SymEntry;
+typedef struct { IR_Builder* b; SymEntry* syms; IR_Block *break_blk, *cont_blk; int is_device; } GenCtx;
+
+/* from ir_gen.c */
+extern IR_Value* sym_lookup(GenCtx* ctx, String name);
+
+/* ---------------------------------------------------------------
+ *  CUDA builtin lookup (for device IR only)
+ * --------------------------------------------------------------- */
+
+typedef struct { const char *name, *member; int dim; const char* fn; } CudaBuiltin;
+
+static const CudaBuiltin cuda_builtins[] = {
+    {"blockIdx","x",0,"__spv_workgroup_id"},{"blockIdx","y",1,"__spv_workgroup_id"},
+    {"blockIdx","z",2,"__spv_workgroup_id"},{"threadIdx","x",0,"__spv_local_invocation_id"},
+    {"threadIdx","y",1,"__spv_local_invocation_id"},{"threadIdx","z",2,"__spv_local_invocation_id"},
+    {"blockDim","x",0,"__spv_workgroup_size"},{"blockDim","y",1,"__spv_workgroup_size"},
+    {"blockDim","z",2,"__spv_workgroup_size"},{"gridDim","x",0,"__spv_num_workgroups"},
+    {"gridDim","y",1,"__spv_num_workgroups"},{"gridDim","z",2,"__spv_num_workgroups"},
+};
+
+static int match_str(const char* a, const String* b)
+{
+    int len = strlen(a);
+    return len == b->length && memcmp(a, b->data, len) == 0;
+}
+
+/* ---------------------------------------------------------------
+ *  Binary operator map
+ * --------------------------------------------------------------- */
+
+static IR_Value*
+gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
+{
+    IR_Builder* b = ctx->b;
+
+    switch (op) {
+    case TOK_PLUS:     return ir_build_add(b, lhs, rhs);
+    case TOK_MINUS:    return ir_build_sub(b, lhs, rhs);
+    case TOK_STAR:     return ir_build_mul(b, lhs, rhs);
+    case TOK_SLASH:    return ir_build_sdiv(b, lhs, rhs);
+    case TOK_PERCENT:  return ir_build_srem(b, lhs, rhs);
+    case TOK_AMP:      return ir_build_and(b, lhs, rhs);
+    case TOK_PIPE:     return ir_build_or(b, lhs, rhs);
+    case TOK_CARET:    return ir_build_xor(b, lhs, rhs);
+    case TOK_LTLT:     return ir_build_shl(b, lhs, rhs);
+    case TOK_EQEQ:     return ir_build_icmp(b, IR_COND_EQ, lhs, rhs);
+    case TOK_BANGEQ:   return ir_build_icmp(b, IR_COND_NE, lhs, rhs);
+    case TOK_LT:       return ir_build_icmp(b, IR_COND_SLT, lhs, rhs);
+    case TOK_GT:       return ir_build_icmp(b, IR_COND_SGT, lhs, rhs);
+    case TOK_LTEQ:     return ir_build_icmp(b, IR_COND_SLE, lhs, rhs);
+    case TOK_GTEQ:     return ir_build_icmp(b, IR_COND_SGE, lhs, rhs);
+    default:           return lhs;
+    }
+}
+
+/* ---------------------------------------------------------------
+ *  Expression generation
+ * --------------------------------------------------------------- */
+
+IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
+{
+    if (!n) return NULL;
+
+    IR_Builder* b = ctx->b;
+
+    switch (n->type) {
+    case AST_INT_LIT:   return ir_const_int(b, t_i32, n->body.literal.int_val);
+    case AST_LONG_LIT:  return ir_const_int(b, t_i64, n->body.literal.int_val);
+    case AST_CHAR_LIT:  return ir_const_int(b, t_i8, n->body.literal.char_val);
+    case AST_FLOAT_LIT: return ir_const_float(t_f32, n->body.literal.float_val);
+    case AST_DOUBLE_LIT:return ir_const_float(t_f64, n->body.literal.float_val);
+
+    case AST_STRING_LIT:
+    { IR_Value* v = calloc(1, sizeof(IR_Value));
+      v->kind = VAL_CONST_STRING; v->type = ir_ptr_type(t_i8, 0);
+      v->body.str_val = n->body.literal.str_val; return v; }
+
+    case AST_IDENT:
+    { IR_Value* ptr = sym_lookup(ctx, n->body.ident.name);
+      if (ptr) return ir_build_load(b, ptr);
+      IR_Value* v = calloc(1, sizeof(IR_Value));
+      v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+
+    case AST_BINARY:
+    { if (n->body.binary.op == TOK_EQ) {
+          IR_Value* rhs = gen_expr(ctx, n->body.binary.right);
+          if (n->body.binary.left->type == AST_IDENT) {
+              IR_Value* ptr = sym_lookup(ctx, n->body.binary.left->body.ident.name);
+              if (ptr) ir_build_store(b, rhs, ptr); }
+          return rhs; }
+      IR_Value* l = gen_expr(ctx, n->body.binary.left);
+      IR_Value* r = gen_expr(ctx, n->body.binary.right);
+      return gen_binary_op(ctx, n->body.binary.op, l, r); }
+
+    case AST_UNARY:
+    { IR_Value* op = gen_expr(ctx, n->body.unary.operand);
+      if (n->body.unary.op == TOK_MINUS) return ir_build_sub(b, ir_const_int(b, op->type, 0), op);
+      if (n->body.unary.op == TOK_BANG) return ir_build_icmp(b, IR_COND_EQ, op, ir_const_int(b, op->type, 0));
+      return op; }
+
+    case AST_CALL:
+    { int n_args = 0; IR_Value* arg_buf[16]; String cn = {0,0};
+      if (n->body.call.callee->type == AST_IDENT) cn = n->body.call.callee->body.ident.name;
+      for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next) arg_buf[n_args++] = gen_expr(ctx, a);
+      char nb[128]; int nl = cn.length; if (nl > 127) nl = 127;
+      memcpy(nb, cn.data, nl); nb[nl] = '\0';
+      return ir_build_call(b, nb, t_i32, arg_buf, n_args); }
+
+    case AST_KERNEL_LAUNCH:
+    { AST_Node* cn = n->body.kernel_launch.callee; String kn = {0,0};
+      if (cn && cn->type == AST_IDENT) kn = cn->body.ident.name;
+      char pn[128]; int kl = kn.length > 120 ? 120 : kn.length;
+      memcpy(pn, "__cmpl_kl_", 10); if (kl>0) memcpy(pn+10, kn.data, kl); pn[10+kl] = '\0';
+      int n_args = 0; IR_Value* ab[16];
+      for (AST_Node* c = n->body.kernel_launch.config; c && n_args < 16; c = c->next) ab[n_args++] = gen_expr(ctx, c);
+      for (AST_Node* a = n->body.kernel_launch.args; a && n_args < 16; a = a->next) ab[n_args++] = gen_expr(ctx, a);
+      return ir_build_call(b, pn, t_void, ab, n_args); }
+
+    case AST_TERNARY:
+    { IR_Value* c = gen_expr(ctx, n->body.ternary.cond);
+      IR_Value* t = gen_expr(ctx, n->body.ternary.then_expr);
+      IR_Value* e = gen_expr(ctx, n->body.ternary.else_expr);
+      return ir_build_select(b, c, t, e); }
+
+    case AST_CAST: return gen_expr(ctx, n->body.cast.cast_expr);
+
+    case AST_INDEX:
+    { IR_Value* arr = gen_expr(ctx, n->body.subscript.array);
+      IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
+      return ir_build_load(b, ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx)); }
+
+    case AST_MEMBER:
+        if (ctx->is_device && n->body.member.record->type == AST_IDENT) {
+            String *rn = &n->body.member.record->body.ident.name, *mb = &n->body.member.member;
+            for (int i = 0; i < 12; i++)
+                if (match_str(cuda_builtins[i].name, rn) &&
+                    match_str(cuda_builtins[i].member, mb))
+                    { IR_Value* d = ir_const_int(b, t_i32, cuda_builtins[i].dim);
+                      return ir_build_call(b, cuda_builtins[i].fn, t_i32, (IR_Value*[]){d}, 1); }
+        }
+        { IR_Value* v = calloc(1, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+
+    default: return NULL;
+    }
+}
