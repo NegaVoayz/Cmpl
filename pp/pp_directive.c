@@ -13,6 +13,40 @@ skip_to_eol(const char** pp, const char* end)
     if (*pp < end) (*pp)++;
 }
 
+/* Read a logical line: join backslash-newline continuations.
+ * Stops at the first \n that is NOT preceded by \.
+ * Also handles \r\n (Windows CRLF) after backslash.
+ * Returns the length of the joined line, advances *pp past the
+ * terminating newline. */
+static int
+read_logical_line(const char** pp, const char* end, char* buf, int buf_sz)
+{
+    const char* p = *pp;
+    int len = 0;
+
+    while (p < end && len < buf_sz - 1) {
+        /* backslash-newline: join (skip both \) */
+        if (*p == '\\' && p + 1 < end && p[1] == '\n') {
+            p += 2;
+            continue;
+        }
+        /* backslash-CRLF (Windows): skip \r\n */
+        if (*p == '\\' && p + 2 < end && p[1] == '\r' && p[2] == '\n') {
+            p += 3;
+            continue;
+        }
+        /* real newline -- end of logical line */
+        if (*p == '\n') { p++; break; }
+        /* CRLF without backslash -- treat as newline */
+        if (*p == '\r' && p + 1 < end && p[1] == '\n') { p += 2; break; }
+
+        buf[len++] = *p++;
+    }
+    buf[len] = '\0';
+    *pp = p;
+    return len;
+}
+
 static int
 match(const char* a, const char* b, int len)
 { return memcmp(a, b, len) == 0; }
@@ -63,28 +97,39 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
 
     while (p < end && (*p == ' ' || *p == '\t')) p++;
 
-    const char* body_start = p;
-    while (p < end && *p != '\n') p++;
-    int body_len = (int)(p - body_start);
+    /* read macro body — handle backslash-newline continuation */
+    {
+        char  body_buf[8192];
+        int   body_len = read_logical_line(&p, end, body_buf,
+                                           (int)sizeof(body_buf));
 
-    while (body_len > 0 && (body_start[body_len - 1] == ' '
-                            || body_start[body_len - 1] == '\t'))
-        body_len--;
+        /* trim trailing whitespace */
+        while (body_len > 0 && (body_buf[body_len - 1] == ' '
+                                || body_buf[body_len - 1] == '\t'
+                                || body_buf[body_len - 1] == '\r'))
+            body_len--;
+        body_buf[body_len] = '\0';
 
-    char* body = malloc(body_len + 1);
-    memcpy(body, body_start, body_len);
-    body[body_len] = '\0';
+        char* body = malloc(body_len + 1);
+        memcpy(body, body_buf, body_len);
+        body[body_len] = '\0';
 
-    char** params_copy = NULL;
-    if (is_func && nparams > 0) {
-        params_copy = malloc(nparams * sizeof(char*));
-        memcpy(params_copy, params, nparams * sizeof(char*));
+        char** params_copy = NULL;
+        if (is_func && nparams > 0) {
+            params_copy = malloc(nparams * sizeof(char*));
+            memcpy(params_copy, params, nparams * sizeof(char*));
+        }
+
+        macro_add(&ctx->macros, name_buf, body, is_func, nparams, params_copy);
+        free(body);
     }
 
-    macro_add(&ctx->macros, name_buf, body, is_func, nparams, params_copy);
-    free(body);
+    /* nparams cleanup -- malloc'd strings freed later when macro
+     * table is freed; we just copy the pointers into the macro */
 
-    if (p < end && *p == '\n') p++;
+    for (int i = 0; i < nparams; i++)
+        free(params[i]);
+
     *pp = p;
 }
 

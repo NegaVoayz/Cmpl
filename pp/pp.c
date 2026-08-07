@@ -99,6 +99,9 @@ process_source(PPCtx* ctx, const char* src, int srclen)
         while (p < end && *p != '\n') {
             if (*p == '\\' && p + 1 < end && p[1] == '\n') {
                 p += 2;
+            } else if (*p == '\\' && p + 2 < end
+                       && p[1] == '\r' && p[2] == '\n') {
+                p += 3;
             } else {
                 buf_append(&line, p, 1);
                 p++;
