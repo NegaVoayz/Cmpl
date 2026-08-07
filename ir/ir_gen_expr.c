@@ -135,6 +135,9 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       return ir_build_select(b, c, t, e); }
 
     case AST_CAST: return gen_expr(ctx, n->body.cast.cast_expr);
+    case AST_COMPOUND_LIT:
+        { IR_Value* v = calloc(1, sizeof(IR_Value));
+          v->kind = VAL_UNDEF; v->type = t_i32; return v; }
 
     case AST_INDEX:
     { IR_Value* arr = gen_expr(ctx, n->body.subscript.array);

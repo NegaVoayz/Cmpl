@@ -21,6 +21,7 @@ typedef enum {
     AST_POSTFIX,      /* postfix: ++ -- */
     AST_TERNARY,      /* ?: */
     AST_CAST,         /* (type)expr */
+    AST_COMPOUND_LIT, /* (type){init} -- C99 compound literal */
     AST_CALL,         /* f(args) */
     AST_KERNEL_LAUNCH, /* kernel<<<config>>>(args) */
     AST_INDEX,        /* a[i] */

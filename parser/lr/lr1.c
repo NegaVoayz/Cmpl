@@ -162,6 +162,27 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                     if (p->tok->kind == TOK_RPAREN)
                         p->tok = p->tok->next;
 
+                    /* C99 compound literal: (type){init} */
+                    if (p->tok->kind == TOK_LBRACE) {
+                        Token* start = p->tok;
+                        int depth = 1;
+
+                        p->tok = p->tok->next;
+                        while (p->tok->kind != TOK_EOF && depth > 0) {
+                            if (p->tok->kind == TOK_LBRACE) depth++;
+                            if (p->tok->kind == TOK_RBRACE) depth--;
+                            if (depth > 0) p->tok = p->tok->next;
+                        }
+                        if (p->tok->kind == TOK_RBRACE)
+                            p->tok = p->tok->next;
+
+                        AST_Node* n = ast_node_new(AST_COMPOUND_LIT,
+                                                    start->loc.line, start->loc.col);
+                        n->body.compound_lit.init = NULL;
+                        goto_push(p, n, SYM_PRIMARY);
+                        continue;
+                    }
+
                     /* mark pending cast so lr1_parse_expr wraps the result */
                     p->pending_cast = 1;
                     p->cast_loc = peek->loc;

@@ -29,6 +29,10 @@ static int walk_children(AST_Node* n, AST_Walker pre, AST_Walker post,
         ch |= ast_walk(n->body.ternary.else_expr, pre, post, ctx); break;
     case AST_CAST:
         ch |= ast_walk(n->body.cast.cast_expr, pre, post, ctx); break;
+    case AST_COMPOUND_LIT:
+        if (n->body.compound_lit.init)
+            ch |= ast_walk(n->body.compound_lit.init, pre, post, ctx);
+        break;
     case AST_CALL:
         ch |= ast_walk(n->body.call.callee, pre, post, ctx);
         ch |= ast_walk(n->body.call.args, pre, post, ctx); break;

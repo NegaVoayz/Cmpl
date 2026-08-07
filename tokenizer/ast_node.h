@@ -47,6 +47,9 @@ struct AST_Node {
         /* cast (type)expr */
         struct { Type* type_expr; AST_Node* cast_expr; } cast;
 
+        /* compound literal (type){init} */
+        struct { AST_Node* init; } compound_lit;
+
         /* function call */
         struct { AST_Node* callee; AST_Node* args; } call;
 

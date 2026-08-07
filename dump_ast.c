@@ -77,6 +77,11 @@ static void dump_expr(AST_Node* n, int depth)
     case AST_CAST:
         printf("CAST\n");
         dump_ast(n->body.cast.cast_expr, depth + 1); break;
+    case AST_COMPOUND_LIT:
+        printf("COMPOUND_LIT\n");
+        if (n->body.compound_lit.init)
+            dump_ast(n->body.compound_lit.init, depth + 1);
+        break;
     case AST_KERNEL_LAUNCH:
         printf("KERNEL_LAUNCH\n");
         dump_ast(n->body.kernel_launch.callee, depth + 1);
