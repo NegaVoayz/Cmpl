@@ -130,6 +130,8 @@ struct LR1_Parser {
     int        sp;
     int        error;
     int        allow_unmatched_rparen;  /* for for-loop update expr terminated by ')' */
+    int        pending_cast;            /* cast prefix was detected; wrap result */
+    SourceLoc  cast_loc;               /* location of the cast for AST_CAST node */
 };
 
 /* ---------------------------------------------------------------

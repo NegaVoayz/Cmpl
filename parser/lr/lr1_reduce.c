@@ -81,17 +81,6 @@ LR_Action reduce_primary_ident(LR1_Parser* p)
     return LR_REDUCE;
 }
 
-LR_Action reduce_primary_paren(LR1_Parser* p)
-{
-    /* pop 3: TOK_LPAREN, expr, TOK_RPAREN */
-    AST_Node* inner = p->stack[p->sp - 1].node;
-
-    p->sp -= 3;
-    goto_push(p, inner, SYM_PRIMARY);
-
-    return LR_REDUCE;
-}
-
 /* close a parenthesized expression: stack has [LPAREN, expr], current token is ) */
 LR_Action reduce_primary_paren_close(LR1_Parser* p)
 {
@@ -409,21 +398,6 @@ LR_Action reduce_postfix_dec(LR1_Parser* p)
  *  Unary prefix reductions
  * =========================================================== */
 
-LR_Action reduce_unary_prefix(LR1_Parser* p)
-{
-    /* pop 2: unary_op token, cast_expr */
-    Token*    op_tok  = p->stack[p->sp - 1].token;
-    AST_Node* operand = p->stack[p->sp].node;
-    AST_Node* n = ast_node_new(AST_UNARY, op_tok->loc.line, op_tok->loc.col);
-
-    n->body.unary.operand = operand;
-    n->body.unary.op = op_tok->kind;
-    p->sp -= 2;
-    goto_push(p, n, SYM_UNARY);
-
-    return LR_REDUCE;
-}
-
 LR_Action reduce_prefix_inc(LR1_Parser* p)
 {
     /* pop 2: TOK_PLUSPLUS, unary -- rewrite as AST_UNARY */
@@ -691,13 +665,59 @@ LR_Action lr1_handle_comma(LR1_Parser* p)
 
 LR_Action lr1_handle_colon(LR1_Parser* p)
 {
-    /* check if we're inside a ternary (? ... :) */
+    /* Match innermost UNMATCHED ? -- track balance of ?/: pairs.
+     * A S_TERNARY_COLON above a S_TERNARY_Q means that ? already has its :. */
+    int balance = 0;
+
     for (int i = p->sp; i >= 0; i--) {
+        if (p->stack[i].state == S_TERNARY_COLON)
+            balance++;
+        else if (p->stack[i].state == S_TERNARY_Q) {
+            if (balance == 0)
+                return shift_ternary_colon(p);
+            balance--;
+        }
+    }
+
+    return LR_ACCEPT;
+}
+
+/* ===========================================================
+ *  Ternary RHS : handler
+ *
+ *  When S_TERNARY_RHS sees ':', we must decide whether to
+ *  reduce the inner ternary first (if its ? already has a :)
+ *  or shift this : as belonging to the innermost unmatched ?.
+ * =========================================================== */
+
+LR_Action lr1_ternary_rhs_colon(LR1_Parser* p)
+{
+    /* Scan the stack from just below S_TERNARY_RHS.
+     * If we hit S_TERNARY_COLON first, the inner ternary is complete
+     * -- reduce it so the next iteration handles : for the outer ?.
+     * If we hit S_TERNARY_Q first, this : belongs to that ?. */
+
+    for (int i = p->sp - 1; i >= 0; i--) {
+        if (p->stack[i].state == S_TERNARY_COLON)
+            return reduce_ternary(p);
         if (p->stack[i].state == S_TERNARY_Q)
             return shift_ternary_colon(p);
     }
 
-    return LR_ACCEPT;
+    return LR_ERROR;
+}
+
+/* ===========================================================
+ *  Ternary RHS binary-op handler
+ *
+ *  Binary operators always bind tighter than ?:, so always
+ *  shift the binary op.  The BINRHS chain + S_TERNARY_COLON's
+ *  GOTO table routes the reduced binary back to S_TERNARY_RHS.
+ * =========================================================== */
+
+LR_Action lr1_ternary_rhs_action(LR1_Parser* p)
+{
+    return shift_binary_op(p);
 }
 
 /* ===========================================================

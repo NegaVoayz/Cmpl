@@ -7,10 +7,24 @@
 
 #include "lr1.h"
 
+#include <stdio.h>
+
 /* --- generic shift helper --- */
 
 static LR_Action do_shift(LR1_Parser* p, int target)
 {
+    if (p->sp + 1 >= MAX_STACK) {
+        fprintf(stderr, "lr1: stack overflow\n");
+        p->error = 1;
+        return LR_ERROR;
+    }
+
+    if (!p->tok) {
+        fprintf(stderr, "lr1: unexpected end of token stream\n");
+        p->error = 1;
+        return LR_ERROR;
+    }
+
     p->sp++;
     p->stack[p->sp].state = target;
     p->stack[p->sp].token = p->tok;
@@ -138,9 +152,3 @@ LR_Action shift_ternary_colon(LR1_Parser* p)
     return do_shift(p, S_TERNARY_COLON);
 }
 
-/* --- comma operator --- */
-
-LR_Action shift_comma(LR1_Parser* p)
-{
-    return do_shift(p, S_BINARY_OP);
-}

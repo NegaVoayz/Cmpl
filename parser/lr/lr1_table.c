@@ -36,7 +36,6 @@ LR_Action shift_ternary_colon(LR1_Parser* p);
 /* primary */
 LR_Action reduce_primary_lit(LR1_Parser* p);
 LR_Action reduce_primary_ident(LR1_Parser* p);
-LR_Action reduce_primary_paren(LR1_Parser* p);
 
 /* passthrough */
 LR_Action reduce_to_postfix(LR1_Parser* p);
@@ -65,7 +64,6 @@ LR_Action reduce_postfix_inc(LR1_Parser* p);
 LR_Action reduce_postfix_dec(LR1_Parser* p);
 
 /* unary */
-LR_Action reduce_unary_prefix(LR1_Parser* p);
 LR_Action reduce_prefix_inc(LR1_Parser* p);
 LR_Action reduce_prefix_dec(LR1_Parser* p);
 LR_Action reduce_sizeof_expr(LR1_Parser* p);
@@ -94,6 +92,8 @@ LR_Action lr1_handle_rparen(LR1_Parser* p);
 LR_Action lr1_handle_colon(LR1_Parser* p);
 LR_Action lr1_handle_comma(LR1_Parser* p);
 LR_Action lr1_binary_rhs_action(LR1_Parser* p);
+LR_Action lr1_ternary_rhs_action(LR1_Parser* p);
+LR_Action lr1_ternary_rhs_colon(LR1_Parser* p);
 LR_Action reduce_binary_op(LR1_Parser* p);
 LR_Action reduce_unary_rhs(LR1_Parser* p);
 LR_Action reduce_ternary(LR1_Parser* p);
@@ -559,7 +559,11 @@ void lr1_table_init(void)
             set_cell(S_BINARY_RHS, t, reduce_binary_op);
     }
     set_cell(S_BINARY_RHS, TOK_QUESTION, shift_ternary_q);
-    set_cell(S_BINARY_RHS, TOK_COLON, lr1_handle_colon);
+    /* colon: reduce binary first so ternary's then-expr is complete */
+    for (int t = 0; t < NUM_TOKENS; t++) {
+        if (t == TOK_COLON)
+            set_cell(S_BINARY_RHS, t, reduce_binary_op);
+    }
 
     /* S_BINRHS_PRIMARY -- RHS is primary, shift postfix ops else passthrough */
     fill_row(S_BINRHS_PRIMARY, reduce_to_postfix);
@@ -600,10 +604,10 @@ void lr1_table_init(void)
             set_cell(S_ASSIGN_RHS, t, shift_assign_op);
     }
     set_cell(S_ASSIGN_RHS, TOK_QUESTION, shift_ternary_q);
-    set_cell(S_ASSIGN_RHS, TOK_COLON, lr1_handle_colon);
 
     /* S_TERNARY_RHS -- just parsed else-expr of ternary, reduce it.
-     * Allow postfix ops on the else-expr before reducing. */
+     * Allow postfix ops, binary ops (:? has lowest non-assign precedence),
+     * and nested ternary on the else-expr before reducing. */
     fill_row(S_TERNARY_RHS, reduce_ternary);
     set_cell(S_TERNARY_RHS, TOK_LPAREN,    shift_postfix_lparen);
     set_cell(S_TERNARY_RHS, TOK_LBRACKET,  shift_postfix_lbrack);
@@ -612,6 +616,15 @@ void lr1_table_init(void)
     set_cell(S_TERNARY_RHS, TOK_PLUSPLUS,  shift_postfix_inc);
     set_cell(S_TERNARY_RHS, TOK_MINUSMINUS, shift_postfix_dec);
     set_cell(S_TERNARY_RHS, TOK_QUESTION,  shift_ternary_q);
+
+    /* binary operators bind tighter than :? -- shift them */
+    for (int t = 0; t < NUM_TOKENS; t++) {
+        if (is_binary_op(t) || t == TOK_COMMA)
+            set_cell(S_TERNARY_RHS, t, lr1_ternary_rhs_action);
+    }
+
+    /* colon: reduce inner ternary first if already matched, else shift */
+    set_cell(S_TERNARY_RHS, TOK_COLON, lr1_ternary_rhs_colon);
 
     /* ===========================================================
      *  GOTO table

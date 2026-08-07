@@ -15,6 +15,15 @@ static int is_type_keyword(TokenKind k)
            k == TOK_STRUCT || k == TOK_UNION  || k == TOK_ENUM;
 }
 
+/* states at or below cast-expr level -- where a pending cast should wrap */
+static int is_cast_level(int s)
+{
+    return s == HS_PRIMARY  || s == HS_POSTFIX || s == HS_UNARY ||
+           s == HS_CAST_EXPR ||
+           s == S_BINRHS_PRIMARY || s == S_BINRHS_POSTFIX ||
+           s == S_BINRHS_UNARY;
+}
+
 LR1_Parser* lr1_parser_new(Token* first_tok)
 {
     LR1_Parser* p = calloc(1, sizeof(LR1_Parser));
@@ -22,6 +31,7 @@ LR1_Parser* lr1_parser_new(Token* first_tok)
     p->tok = first_tok;
     p->sp = 0;
     p->error = 0;
+    p->pending_cast = 0;
     p->stack[0].state = S_ENTRY;
     p->stack[0].token = NULL;
     p->stack[0].node = NULL;
@@ -40,6 +50,12 @@ void goto_push(LR1_Parser* p, AST_Node* node, int lhs_sym)
 {
     int target = goto_table[p->stack[p->sp].state][lhs_sym];
 
+    if (p->sp + 1 >= MAX_STACK) {
+        fprintf(stderr, "lr1: stack overflow\n");
+        p->error = 1;
+        return;
+    }
+
     p->sp++;
     p->stack[p->sp].state = target;
     p->stack[p->sp].token = NULL;
@@ -53,6 +69,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
     p->stack[0].state = S_ENTRY;
     p->stack[0].token = NULL;
     p->stack[0].node = NULL;
+    p->pending_cast = 0;
 
     while (1) {
         TokenKind next = p->tok->kind;
@@ -95,6 +112,10 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                         p->tok = p->tok->next;
                     if (p->tok->kind == TOK_RPAREN)
                         p->tok = p->tok->next;
+
+                    /* mark pending cast so lr1_parse_expr wraps the result */
+                    p->pending_cast = 1;
+                    p->cast_loc = peek->loc;
                     continue;
                 }
             }
@@ -103,11 +124,40 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
         LR_Action action = func(p);
 
         switch (action) {
-        case LR_ACCEPT:
-            return p->stack[p->sp].node;
+        case LR_ACCEPT: {
+            AST_Node* result = p->stack[p->sp].node;
+
+            if (p->pending_cast && result) {
+                AST_Node* cast = ast_node_new(AST_CAST,
+                                              p->cast_loc.line, p->cast_loc.col);
+
+                cast->body.cast.type_expr = NULL;
+                cast->body.cast.cast_expr = result;
+                p->pending_cast = 0;
+                return cast;
+            }
+
+            return result;
+        }
 
         case LR_SHIFT:
+            continue;
+
         case LR_REDUCE:
+            /* apply pending cast at the earliest point (primary through cast-expr) */
+            if (p->pending_cast && is_cast_level(p->stack[p->sp].state)) {
+                AST_Node* inner = p->stack[p->sp].node;
+
+                if (inner) {
+                    AST_Node* cast = ast_node_new(AST_CAST,
+                                                  p->cast_loc.line, p->cast_loc.col);
+
+                    cast->body.cast.type_expr = NULL;
+                    cast->body.cast.cast_expr = inner;
+                    p->stack[p->sp].node = cast;
+                }
+                p->pending_cast = 0;
+            }
             continue;
 
         case LR_ERROR:
