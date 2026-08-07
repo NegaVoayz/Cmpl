@@ -5,6 +5,7 @@
 #include "ir-opt.h"
 #include "cuda.h"
 #include "vulkan.h"
+#include "llvm_cg.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,8 @@ main(int argc, char** argv)
     int         cuda_mode = 0;
     int         dump_spv = 0;
     int         opt_level = 0;
+    int         codegen_mode = 0;
+    const char* out_file = NULL;
     PPCtx       pp_ctx;
 
     pp_ctx_init(&pp_ctx);
@@ -31,10 +34,20 @@ main(int argc, char** argv)
         } else if (strcmp(argv[i], "-cuda") == 0) {
             cuda_mode = 1;
         } else if (strcmp(argv[i], "-S") == 0) {
-            dump_spv = 1;
+            /* -S: SPIR-V dump in CUDA mode, native asm in normal mode */
+            if (cuda_mode)
+                dump_spv = 1;
+            else
+                codegen_mode = CG_OUT_ASM;
         } else if (strncmp(argv[i], "-O", 2) == 0 && argv[i][2] >= '0'
                    && argv[i][2] <= '2' && argv[i][3] == '\0') {
             opt_level = argv[i][2] - '0';
+        } else if (strcmp(argv[i], "-c") == 0) {
+            codegen_mode = CG_OUT_OBJECT;
+        } else if (strcmp(argv[i], "-emit-llvm") == 0) {
+            codegen_mode = CG_OUT_LLVM_IR;
+        } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+            out_file = argv[++i];
         } else if (argv[i][0] == '-' && argv[i][1] == 'I' && argv[i][2] != '\0') {
             pp_add_include_path(&pp_ctx, argv[i] + 2);
         } else if (argv[i][0] == '-' && argv[i][1] == 'I' && argv[i][2] == '\0'
@@ -46,7 +59,8 @@ main(int argc, char** argv)
     }
 
     if (!filename) {
-        fprintf(stderr, "Usage: %s [-I dir]... [-ir] [-cuda] [-S] [-O0|-O1|-O2] <source-file>\n",
+        fprintf(stderr, "Usage: %s [-I dir]... [-ir] [-cuda] [-c|-S|-emit-llvm] [-o outfile]\n"
+                "              [-O0|-O1|-O2] <source-file>\n",
                 argv[0]);
         pp_ctx_free(&pp_ctx);
         return 1;
@@ -132,6 +146,39 @@ main(int argc, char** argv)
         }
 
         free(launches);
+    } else if (codegen_mode) {
+        /* -------------------------------------------------------
+         *  LLVM codegen path: IR gen → optimize → clang subprocess
+         * ------------------------------------------------------- */
+        printf("\n--- Generating IR for codegen ---\n");
+        IR_Module* mod = ir_gen_program(root);
+
+        if (mod) {
+            ir_optimize(mod, opt_level);
+
+            /* derive output name from source if not specified */
+            char default_out[256];
+            const char* output = out_file;
+            if (!output) {
+                const char* dot = strrchr(filename, '.');
+                int baselen = dot ? (int)(dot - filename)
+                                  : (int)strlen(filename);
+                const char* ext;
+                switch (codegen_mode) {
+                case CG_OUT_OBJECT:  ext = ".o";  break;
+                case CG_OUT_ASM:     ext = ".s";  break;
+                case CG_OUT_LLVM_IR: ext = ".ll"; break;
+                default:             ext = ".o";  break;
+                }
+                snprintf(default_out, sizeof(default_out),
+                         "%.*s%s", baselen, filename, ext);
+                output = default_out;
+            }
+
+            int result = cg_compile(mod, output, codegen_mode, opt_level);
+            if (result != 0)
+                fprintf(stderr, "Codegen failed.\n");
+        }
     } else if (dump_ir) {
         printf("\n--- IR ---\n");
         IR_Module* mod = ir_gen_program(root);

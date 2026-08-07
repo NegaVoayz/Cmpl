@@ -49,6 +49,8 @@ dump_func(FILE* out, IR_Func* func)
     /* params */
     for (int i = 0; i < func->n_params; i++) {
         if (i > 0) fprintf(out, ", ");
+        dump_type(out, func->params[i]->type);
+        fprintf(out, " ");
         dump_value(out, func->params[i]);
     }
     fprintf(out, ")");

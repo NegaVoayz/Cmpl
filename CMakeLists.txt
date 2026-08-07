@@ -12,9 +12,10 @@ add_subdirectory(ir)
 add_subdirectory(cuda)
 add_subdirectory(vulkan)
 add_subdirectory(ir-opt)
+add_subdirectory(llvm-codegen)
 
 add_executable(cmpl main.c dump_ast.c)
-target_link_libraries(cmpl tokenizer pp parser cuda ast_opt ir vulkan ir-opt)
+target_link_libraries(cmpl tokenizer pp parser cuda ast_opt ir vulkan ir-opt llvm-codegen)
 
 add_executable(cmpl-pp main_pp.c)
 target_link_libraries(cmpl-pp tokenizer pp parser cuda)

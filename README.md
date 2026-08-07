@@ -4,11 +4,11 @@ Cmpl is a from-scratch C compiler built around a **hybrid parser**:
 - **LR(1)** table-driven parser for expressions (precedence, associativity)
 - **LL** recursive-descent parser for statements, declarations, and top-level structure
 
-The pipeline: **tokenizer → preprocessor → hybrid parser → AST → AST optimizer → AST dump**.
+The pipeline: **tokenizer → preprocessor → hybrid parser → AST → AST optimizer → IR gen → IR optimizer → LLVM codegen (.o/.s/.ll)**.
 
-## CUDA-to-Vulkan Bridge (Design Phase)
+## CUDA-to-Vulkan Bridge
 
-Cmpl is being extended to compile **CUDA-like kernel code** into a **host-side Vulkan dispatch**
+Cmpl compiles **CUDA-like kernel code** into a **host-side Vulkan dispatch**
 + **device-side SPIR-V kernel**, going through an **LLVM IR tree** intermediate representation.
 
 ```
@@ -23,23 +23,23 @@ source.cu  →  [Parser]  →  AST  →  [Device/Host Split]  →  Host AST + De
                                          ↓
                                     [IR Optimizer]
                                          ↓
-                                    [Output]
-                                    Host: .ll  →  clang  →  .s/.o
+                                    [LLVM Codegen]
+                                    Host: .s/.o
                                     Device: .spv (SPIR-V binary)
 ```
 
 Key design decisions:
-- **Own LLVM IR tree** — no external LLVM dependency. IR is dumped as `.ll` text for `clang`.
+- **Own LLVM IR tree** — self-contained IR data structures. `.ll` text dump for debugging.
+- **LLVM codegen** — invokes system `clang` as a subprocess to compile `.ll` → `.o`/`.s`.
+  No LLVM library linkage at build time; `clang` must be in `PATH` at runtime.
 - **Own SPIR-V backend** — device IR converted directly to SPIR-V binary. With `-S` flag,
   intermediate IR text is also dumped (like `gcc -S`).
-- **Runtime library** — host IR calls `cmpl_vk_launch()` from a companion C library
-  (`libcmpl-vk-runtime`) that handles Vulkan init, buffer management, pipeline creation,
-  and dispatch.
 
 ## Status
 
-Work-in-progress. Currently self-parses all source files, performs AST-level optimization,
-and dumps the AST tree. The CUDA/Vulkan/LLVM-IR pipeline is in the design phase.
+Active development. The compiler parses C source, performs AST and IR optimization,
+invokes `clang` for native codegen (.o/.s), and generates SPIR-V from CUDA kernel code.
+The Vulkan runtime library (`rt/`) is planned but not yet implemented.
 
 See [CLAUDE.md](CLAUDE.md) for the design rationale and coding conventions.
 
@@ -52,20 +52,34 @@ cmake .. -G "Unix Makefiles"   # or "Visual Studio 17 2022" on Windows
 make                           # or cmake --build .
 ```
 
-Requires CMake ≥ 3.10 and a C11 compiler.
+Requires CMake ≥ 3.10 and a C11 compiler. For codegen (`-c`/`-S`), `clang` must be
+installed and in your `PATH` at runtime.
 
 ## Run
 
 ```sh
+# Compile to native object file
+./cmpl -c file.c                  # → file.o
+./cmpl -c -o out.o file.c         # → out.o
+
+# Compile to assembly
+./cmpl -S file.c                  # → file.s
+
+# Dump LLVM IR text
+./cmpl -emit-llvm file.c          # → file.ll
+
+# Dump IR to stdout (debug)
+./cmpl -ir file.c
+
 # Full pipeline: preprocess → parse → AST optimize → dump AST
-./cmpl [-I include/dir]... file.c
+./cmpl file.c
 
 # Preprocessor only
 ./cmpl-pp file.c
 
-# Future: CUDA compilation
-./cmpl -cuda kernel.cu          # → kernel.host.ll + kernel.device.spv
-./cmpl -cuda -S kernel.cu       # → also dumps kernel.device.ll
+# CUDA compilation
+./cmpl -cuda kernel.cu            # → kernel.cu.spv
+./cmpl -cuda -S kernel.cu         # → also dumps device IR
 ```
 
 ## Project Map
@@ -79,10 +93,11 @@ Requires CMake ≥ 3.10 and a C11 compiler.
 | `parser/` | Hybrid Parser | Glue layer: tokenizes then dispatches LR + LL |
 | `ast-opt/` | AST Optimizer (pre-IR) | Constant folding, propagation, dead code elimination (in-place AST mutations) |
 | `test/` | Tests | Unit tests for tokenizer, preprocessor, parser |
-| `cuda/` | CUDA Bridge *(planned)* | Qualifier parsing, device/host code split |
-| `ir/` | LLVM IR *(planned)* | Own IR tree: types, values, instructions, blocks, functions |
-| `vulkan/` | Vulkan/SPIR-V *(planned)* | Host mock generation, SPIR-V binary emission |
-| `ir-opt/` | IR Optimizer *(planned)* | Post-IR passes: mem2reg, DCE, const fold, CFG simplify, GVN, inlining |
+| `cuda/` | CUDA Bridge | Qualifier parsing, device/host code split |
+| `ir/` | LLVM IR | Own IR tree: types, values, instructions, blocks, functions |
+| `vulkan/` | Vulkan/SPIR-V | Host mock generation, SPIR-V binary emission |
+| `ir-opt/` | IR Optimizer | Post-IR passes: mem2reg, DCE, const fold, CFG simplify, GVN, inlining |
+| `llvm-codegen/` | LLVM Codegen | Invokes system clang to compile .ll → .o/.s/.ll |
 | `rt/` | Vulkan Runtime *(planned)* | Companion C library: Vulkan init, dispatch, buffer mgmt |
 
 ## Documentation
@@ -98,4 +113,5 @@ Requires CMake ≥ 3.10 and a C11 compiler.
 - **[Preprocessor](doc/preprocessor.md)** — macro expansion, conditional compilation, includes
 - **[LR(1) Expression Parser](doc/parser-lr1.md)** — table-driven precedence climbing
 - **[LL Statement Parser](doc/parser-ll.md)** — recursive-descent for statements & declarations
+- **[LLVM Codegen](doc/llvm-codegen.md)** — clang subprocess codegen: .ll → .o/.s/.ll
 - **[Hybrid Parser](doc/hybrid-parser.md)** — how LR and LL coordinate

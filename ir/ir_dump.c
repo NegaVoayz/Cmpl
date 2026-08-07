@@ -24,12 +24,10 @@ void dump_type(FILE* out, IR_Type* ty)
     case IR_F64:   fprintf(out, "double"); break;
 
     case IR_PTR:
-        dump_type(out, ty->inner);
-
         if (ty->addrspace > 0)
-            fprintf(out, " addrspace(%d)*", ty->addrspace);
+            fprintf(out, "ptr addrspace(%d)", ty->addrspace);
         else
-            fprintf(out, "*");
+            fprintf(out, "ptr");
         break;
 
     case IR_ARRAY:
@@ -86,8 +84,7 @@ void dump_value(FILE* out, IR_Value* val)
         break;
 
     case VAL_PARAM:
-        dump_type(out, val->type);
-        fprintf(out, " %%%d", val->id);
+        fprintf(out, "%%%d", val->id);
         break;
 
     case VAL_INSTR:

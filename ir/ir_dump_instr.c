@@ -36,14 +36,16 @@ void dump_instr(FILE* out, IR_Instr* inst)
     case IROP_LOAD:
         fprintf(out, "load ");
         dump_type(out, inst->type);
-        fprintf(out, ", ");
+        fprintf(out, ", ptr ");
         dump_value(out, inst->operands[0]);
         break;
 
     case IROP_STORE:
         fprintf(out, "  store ");
+        dump_type(out, inst->operands[0]->type);
+        fprintf(out, " ");
         dump_value(out, inst->operands[0]);
-        fprintf(out, ", ");
+        fprintf(out, ", ptr ");
         dump_value(out, inst->operands[1]);
         break;
 
@@ -135,7 +137,7 @@ void dump_instr(FILE* out, IR_Instr* inst)
     case IROP_GEP:
         fprintf(out, "getelementptr ");
         dump_type(out, inst->operands[0]->type->inner);
-        fprintf(out, ", ");
+        fprintf(out, ", ptr ");
         dump_value(out, inst->operands[0]);
         fprintf(out, ", ");
 
