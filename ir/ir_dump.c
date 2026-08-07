@@ -89,9 +89,9 @@ void dump_value(FILE* out, IR_Value* val)
         {
             int idx = dump_str_index(val->body.str_val);
             if (idx >= 0)
-                fprintf(out, "ptr @.str.%d", idx);
+                fprintf(out, "@.str.%d", idx);
             else
-                fprintf(out, "ptr null");
+                fprintf(out, "null");
         }
         break;
 

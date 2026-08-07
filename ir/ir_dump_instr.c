@@ -104,6 +104,8 @@ void dump_instr(FILE* out, IR_Instr* inst)
 
         for (int i = 0; i < inst->n_call_args; i++) {
             if (i > 0) fprintf(out, ", ");
+            dump_type(out, inst->call_args[i]->type);
+            fprintf(out, " ");
             dump_value(out, inst->call_args[i]);
         }
         fprintf(out, ")");
