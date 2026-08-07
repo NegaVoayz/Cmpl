@@ -9,6 +9,7 @@
 
 /* forward */
 typedef struct IR_Block IR_Block;
+typedef struct FuncSig FuncSig;  /* func signature for call ret-type lookup */
 
 /* ---------------------------------------------------------------
  *  IR type kinds -- maps to LLVM type primitives

@@ -10,10 +10,13 @@
 
 /* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
 typedef struct SymEntry { String name; IR_Value* alloca; struct SymEntry* next; } SymEntry;
-typedef struct { IR_Builder* b; SymEntry* syms; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; int is_device; } GenCtx;
+typedef struct FuncSig { String name; IR_Type* ret_type; struct FuncSig* next; } FuncSig;
+typedef struct { IR_Builder* b; SymEntry* syms; FuncSig* sigs; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; } GenCtx;
 
 /* from ir_gen.c */
 extern IR_Value* sym_lookup(GenCtx* ctx, String name);
+extern IR_Value* global_lookup(IR_Module* mod, String name);
+extern IR_Type*  func_type_lookup(FuncSig* sigs, String name);
 
 /* ---------------------------------------------------------------
  *  CUDA builtin lookup (for device IR only)
@@ -105,6 +108,8 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     case AST_IDENT:
     { IR_Value* ptr = sym_lookup(ctx, n->body.ident.name);
       if (ptr) return ir_build_load(b, ptr);
+      ptr = global_lookup(ctx->mod, n->body.ident.name);
+      if (ptr) return ir_build_load(b, ptr);
       IR_Value* v = calloc(1, sizeof(IR_Value));
       v->kind = VAL_UNDEF; v->type = t_i32; return v; }
 
@@ -140,7 +145,9 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next) arg_buf[n_args++] = gen_expr(ctx, a);
       char nb[128]; int nl = cn.length; if (nl > 127) nl = 127;
       memcpy(nb, cn.data, nl); nb[nl] = '\0';
-      return ir_build_call(b, nb, t_i32, arg_buf, n_args); }
+      IR_Type* ret_t = func_type_lookup(ctx->sigs, cn);
+      if (!ret_t) ret_t = t_i32;
+      return ir_build_call(b, nb, ret_t, arg_buf, n_args); }
 
     case AST_KERNEL_LAUNCH:
     { AST_Node* cn = n->body.kernel_launch.callee; String kn = {0,0};
@@ -156,6 +163,16 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     { IR_Value* c = gen_expr(ctx, n->body.ternary.cond);
       IR_Value* t = gen_expr(ctx, n->body.ternary.then_expr);
       IR_Value* e = gen_expr(ctx, n->body.ternary.else_expr);
+      /* coerce condition to i1 */
+      if (c && c->type && c->type->kind != IR_I1) {
+          if (c->type->kind == IR_PTR) {
+              IR_Value* nv = calloc(1, sizeof(IR_Value));
+              nv->kind = VAL_CONST_NULL; nv->type = c->type;
+              c = ir_build_icmp(b, IR_COND_NE, c, nv);
+          } else {
+              c = ir_build_icmp(b, IR_COND_NE, c, ir_const_int(b, c->type, 0));
+          }
+      }
       return ir_build_select(b, c, t, e); }
 
     case AST_CAST: return gen_expr(ctx, n->body.cast.cast_expr);

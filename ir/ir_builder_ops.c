@@ -110,7 +110,12 @@ ir_build_cond_br(IR_Builder* b, IR_Value* cond,
 IR_Value*
 ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
 {
-    IR_Instr* inst = make_instr(b, IROP_GEP, ptr->type);
+    /* fallback: if ptr has no inner type or void inner, use ptr-to-i8 */
+    IR_Type* ptr_ty = ptr->type;
+    if (!ptr_ty || !ptr_ty->inner || ptr_ty->inner->kind == IR_VOID)
+        ptr_ty = ir_ptr_type(t_i8, 0);
+
+    IR_Instr* inst = make_instr(b, IROP_GEP, ptr_ty);
     inst->operands[0] = ptr;
     inst->operands[1] = idx0;
 
@@ -149,4 +154,11 @@ ir_build_select(IR_Builder* b, IR_Value* cond, IR_Value* tv, IR_Value* fv)
     inst->operands[0] = cond; inst->operands[1] = tv; inst->operands[2] = fv;
     append_instr(b, inst);
     return inst->result;
+}
+
+void
+ir_build_unreachable(IR_Builder* b)
+{
+    IR_Instr* inst = make_instr(b, IROP_UNREACHABLE, t_void);
+    append_instr(b, inst);
 }

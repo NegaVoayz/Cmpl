@@ -60,6 +60,7 @@ IR_Value*   ir_build_call(IR_Builder* b, const char* callee, IR_Type* ret_ty,
                           IR_Value** args, int n_args);
 void        ir_build_ret(IR_Builder* b, IR_Value* val);
 void        ir_build_br(IR_Builder* b, IR_Block* target);
+void        ir_build_unreachable(IR_Builder* b);
 void        ir_build_cond_br(IR_Builder* b, IR_Value* cond,
                              IR_Block* then_blk, IR_Block* else_blk);
 IR_Value*   ir_build_gep(IR_Builder* b, IR_Value* ptr,
@@ -80,7 +81,7 @@ void        ir_dump_func(IR_Func* func, FILE* out);
 
 IR_Module*  ir_gen_program(AST_Node* root);
 IR_Module*  ir_gen_module_ex(AST_Node* root, int is_device);
-IR_Func*    ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device);
+IR_Func*    ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs);
 
 /* --- CUDA two-module generation (ir_gen_cuda.c) --- */
 

@@ -95,6 +95,24 @@ ir_dump_module(IR_Module* mod, FILE* out)
     /* string constant globals */
     dump_str_globals(out);
 
+    /* global variable declarations/definitions */
+    for (IR_Value* gv = mod->globals; gv; gv = gv->next) {
+        if (gv->body.init_val) {
+            /* definition */
+            fprintf(out, "@%.*s = global ", gv->name.length, gv->name.data);
+            dump_type(out, gv->type);
+            fprintf(out, " ");
+            dump_value(out, gv->body.init_val);
+            fprintf(out, "\n");
+        } else {
+            /* extern declaration */
+            fprintf(out, "@%.*s = external global ", gv->name.length, gv->name.data);
+            dump_type(out, gv->type);
+            fprintf(out, "\n");
+        }
+    }
+    if (mod->globals) fprintf(out, "\n");
+
     /* emit declare for external callees not in module */
     {
         String seen[32];

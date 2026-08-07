@@ -9,6 +9,16 @@
 #include "ast.h"
 
 /* ---------------------------------------------------------------
+ *  Function signature entry (for return type lookup in calls)
+ * --------------------------------------------------------------- */
+
+typedef struct FuncSig {
+    String            name;
+    IR_Type*          ret_type;
+    struct FuncSig*   next;
+} FuncSig;
+
+/* ---------------------------------------------------------------
  *  Symbol table entry
  * --------------------------------------------------------------- */
 
@@ -25,9 +35,11 @@ typedef struct SymEntry {
 typedef struct {
     IR_Builder*   b;
     SymEntry*     syms;
+    FuncSig*      sigs;         /* function signature table for call ret types */
     IR_Block*     break_blk;    /* target for break */
     IR_Block*     cont_blk;     /* target for continue */
     IR_Type*      ret_type;     /* enclosing function return type */
+    IR_Module*    mod;          /* for global variable lookup */
     int           is_device;    /* 1 = device IR gen (CUDA builtins), 0 = host */
 } GenCtx;
 
@@ -41,6 +53,28 @@ IR_Value* sym_lookup(GenCtx* ctx, String name)
         if (e->name.length == name.length &&
             memcmp(e->name.data, name.data, name.length) == 0)
             return e->alloca;
+    }
+    return NULL;
+}
+
+IR_Value* global_lookup(IR_Module* mod, String name)
+{
+    if (!mod) return NULL;
+
+    for (IR_Value* g = mod->globals; g; g = g->next) {
+        if (g->name.length == name.length &&
+            memcmp(g->name.data, name.data, name.length) == 0)
+            return g;
+    }
+    return NULL;
+}
+
+IR_Type* func_type_lookup(FuncSig* sigs, String name)
+{
+    for (FuncSig* s = sigs; s; s = s->next) {
+        if (s->name.length == name.length &&
+            memcmp(s->name.data, name.data, name.length) == 0)
+            return s->ret_type;
     }
     return NULL;
 }
@@ -66,11 +100,11 @@ extern void      gen_stmt(GenCtx* ctx, AST_Node* n);
  * --------------------------------------------------------------- */
 
 IR_Func*
-ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device)
+ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs)
 {
     AST_Node*   fd = func_def;
     IR_Builder* b = ir_builder_new(mod);
-    GenCtx      ctx = {b, NULL, NULL, NULL, NULL, is_device};
+    GenCtx      ctx = {b, NULL, sigs, NULL, NULL, NULL, mod, is_device};
     IR_Func*    func = calloc(1, sizeof(IR_Func));
 
     func->name = fd->body.func_def.name;
@@ -126,27 +160,34 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device)
     if (fd->body.func_def.body)
         gen_stmt(&ctx, fd->body.func_def.body);
 
-    /* ensure terminator on the last block */
+    /* ensure terminator on the last block, and add unreachable to empty blocks */
     {
-        IR_Block* last_blk = func->blocks;
-        while (last_blk->next) last_blk = last_blk->next;
-
-        IR_Instr* term = last_blk->last;
-
-        if (!term || (term->opcode != IROP_RET &&
-                      term->opcode != IROP_BR &&
-                      term->opcode != IROP_COND_BR &&
-                      term->opcode != IROP_UNREACHABLE)) {
-            ir_builder_set_block(b, last_blk);
-
-            if (func->ret_type && func->ret_type->kind != IR_VOID) {
-                IR_Value* undef = calloc(1, sizeof(IR_Value));
-                undef->kind = VAL_UNDEF;
-                undef->type = func->ret_type;
-                ir_build_ret(b, undef);
+        IR_Block* blk = func->blocks;
+        while (blk) {
+            if (!blk->first) {
+                /* empty block: add unreachable */
+                ir_builder_set_block(b, blk);
+                ir_build_unreachable(b);
             } else {
-                ir_build_ret(b, NULL);
+                IR_Instr* term = blk->last;
+
+                if (!term || (term->opcode != IROP_RET &&
+                              term->opcode != IROP_BR &&
+                              term->opcode != IROP_COND_BR &&
+                              term->opcode != IROP_UNREACHABLE)) {
+                    ir_builder_set_block(b, blk);
+
+                    if (func->ret_type && func->ret_type->kind != IR_VOID) {
+                        IR_Value* undef = calloc(1, sizeof(IR_Value));
+                        undef->kind = VAL_UNDEF;
+                        undef->type = func->ret_type;
+                        ir_build_ret(b, undef);
+                    } else {
+                        ir_build_ret(b, NULL);
+                    }
+                }
             }
+            blk = blk->next;
         }
     }
 
@@ -177,9 +218,74 @@ ir_gen_module_ex(AST_Node* root, int is_device)
                                    : "x86_64-unknown-linux-gnu";
     mod->data_layout = "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024";
 
+    /* pass 0: collect function signatures for call return type lookup */
+    FuncSig* sigs = NULL;
+    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+        if (decl->type != AST_FUNC_DEF) continue;
+
+        FuncSig* s = calloc(1, sizeof(FuncSig));
+        s->name = decl->body.func_def.name;
+        s->ret_type = ir_type_from_ast(decl->body.func_def.ret_type);
+        if (!s->ret_type) s->ret_type = t_void;
+        s->next = sigs;
+        sigs = s;
+    }
+
+    /* first pass: collect global variables (both extern decls and definitions) */
+    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+        if (decl->type != AST_VAR_DECL) continue;
+
+        /* dedup by name */
+        {   int dup = 0;
+            for (IR_Value* g = mod->globals; g; g = g->next) {
+                if (g->name.length != decl->body.var_decl.name.length) continue;
+                if (memcmp(g->name.data, decl->body.var_decl.name.data,
+                           g->name.length) != 0) continue;
+                dup = 1;
+                /* upgrade extern → definition if init now available */
+                if (!g->body.init_val && decl->body.var_decl.init) {
+                    IR_Value* init = calloc(1, sizeof(IR_Value));
+                    if (g->type->kind == IR_PTR) {
+                        init->kind = VAL_CONST_NULL;
+                    } else {
+                        init->kind = VAL_CONST_INT;
+                    }
+                    init->type = g->type;
+                    g->body.init_val = init;
+                }
+                break;
+            }
+            if (dup) continue;
+        }
+
+        IR_Value* gv = calloc(1, sizeof(IR_Value));
+        gv->kind = VAL_GLOBAL;
+        gv->name = decl->body.var_decl.name;
+        gv->type = ir_type_from_ast(decl->body.var_decl.var_type);
+
+        if (!gv->type || gv->type->kind == IR_VOID)
+            gv->type = t_i8;
+
+        if (decl->body.var_decl.init) {
+            IR_Value* init = calloc(1, sizeof(IR_Value));
+            if (gv->type->kind == IR_PTR) {
+                init->kind = VAL_CONST_NULL;
+            } else {
+                init->kind = VAL_CONST_INT;
+            }
+            init->type = gv->type;
+            gv->body.init_val = init;
+        }
+        /* else: init_val stays NULL → emitted as external */
+
+        gv->next = mod->globals;
+        mod->globals = gv;
+    }
+
+    /* second pass: function definitions */
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type == AST_FUNC_DEF && decl->body.func_def.body)
-            ir_gen_function(mod, decl, is_device);
+            ir_gen_function(mod, decl, is_device, sigs);
     }
 
     return mod;

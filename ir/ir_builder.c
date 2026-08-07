@@ -62,7 +62,9 @@ make_vreg(IR_Builder* b, IR_Type* ty)
     IR_Value* v = calloc(1, sizeof(IR_Value));
     v->kind = VAL_INSTR;
     v->type = ty;
-    v->id = b->next_vreg_id++;
+    /* void instructions don't consume a vreg (not printed as %N) */
+    if (!ty || ty->kind != IR_VOID)
+        v->id = b->next_vreg_id++;
     return v;
 }
 
@@ -139,8 +141,19 @@ ir_build_alloca(IR_Builder* b, IR_Type* ty)
 IR_Value*
 ir_build_load(IR_Builder* b, IR_Value* ptr)
 {
-    IR_Type* elem = ptr->type ? ptr->type->inner : NULL;
-    IR_Instr* inst = make_instr(b, IROP_LOAD, elem ? elem : t_i32);
+    IR_Type* elem;
+
+    if (ptr->type && ptr->type->kind == IR_PTR) {
+        /* PTR source: for alloca with inner, use inner type;
+           for opaque ptr (no inner, or VAL_GLOBAL), use generic ptr */
+        if (ptr->kind == VAL_GLOBAL || !ptr->type->inner)
+            elem = ir_ptr_type(t_i8, 0);
+        else
+            elem = ptr->type->inner;
+    } else {
+        elem = (ptr->type && ptr->type->inner) ? ptr->type->inner : t_i32;
+    }
+    IR_Instr* inst = make_instr(b, IROP_LOAD, elem);
 
     inst->operands[0] = ptr;
     append_instr(b, inst);

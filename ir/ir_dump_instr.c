@@ -22,6 +22,10 @@ void dump_instr(FILE* out, IR_Instr* inst)
     case IROP_STORE: case IROP_RET: case IROP_BR: case IROP_COND_BR:
     case IROP_UNREACHABLE:
         break;
+    case IROP_CALL:
+        if (inst->type && inst->type->kind == IR_VOID) break;
+        fprintf(out, "  %%%d = ", inst->result->id);
+        break;
     default:
         fprintf(out, "  %%%d = ", inst->result->id);
         break;
@@ -137,21 +141,32 @@ void dump_instr(FILE* out, IR_Instr* inst)
         break;
 
     case IROP_GEP:
+    {   IR_Type* elem = inst->operands[0]->type ? inst->operands[0]->type->inner : NULL;
+
+        if (!elem || elem->kind == IR_VOID) elem = t_i8;
+
         fprintf(out, "getelementptr ");
-        dump_type(out, inst->operands[0]->type->inner);
+        dump_type(out, elem);
         fprintf(out, ", ptr ");
         dump_value(out, inst->operands[0]);
         fprintf(out, ", ");
+        dump_type(out, inst->operands[1]->type);
+        fprintf(out, " ");
+        dump_value(out, inst->operands[1]);
 
-        if (inst->operands[1])
-            dump_value(out, inst->operands[1]);
-
-        if (inst->operands[2])
-            fprintf(out, ", %%%d", inst->operands[2]->id);
+        if (inst->operands[2]) {
+            fprintf(out, ", ");
+            dump_type(out, inst->operands[2]->type);
+            fprintf(out, " ");
+            dump_value(out, inst->operands[2]);
+        }
         break;
+    }
 
     case IROP_BITCAST:
         fprintf(out, "bitcast ");
+        dump_type(out, inst->operands[0]->type);
+        fprintf(out, " ");
         dump_value(out, inst->operands[0]);
         fprintf(out, " to ");
         dump_type(out, inst->type);
@@ -159,6 +174,8 @@ void dump_instr(FILE* out, IR_Instr* inst)
 
     case IROP_TRUNC:
         fprintf(out, "trunc ");
+        dump_type(out, inst->operands[0]->type);
+        fprintf(out, " ");
         dump_value(out, inst->operands[0]);
         fprintf(out, " to ");
         dump_type(out, inst->type);
@@ -166,6 +183,8 @@ void dump_instr(FILE* out, IR_Instr* inst)
 
     case IROP_ZEXT:
         fprintf(out, "zext ");
+        dump_type(out, inst->operands[0]->type);
+        fprintf(out, " ");
         dump_value(out, inst->operands[0]);
         fprintf(out, " to ");
         dump_type(out, inst->type);
@@ -173,17 +192,23 @@ void dump_instr(FILE* out, IR_Instr* inst)
 
     case IROP_SEXT:
         fprintf(out, "sext ");
+        dump_type(out, inst->operands[0]->type);
+        fprintf(out, " ");
         dump_value(out, inst->operands[0]);
         fprintf(out, " to ");
         dump_type(out, inst->type);
         break;
 
     case IROP_SELECT:
-        fprintf(out, "select ");
+        fprintf(out, "select i1 ");
         dump_value(out, inst->operands[0]);
         fprintf(out, ", ");
+        dump_type(out, inst->type);
+        fprintf(out, " ");
         dump_value(out, inst->operands[1]);
         fprintf(out, ", ");
+        dump_type(out, inst->type);
+        fprintf(out, " ");
         dump_value(out, inst->operands[2]);
         break;
 

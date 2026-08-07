@@ -67,12 +67,19 @@ dump_str_collect_module(IR_Module* mod)
 
         for (IR_Block* blk = f->blocks; blk; blk = blk->next) {
             for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+                /* collect from call args */
                 if (inst->opcode == IROP_CALL) {
                     for (int i = 0; i < inst->n_call_args; i++) {
                         IR_Value* arg = inst->call_args[i];
                         if (arg && arg->kind == VAL_CONST_STRING)
                             str_index_of(arg->body.str_val);
                     }
+                }
+                /* collect from fixed operands (e.g. select with strings) */
+                for (int i = 0; i < 3; i++) {
+                    IR_Value* op = inst->operands[i];
+                    if (op && op->kind == VAL_CONST_STRING)
+                        str_index_of(op->body.str_val);
                 }
             }
         }

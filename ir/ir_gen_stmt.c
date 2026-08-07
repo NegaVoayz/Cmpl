@@ -10,7 +10,8 @@
 
 /* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
 typedef struct SymEntry { String name; IR_Value* alloca; struct SymEntry* next; } SymEntry;
-typedef struct { IR_Builder* b; SymEntry* syms; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; int is_device; } GenCtx;
+typedef struct FuncSig { String name; IR_Type* ret_type; struct FuncSig* next; } FuncSig;
+typedef struct { IR_Builder* b; SymEntry* syms; FuncSig* sigs; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; } GenCtx;
 
 /* from ir_gen.c and ir_gen_expr.c */
 extern IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
@@ -143,6 +144,10 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
           IR_Value* undef = calloc(1, sizeof(IR_Value));
           undef->kind = VAL_UNDEF; undef->type = ctx->ret_type; rv = undef;
       }
+      /* zext i1 → ret_type when ret type is wider */
+      if (rv && rv->type && rv->type->kind == IR_I1 &&
+          ctx->ret_type && ctx->ret_type->kind != IR_I1 && ctx->ret_type->kind != IR_VOID)
+          rv = ir_build_zext(b, rv, ctx->ret_type);
       ir_build_ret(b, rv); break; }
     case AST_IF: gen_stmt_if(ctx, n); break;
     case AST_WHILE: gen_stmt_while(ctx, n); break;
