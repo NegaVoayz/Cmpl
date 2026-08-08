@@ -250,23 +250,165 @@ typedef struct {
 Instructions are appended to `cur_block`:
 
 ```c
+/* integer arithmetic */
 IR_Value* ir_build_add(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value* ir_build_sub(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value* ir_build_mul(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value* ir_build_sdiv(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value* ir_build_srem(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+/* float arithmetic */
+IR_Value* ir_build_fadd(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value* ir_build_fsub(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value* ir_build_fmul(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value* ir_build_fdiv(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+/* memory */
 IR_Value* ir_build_alloca(IR_Builder* b, IR_Type* ty);
 IR_Value* ir_build_load(IR_Builder* b, IR_Value* ptr);
 void      ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr);
-IR_Value* ir_build_call(IR_Builder* b, String callee, IR_Type* ret, IR_Value** args, int n);
+/* calls */
+IR_Value* ir_build_call(IR_Builder* b, const char* callee, IR_Type* ret,
+                        IR_Value** args, int n);
+IR_Value* ir_build_call_ptr(IR_Builder* b, IR_Value* fn_ptr, IR_Type* ret,
+                            IR_Value** args, int n);  // indirect calls
+/* comparison */
 IR_Value* ir_build_icmp(IR_Builder* b, IR_Cond cond, IR_Value* a, IR_Value* b_val);
+IR_Value* ir_build_fcmp(IR_Builder* b, IR_Cond cond, IR_Value* a, IR_Value* b_val);
+/* control flow */
 void      ir_build_br(IR_Builder* b, IR_Block* target);
-void      ir_build_cond_br(IR_Builder* b, IR_Value* cond, IR_Block* then_b, IR_Block* else_b);
+void      ir_build_cond_br(IR_Builder* b, IR_Value* cond,
+                           IR_Block* then_b, IR_Block* else_b);
 void      ir_build_ret(IR_Builder* b, IR_Value* val);  // val=NULL for void
-// ... etc
+void      ir_build_unreachable(IR_Builder* b);
+/* GEP */
+IR_Value* ir_build_gep(IR_Builder* b, IR_Value* ptr,
+                       IR_Value* idx0, IR_Value* idx1);
+/* casts */
+IR_Value* ir_build_bitcast(IR_Builder* b, IR_Value* v, IR_Type* to);
+IR_Value* ir_build_zext(IR_Builder* b, IR_Value* v, IR_Type* to);
+IR_Value* ir_build_trunc(IR_Builder* b, IR_Value* v, IR_Type* to);
+/* other */
+IR_Value* ir_build_select(IR_Builder* b, IR_Value* cond,
+                          IR_Value* tv, IR_Value* fv);
 ```
 
 Each builder function:
 1. Creates an `IR_Instr` with the opcode
-2. Creates an `IR_Value` for the result (auto-named `%N`)
+2. Creates an `IR_Value` for the result (auto-named `%N`), unless the instruction
+   is void (store, ret, br, cond_br, unreachable, void call)
 3. Appends to `cur_block`
-4. Returns the result value (or void for terminators)
+4. Returns the result value (or NULL for terminators)
+
+### Virtual Register Numbering
+
+LLVM requires all `%N` IDs to be sequential across the entire function, counting
+**every instruction position** (including void instructions like store, ret, br).
+The builder's `next_vreg_id` increments for every `make_instr` call. Before dumping,
+a renumbering pass walks all blocks in order and reassigns IDs to ensure they are
+strictly sequential with no gaps. A seen-set guard prevents the same value object
+from being numbered twice if it appears in multiple contexts.
+
+### Block Label Uniqueness
+
+Block labels must be unique within a function. The builder appends a `.N` counter
+suffix to each label (e.g., `for.cond.3`, `for.update.7`) via `ir_builder_new_block`,
+preventing collisions when nested loops or if-statements generate blocks with the
+same logical name.
+
+### Double-Terminator Prevention
+
+After generating branch bodies, the statement generator checks whether the block
+already has a terminator using `is_terminator(op)` — which tests for RET, BR,
+COND_BR, and UNREACHABLE. Without this, a `continue` inside an `if` (which generates
+`br label %for.update`) would be followed by another `br label %merge`, producing
+two terminators in one block (invalid LLVM IR).
+
+### Float/Double Operations
+
+Float arithmetic operators (`+`, `-`, `*`, `/`) on `float`/`double` operands
+automatically use `fadd`/`fsub`/`fmul`/`fdiv` instead of their integer counterparts.
+The `gen_binary_op()` function checks `lhs->type->kind` for `IR_F32`/`IR_F64`.
+
+Float comparisons (`==`, `!=`, `<`, `>`, `<=`, `>=`) use `fcmp` with ordered
+predicates (`oeq`, `one`, `olt`, `ogt`, `ole`, `oge`) via `fcmp_cond_str()`.
+Integer comparisons continue to use `icmp` with signed/unsigned predicates.
+
+Float unary minus (`-x`) uses `fsub <ty> 0.0, %x` with a `VAL_CONST_FLOAT` zero.
+Float logical not (`!x`) uses `fcmp oeq <ty> %x, 0.0`.
+
+Float constants are printed with a decimal point (`0.0` not `0`) to satisfy LLVM's
+type-checking. `dump_value` special-cases `0.0` → `"0.0"` for `VAL_CONST_FLOAT`.
+
+### Array Decay (C Semantics)
+
+When loading from a pointer-to-array (`[N x T]*`), the `ir_build_load` function
+automatically emits C-style array decay: instead of loading the entire array into
+an SSA register, it generates a GEP to the first element, returning `ptr` to `T`:
+
+```c
+// C:  int arr[10];  int *p = arr;
+// IR: %p = getelementptr [10 x i32], ptr %arr, i32 0, i32 0
+```
+
+This avoids having array values in SSA registers (which can't be GEP'd) and
+matches LLVM's opaque pointer conventions.
+
+For global variables with array type (e.g., `@str_table = external global [64 x i32]`),
+`ir_build_load` treats the global's non-pointer type as the pointee and applies
+array decay, producing a GEP to the first element.
+
+### Indirect Calls
+
+When the callee is not a simple `AST_IDENT` (e.g., a struct member access like
+`lex->advance(lex)`), the IR generator evaluates the callee expression and uses
+`ir_build_call_ptr()` instead of `ir_build_call()`. The function pointer is stored
+in `operands[0]` of the CALL instruction. The dumper emits:
+
+```llvm
+%5 = call i32 %fn_ptr(args...)    ; indirect call
+%6 = call i32 @func(args...)      ; direct call
+```
+
+### GEP Index Rules (LLVM 19 Opaque Pointers)
+
+In LLVM 19's opaque pointer mode, scalar types (i8, i32, ptr) can only have
+**one** index in a GEP. A trailing zero second index is rejected.
+
+- **Scalar**: `getelementptr i8, ptr %base, i32 %offset` — single index only.
+  A trailing `i32 0` is stripped during GEP construction (`ir_builder_ops.c`)
+  and during dump (`ir_dump_instr.c`).
+
+- **Aggregate** (array/struct): `getelementptr [N x T], ptr %base, i32 0, i32 %i` —
+  two indices are required. The first selects the array, the second selects the
+  element. Both indices are always emitted for aggregates.
+
+After a two-index GEP into an aggregate, the result type is updated to
+`ptr-to-element` (e.g., `ptr` to `i32`) instead of `ptr-to-aggregate`,
+preventing cascading GEP chains on the same array.
+
+### Auto-Cast Emission (BITCAST)
+
+The `IROP_BITCAST` dumper automatically selects the correct LLVM cast instruction
+based on source and destination types:
+
+| Source | Destination | LLVM Instruction |
+|---|---|---|
+| ptr | int | `ptrtoint` |
+| int | ptr | `inttoptr` |
+| int (narrower) | int (wider) | `zext` |
+| int (wider) | int (narrower) | `trunc` |
+| ptr | ptr | `bitcast` |
+
+### Comparison Type Coercion
+
+When `gen_binary_op` encounters comparison operands with mismatched types:
+- **ptr vs int-0**: int-0 is converted to `null` (ptr type)
+- **ptr vs non-zero int**: int is converted to ptr via `inttoptr`
+- **VAL_UNDEF vs typed value**: VAL_UNDEF assumes the other operand's type
+- **ptr vs non-ptr** (general): the non-ptr is converted to ptr via `bitcast`
+- **iN vs iM** (different integer widths): the narrower is `zext`'d to match
+
+This handles type mismatches that arise from incomplete struct member type
+resolution during AST-to-IR lowering.
 
 ## IR Text Output (`.ll` Dump)
 
@@ -344,13 +486,18 @@ within each function scope.
 
 | File | Purpose |
 |---|---|
-| `ir.h` | All IR data structures: IR_Type, IR_Value, IR_Instr, IR_Block, IR_Func, IR_Module, IR_Builder |
-| `ir_type.c` | IR_Type constructors, C Type → IR_Type conversion, type comparison |
-| `ir_expr.c` | Expression AST → IR instructions (literal, ident, binary, unary, call, cast, ...) |
-| `ir_stmt.c` | Statement AST → IR blocks + branches (if, while, for, return, block, ...) |
-| `ir_func.c` | Function AST → IR_Func (params, body, symbol table management) |
-| `ir_module.c` | Program AST → IR_Module (global vars, function list, module metadata) |
-| `ir_dump.c` | IR_Module → LLVM `.ll` text output, value naming, type string generation |
+| `ir/ir.h` + `ir/ir_api.h` | IR data structures, type singletons, public API declarations |
+| `ir/ir_type.c` | IR_Type constructors, C Type → IR_Type conversion, type size/equality |
+| `ir/ir_builder.c` | IR_Builder lifecycle, block mgmt, alloca/load/store, vreg numbering |
+| `ir/ir_builder_ops.c` | Arithmetic, bitwise, compare, control flow, GEP, cast, select builders |
+| `ir/ir_gen.c` | Module/function generation: global vars, function defs, symbol tables |
+| `ir/ir_gen_expr.c` | Expression AST → IR (literal, ident, binary, unary, call, cast, ternary, ...) |
+| `ir/ir_gen_stmt.c` | Statement AST → IR (block, if, while, for, return, var decl, ...) |
+| `ir/ir_gen_cuda.c` | CUDA two-module generation (host + device IR split) |
+| `ir/ir_dump.c` | Type printer, value printer, condition string tables, module entry |
+| `ir/ir_dump_instr.c` | Instruction text printer (all IROP_* cases) |
+| `ir/ir_dump_func.c` | Block, function, and module printers; vreg renumbering; declare stubs |
+| `ir/ir_dump_str.c` | String constant table collection and global emission |
 
 ## Related
 
