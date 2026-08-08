@@ -16,6 +16,7 @@ has_side_effects(IR_Instr* inst)
     case IROP_STORE: case IROP_CALL:
     case IROP_RET:   case IROP_BR:
     case IROP_COND_BR: case IROP_UNREACHABLE:
+    case IROP_ALLOCA:
         return 1;
     default:
         return 0;
@@ -97,8 +98,8 @@ collect_all(IR_Func* fn, IR_Instr** out, int cap)
 static int
 dce_func(IR_Func* fn)
 {
-    IR_Instr* all[512];
-    int n = collect_all(fn, all, 512);
+    IR_Instr* all[1024];
+    int n = collect_all(fn, all, 1024);
     if (!n) return 0;
 
     int* marked = calloc(n, sizeof(int));

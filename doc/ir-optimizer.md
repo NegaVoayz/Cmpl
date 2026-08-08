@@ -76,7 +76,9 @@ Promotes `alloca`+`load`/`store` patterns to SSA registers with `phi` nodes.
    c. Replace `load`s with the reaching SSA value
    d. Replace `store`s with the value flowing to `phi` operands
 
-3. Remove the dead `alloca` and all dead `load`/`store` instructions
+3. After promotion, dead `store` instructions and the `alloca` itself are left for DCE
+   to clean up (the alloca is preserved by DCE to avoid SSA numbering gaps from
+   surviving store references).
 
 ```c
 void opt_mem2reg(OptCtx* ctx)
@@ -115,9 +117,21 @@ Removes instructions whose results are never used.
    - Return values
    - Store instructions (side effects)
    - Call instructions (side effects, unless pure)
+   - **Alloca instructions** (side effects — see below)
    - Branch conditions
    - Instructions that feed into live instructions
 3. Sweep: remove all unmarked instructions
+
+**Alloca preservation.** Allocas are treated as side-effecting so they survive DCE even
+when mem2reg has promoted their loads/stores away.  After promotion, surviving stores
+still reference the alloca via their pointer operand; if DCE removed the alloca, the
+orphaned value would never be renumbered during IR dump, creating a gap in SSA numbering
+that clang rejects.  Keeping the alloca ensures every referenced `%id` has a definition.
+
+**Instruction buffer:** DCE collects up to **1024** instructions per function (raised
+from 512).  Functions with large switch-statements (e.g. `ir_gen_expr.c`'s `gen_expr()`
+at ~550 instructions) would otherwise exceed the buffer, causing untracked instructions
+to be misidentified as dead/live.
 
 ```c
 void opt_dce(OptCtx* ctx)
