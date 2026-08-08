@@ -109,6 +109,23 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
             lhs->type && rhs->type && rhs->type->kind != lhs->type->kind) {
             rhs->type = lhs->type;
         }
+        /* general type mismatch: coerce both operands to compatible types */
+        if (lhs && rhs && lhs->type && rhs->type &&
+            lhs->type->kind != rhs->type->kind) {
+            int lp = (lhs->type->kind == IR_PTR);
+            int rp = (rhs->type->kind == IR_PTR);
+            if (lp && !rp)
+                rhs = ir_build_bitcast(b, rhs, lhs->type);
+            else if (!lp && rp)
+                lhs = ir_build_bitcast(b, lhs, rhs->type);
+            else if (!lp && !rp) {
+                /* both are integers of different sizes */
+                if (ir_type_size(lhs->type) < ir_type_size(rhs->type))
+                    lhs = ir_build_zext(b, lhs, rhs->type);
+                else
+                    rhs = ir_build_zext(b, rhs, lhs->type);
+            }
+        }
     }
 
     /* float/double ops use fadd/fsub/fmul/fdiv/fcmp */

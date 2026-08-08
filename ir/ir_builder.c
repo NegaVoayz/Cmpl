@@ -155,6 +155,10 @@ ir_build_load(IR_Builder* b, IR_Value* ptr)
             elem = ir_ptr_type(t_i8, 0);
         else
             elem = ptr->type->inner;
+    } else if (ptr->kind == VAL_GLOBAL) {
+        /* global with non-ptr type (e.g. array): globals are always
+         * pointers in LLVM; treat the type as the pointee */
+        elem = ptr->type;
     } else {
         elem = (ptr->type && ptr->type->inner) ? ptr->type->inner : t_i32;
     }

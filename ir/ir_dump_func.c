@@ -34,20 +34,37 @@ static void
 dump_func(FILE* out, IR_Func* func)
 {
     /* renumber vregs sequentially so LLVM validation passes.
-     * LLVM counts EVERY instruction (including void ones like store/ret)
-     * for validating sequential %N numbering, even though void
-     * instructions don't print a %N = prefix. */
+     * LLVM counts EVERY instruction position (including void ones).
+     * Each instruction position consumes one ID.
+     * Non-void results get the current counter value.
+     * Uses a seen-set to avoid assigning the same ID to two different
+     * value objects that might appear in different blocks. */
     if (func->blocks) {
-        int next_id = func->n_params;  /* params already use 0..n_params-1 */
+        int next_id = func->n_params;
+        /* track which value pointers have been seen to avoid collision */
+        #define MAX_SEEN 1024
+        IR_Value* seen[MAX_SEEN];
+        int n_seen = 0;
 
         for (IR_Block* blk = func->blocks; blk; blk = blk->next) {
             for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
-                /* every instruction advances the counter */
-                if (inst->result && inst->result->kind == VAL_INSTR)
-                    inst->result->id = next_id;
+                if (inst->result && inst->result->kind == VAL_INSTR) {
+                    /* check if this value object was already assigned an ID */
+                    int already = 0;
+                    for (int si = 0; si < n_seen; si++) {
+                        if (seen[si] == inst->result) {
+                            already = 1; break;
+                        }
+                    }
+                    if (!already && n_seen < MAX_SEEN) {
+                        seen[n_seen++] = inst->result;
+                        inst->result->id = next_id;
+                    }
+                }
                 next_id++;
             }
         }
+        #undef MAX_SEEN
     }
 
     /* linkage / define */
