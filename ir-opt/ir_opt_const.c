@@ -152,7 +152,6 @@ fold_func(IR_Func* fn)
                 IR_Value* pick = cond->body.int_val ?
                                  inst->operands[1] : inst->operands[2];
                 if (pick) {
-                    inst->result->kind = pick->kind;
                     inst->result->body = pick->body;
                     changed = 1;
                 }

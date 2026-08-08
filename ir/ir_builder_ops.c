@@ -146,8 +146,12 @@ ir_build_cond_br(IR_Builder* b, IR_Value* cond,
 IR_Value*
 ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
 {
-    /* fallback: if ptr has no inner type or void inner, use ptr-to-i8 */
+    /* fallback: if ptr has no inner type or void inner, use ptr-to-i8.
+     * normalize: globals store the pointee type directly (not ptr-to-T),
+     * so wrap them to get a proper pointer type for aggregate detection. */
     IR_Type* ptr_ty = ptr->type;
+    if (ptr_ty && ptr_ty->kind != IR_PTR)
+        ptr_ty = ir_ptr_type(ptr_ty, 0);
     if (!ptr_ty || !ptr_ty->inner || ptr_ty->inner->kind == IR_VOID)
         ptr_ty = ir_ptr_type(t_i8, 0);
 
