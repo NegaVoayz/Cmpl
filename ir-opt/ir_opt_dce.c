@@ -78,29 +78,25 @@ mark_live(IR_Instr* inst, int* marked, int n_total, IR_Instr** all, int n_all)
 }
 
 /* ---------------------------------------------------------------
- *  Collect all instructions in a function
- * --------------------------------------------------------------- */
-
-static int
-collect_all(IR_Func* fn, IR_Instr** out, int cap)
-{
-    int n = 0;
-    for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next)
-            if (n < cap) out[n++] = inst;
-    return n;
-}
-
-/* ---------------------------------------------------------------
  *  DCE on one function
  * --------------------------------------------------------------- */
 
 static int
 dce_func(IR_Func* fn)
 {
-    IR_Instr* all[1024];
-    int n = collect_all(fn, all, 1024);
+    /* first pass: count instructions so we can allocate exactly */
+    int n = 0;
+    for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
+        for (IR_Instr* inst = blk->first; inst; inst = inst->next)
+            n++;
     if (!n) return 0;
+
+    /* collect into dynamic array */
+    IR_Instr** all = calloc(n, sizeof(IR_Instr*));
+    int idx = 0;
+    for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
+        for (IR_Instr* inst = blk->first; inst; inst = inst->next)
+            all[idx++] = inst;
 
     int* marked = calloc(n, sizeof(int));
 
@@ -135,6 +131,7 @@ dce_func(IR_Func* fn)
     }
 
     free(marked);
+    free(all);
     return changed;
 }
 
