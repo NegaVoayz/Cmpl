@@ -8,6 +8,7 @@
 extern void        dump_type(FILE* out, IR_Type* ty);
 extern void        dump_value(FILE* out, IR_Value* val);
 extern const char* cond_str(IR_Cond cond);
+extern const char* fcmp_cond_str(IR_Cond cond);
 
 /* ---------------------------------------------------------------
  *  Instruction printer
@@ -107,7 +108,7 @@ void dump_instr(FILE* out, IR_Instr* inst)
         break;
 
     case IROP_FCMP:
-        fprintf(out, "fcmp o%s ", cond_str(inst->cond));
+        fprintf(out, "fcmp %s ", fcmp_cond_str(inst->cond));
         dump_type(out, inst->operands[0]->type);
         fprintf(out, " ");
         dump_value(out, inst->operands[0]);
@@ -172,15 +173,19 @@ void dump_instr(FILE* out, IR_Instr* inst)
         dump_value(out, inst->operands[0]);
 
         /* LLVM 19 opaque-ptr: scalar types can only have one index.
-         * For scalars (i8, i32, ptr, etc.), idx0 is the offset and
-         * a second index is invalid.  If idx0 is constant 0 and idx1
-         * is present, emit only idx1.  Otherwise emit idx0 then idx1. */
+         * For aggregates (array/struct), two indices are needed —
+         * the first selects the array, the second selects the element.
+         * For scalars (i8, i32, ptr), a second index is invalid.
+         * If idx0 is constant 0 and idx1 is present on a scalar,
+         * emit only idx1. */
+        int is_aggregate = (elem &&
+            (elem->kind == IR_ARRAY || elem->kind == IR_STRUCT));
         int idx0_is_zero = (inst->operands[1] &&
                             inst->operands[1]->kind == VAL_CONST_INT &&
                             inst->operands[1]->body.int_val == 0);
 
-        if (idx0_is_zero && inst->operands[2]) {
-            /* skip zero idx0, emit idx1 directly */
+        if (idx0_is_zero && inst->operands[2] && !is_aggregate) {
+            /* scalar: skip zero idx0, emit idx1 directly */
             fprintf(out, ", ");
             dump_type(out, inst->operands[2]->type);
             fprintf(out, " ");

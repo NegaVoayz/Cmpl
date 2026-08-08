@@ -141,3 +141,19 @@ const char* cond_str(IR_Cond cond)
     default: return "?";
     }
 }
+
+/* fcmp ordered predicates: strip 's'/'u' prefix from icmp codes.
+ * fcmp uses "olt"/"ogt"/"ole"/"oge"/"oeq"/"one" etc.
+ * We default to ordered (o) comparisons. */
+const char* fcmp_cond_str(IR_Cond cond)
+{
+    switch (cond) {
+    case IR_COND_EQ:  return "oeq";
+    case IR_COND_NE:  return "one";
+    case IR_COND_SGT: case IR_COND_UGT: return "ogt";
+    case IR_COND_SGE: case IR_COND_UGE: return "oge";
+    case IR_COND_SLT: case IR_COND_ULT: return "olt";
+    case IR_COND_SLE: case IR_COND_ULE: return "ole";
+    default: return "oeq";
+    }
+}

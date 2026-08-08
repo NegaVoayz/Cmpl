@@ -155,16 +155,32 @@ ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
     inst->operands[0] = ptr;
     inst->operands[1] = idx0;
 
-    /* omit idx1 when it's constant 0 (LLVM 19 opaque-ptr rejects
-     * redundant trailing index on scalar types like i8) */
-    int skip_idx1 = (idx1 && idx1->kind == VAL_CONST_INT && idx1->body.int_val == 0);
+    /* compute result type: if indexing into aggregate with idx1,
+     * the result is ptr-to-element, not ptr-to-aggregate */
+    IR_Type* result_ty = ptr_ty;
+    int is_aggregate = (ptr_ty->inner &&
+        (ptr_ty->inner->kind == IR_ARRAY || ptr_ty->inner->kind == IR_STRUCT));
+    int skip_idx1 = (!is_aggregate && idx1 &&
+        idx1->kind == VAL_CONST_INT && idx1->body.int_val == 0);
 
     if (idx1 && !skip_idx1) {
         inst->operands[2] = idx1;
         inst->call_args = calloc(1, sizeof(IR_Value*));
         inst->call_args[0] = idx1;
         inst->n_call_args = 1;
+        /* after two-index GEP, result is ptr to the array element type */
+        if (is_aggregate && ptr_ty->inner->inner)
+            result_ty = ir_ptr_type(ptr_ty->inner->inner, ptr_ty->addrspace);
+    } else if (is_aggregate && !idx1) {
+        /* single-index GEP on aggregate: result still ptr-to-aggregate */
+        /* (array decay needs the second index to reach the element) */
     }
+
+    /* update the instruction's type to the actual result type */
+    inst->type = result_ty;
+    if (inst->result)
+        inst->result->type = result_ty;
+
     append_instr(b, inst);
     return inst->result;
 }
