@@ -64,7 +64,6 @@ inline_call(IR_Func* caller, IR_Block* blk, IR_Instr* call, IR_Func* callee)
         if (ci->opcode == IROP_RET) {
             /* map return value to call result */
             if (ci->operands[0] && call->result) {
-                call->result->kind = ci->operands[0]->kind;
                 call->result->type = ci->operands[0]->type;
                 call->result->body = ci->operands[0]->body;
                 call->result->id   = ci->operands[0]->id;

@@ -117,7 +117,6 @@ gvn_func(IR_Func* fn)
             for (int i = 0; i < n; i++) {
                 if (vn_match(&table[i], inst)) {
                     /* replace result with first occurrence's result */
-                    inst->result->kind = table[i].result->kind;
                     inst->result->type = table[i].result->type;
                     inst->result->body = table[i].result->body;
                     inst->result->id   = table[i].result->id;

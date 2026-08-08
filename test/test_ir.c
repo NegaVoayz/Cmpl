@@ -191,3 +191,17 @@ int local_array(void) {
     int data[3] = {1, 2, 3};
     return data[0] + data[1] + data[2];
 }
+
+/* ---------------------------------------------------------------
+ * Test 18: VReg ID collision after mem2reg (parameter usage)
+ * Fix: ir-opt passes must NOT overwrite result->kind to non-VAL_INSTR.
+ *      mem2reg renamed loads from promoted allocas would get
+ *      kind=VAL_PARAM (param's kind), causing renumbering to skip
+ *      them — producing duplicate %0 (param + load). Clang rejects
+ *      duplicate SSA definitions.
+ * --------------------------------------------------------------- */
+int vreg_no_collide(int a, int b, int c) {
+    int x = a + b;
+    int y = b * c;
+    return x + y;
+}

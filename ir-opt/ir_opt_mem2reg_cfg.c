@@ -146,7 +146,6 @@ rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
             if (inst->opcode == IROP_LOAD &&
                 inst->operands[0] == alloca) {
                 if (cur) {
-                    inst->result->kind = cur->kind;
                     inst->result->type = cur->type;
                     inst->result->body = cur->body;
                     inst->result->id = cur->id;
