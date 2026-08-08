@@ -24,6 +24,11 @@ BINOP_BUILDER(ir_build_mul,  IROP_MUL)
 BINOP_BUILDER(ir_build_sdiv, IROP_SDIV)
 BINOP_BUILDER(ir_build_srem, IROP_SREM)
 
+BINOP_BUILDER(ir_build_fadd, IROP_FADD)
+BINOP_BUILDER(ir_build_fsub, IROP_FSUB)
+BINOP_BUILDER(ir_build_fmul, IROP_FMUL)
+BINOP_BUILDER(ir_build_fdiv, IROP_FDIV)
+
 BINOP_BUILDER(ir_build_and, IROP_AND)
 BINOP_BUILDER(ir_build_or,  IROP_OR)
 BINOP_BUILDER(ir_build_xor, IROP_XOR)
@@ -39,6 +44,16 @@ IR_Value*
 ir_build_icmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs)
 {
     IR_Instr* inst = make_instr(b, IROP_ICMP, t_i1);
+    inst->cond = cond;
+    inst->operands[0] = lhs; inst->operands[1] = rhs;
+    append_instr(b, inst);
+    return inst->result;
+}
+
+IR_Value*
+ir_build_fcmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs)
+{
+    IR_Instr* inst = make_instr(b, IROP_FCMP, t_i1);
     inst->cond = cond;
     inst->operands[0] = lhs; inst->operands[1] = rhs;
     append_instr(b, inst);
@@ -61,6 +76,27 @@ ir_build_call(IR_Builder* b, const char* callee, IR_Type* ret_ty,
         inst->callee.data = copy;
         inst->callee.length = strlen(callee);
     }
+    inst->n_call_args = n_args;
+
+    if (n_args > 0) {
+        inst->call_args = calloc(n_args, sizeof(IR_Value*));
+        memcpy(inst->call_args, args, n_args * sizeof(IR_Value*));
+    }
+    append_instr(b, inst);
+    return inst->result;
+}
+
+IR_Value*
+ir_build_call_ptr(IR_Builder* b, IR_Value* fn_ptr, IR_Type* ret_ty,
+                  IR_Value** args, int n_args)
+{
+    IR_Instr* inst = make_instr(b, IROP_CALL, ret_ty);
+
+    /* indirect call: store function pointer in operands[0],
+     * leave callee empty to signal indirect call in dump */
+    inst->operands[0] = fn_ptr;
+    /* callee.data stays NULL, callee.length stays 0 from calloc */
+
     inst->n_call_args = n_args;
 
     if (n_args > 0) {

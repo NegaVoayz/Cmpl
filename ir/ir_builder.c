@@ -40,8 +40,15 @@ ir_builder_new_block(IR_Builder* b, const char* name)
     IR_Block* blk = calloc(1, sizeof(IR_Block));
 
     if (name) {
-        blk->name.data = name;
-        blk->name.length = strlen(name);
+        /* make label unique by appending a counter to avoid collisions
+         * when multiple blocks share the same logical name (e.g. nested for loops) */
+        char buf[64];
+        int id = b->next_label_id++;
+        int n = snprintf(buf, sizeof(buf), "%s.%d", name, id);
+        char* copy = malloc(n + 1);
+        memcpy(copy, buf, n + 1);
+        blk->name.data = copy;
+        blk->name.length = n;
     }
     return blk;
 }
@@ -151,6 +158,13 @@ ir_build_load(IR_Builder* b, IR_Value* ptr)
     } else {
         elem = (ptr->type && ptr->type->inner) ? ptr->type->inner : t_i32;
     }
+
+    /* array decay: loading from ptr-to-array gives ptr to first element */
+    if (elem && elem->kind == IR_ARRAY) {
+        return ir_build_gep(b, ptr,
+            ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, 0));
+    }
+
     IR_Instr* inst = make_instr(b, IROP_LOAD, elem);
 
     inst->operands[0] = ptr;

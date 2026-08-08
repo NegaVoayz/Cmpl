@@ -127,7 +127,9 @@ ir_dump_module(IR_Module* mod, FILE* out)
 
     /* emit declare for external callees not in module */
     {
-        String seen[32];
+        /* collect unique external callee names (max 64) */
+        const char* seen[64] = {0};
+        int seen_len[64] = {0};
         int n_seen = 0;
 
         for (IR_Func* f = mod->funcs; f; f = f->next) {
@@ -136,13 +138,14 @@ ir_dump_module(IR_Module* mod, FILE* out)
             for (IR_Block* blk = f->blocks; blk; blk = blk->next) {
                 for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
                     if (inst->opcode != IROP_CALL) continue;
-                    if (!inst->callee.data) continue;
+                    if (!inst->callee.data || inst->callee.length == 0)
+                        continue;
 
-                    /* check already emitted */
+                    /* check already seen */
                     int done = 0;
                     for (int si = 0; si < n_seen; si++) {
-                        if (seen[si].length == inst->callee.length &&
-                            memcmp(seen[si].data, inst->callee.data,
+                        if (seen_len[si] == inst->callee.length &&
+                            memcmp(seen[si], inst->callee.data,
                                    inst->callee.length) == 0) {
                             done = 1; break;
                         }
@@ -160,16 +163,17 @@ ir_dump_module(IR_Module* mod, FILE* out)
                     }
                     if (found) continue;
 
-                    /* emit declare */
-                    if (n_seen < 32)
-                        seen[n_seen++] = inst->callee;
-
-                    if (inst->callee.length > 0) {
-                        fprintf(out, "declare ");
-                        dump_type(out, inst->type);
-                        fprintf(out, " @%.*s()\n\n",
-                                inst->callee.length, inst->callee.data);
+                    /* record and emit */
+                    if (n_seen < 64) {
+                        seen[n_seen] = inst->callee.data;
+                        seen_len[n_seen] = inst->callee.length;
+                        n_seen++;
                     }
+
+                    fprintf(out, "declare ");
+                    dump_type(out, inst->type);
+                    fprintf(out, " @%.*s()\n\n",
+                            inst->callee.length, inst->callee.data);
                 }
             }
         }

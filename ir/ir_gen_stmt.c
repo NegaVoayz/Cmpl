@@ -21,6 +21,13 @@ extern void      sym_add(GenCtx* ctx, String name, IR_Value* alloca);
 /* forward: defined below (used by gen_stmt_if/while/for) */
 void gen_stmt(GenCtx* ctx, AST_Node* n);
 
+/* check if an opcode is a terminator (nothing can follow it in a block) */
+static int is_terminator(IR_Opcode op)
+{
+    return op == IROP_RET || op == IROP_BR ||
+           op == IROP_COND_BR || op == IROP_UNREACHABLE;
+}
+
 /* coerce a value to i1 for use as branch condition */
 static IR_Value*
 coerce_to_i1(IR_Builder* b, IR_Value* v)
@@ -34,6 +41,12 @@ coerce_to_i1(IR_Builder* b, IR_Value* v)
         IR_Value* nv = calloc(1, sizeof(IR_Value));
         nv->kind = VAL_CONST_NULL; nv->type = v->type;
         return ir_build_icmp(b, IR_COND_NE, v, nv);
+    }
+
+    /* float/double → fcmp one ty %v, 0.0 */
+    if (v->type && (v->type->kind == IR_F32 || v->type->kind == IR_F64)) {
+        IR_Value* zero = ir_const_float(v->type, 0.0);
+        return ir_build_fcmp(b, IR_COND_NE, v, zero);
     }
 
     /* integer/other → icmp ne ty %v, 0 */
@@ -67,12 +80,12 @@ static void gen_stmt_if(GenCtx* ctx, AST_Node* n)
     ir_build_cond_br(b, cond, tb, eb ? eb : mb);
     ir_builder_set_block(b, tb);
     gen_stmt(ctx, n->body.if_stmt.then_branch);
-    if (!b->cur_block->last || b->cur_block->last->opcode != IROP_RET) ir_build_br(b, mb);
+    if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode)) ir_build_br(b, mb);
 
     if (eb) {
         ir_builder_set_block(b, eb);
         gen_stmt(ctx, n->body.if_stmt.else_branch);
-        if (!b->cur_block->last || b->cur_block->last->opcode != IROP_RET) ir_build_br(b, mb);
+        if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode)) ir_build_br(b, mb);
     }
     ir_builder_set_block(b, mb);
 }
@@ -92,7 +105,7 @@ static void gen_stmt_while(GenCtx* ctx, AST_Node* n)
     ctx->break_blk = mb; ctx->cont_blk = cb;
     ir_builder_set_block(b, bb);
     gen_stmt(ctx, n->body.loop.body);
-    if (!b->cur_block->last || b->cur_block->last->opcode != IROP_RET) ir_build_br(b, cb);
+    if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode)) ir_build_br(b, cb);
     ctx->break_blk = save_brk; ctx->cont_blk = save_cnt;
     ir_builder_set_block(b, mb);
 }
@@ -115,7 +128,7 @@ static void gen_stmt_for(GenCtx* ctx, AST_Node* n)
     ctx->break_blk = mb; ctx->cont_blk = ub;
     ir_builder_set_block(b, bb);
     gen_stmt(ctx, n->body.for_stmt.body);
-    if (!b->cur_block->last || b->cur_block->last->opcode != IROP_RET) ir_build_br(b, ub);
+    if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode)) ir_build_br(b, ub);
     ir_builder_set_block(b, ub);
     gen_expr(ctx, n->body.for_stmt.update);
     ir_build_br(b, cb);

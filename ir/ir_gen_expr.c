@@ -69,6 +69,13 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
             IR_Value* ri = ir_build_bitcast(b, rhs, t_i64);
             return ir_build_sub(b, li, ri);
         }
+        /* int - ptr or int + ptr: convert ptr to int */
+        if ((op == TOK_MINUS || op == TOK_PLUS) && lhs && rhs &&
+            lhs->type && lhs->type->kind != IR_PTR &&
+            rhs->type && rhs->type->kind == IR_PTR) {
+            IR_Value* ri = ir_build_bitcast(b, rhs, lhs->type);
+            return ir_build_sub(b, lhs, ri);
+        }
     }
 
     /* fixup: for comparisons, ptr vs int-0 → use null */
@@ -84,20 +91,39 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
             IR_Value* nv = calloc(1, sizeof(IR_Value));
             nv->kind = VAL_CONST_NULL; nv->type = rhs->type; lhs = nv;
         }
-        /* ptr vs non-zero int: can't fix without inttoptr —
-         * leave as-is; the C code being compiled is unusual
-         * (comparing pointer to non-zero integer literal) */
+        /* ptr vs non-zero int: convert int to ptr via inttoptr */
+        if (lhs && rhs && lhs->type && lhs->type->kind == IR_PTR &&
+            rhs->kind == VAL_CONST_INT && rhs->body.int_val != 0) {
+            rhs = ir_build_bitcast(b, rhs, lhs->type);
+        }
+        if (lhs && rhs && rhs->type && rhs->type->kind == IR_PTR &&
+            lhs->kind == VAL_CONST_INT && lhs->body.int_val != 0) {
+            lhs = ir_build_bitcast(b, lhs, rhs->type);
+        }
+        /* type mismatch: coerce VAL_UNDEF to match the other operand's type */
+        if (lhs && rhs && lhs->kind == VAL_UNDEF && rhs->kind != VAL_UNDEF &&
+            rhs->type && lhs->type && lhs->type->kind != rhs->type->kind) {
+            lhs->type = rhs->type;
+        }
+        if (lhs && rhs && rhs->kind == VAL_UNDEF && lhs->kind != VAL_UNDEF &&
+            lhs->type && rhs->type && rhs->type->kind != lhs->type->kind) {
+            rhs->type = lhs->type;
+        }
     }
+
+    /* float/double ops use fadd/fsub/fmul/fdiv/fcmp */
+    int is_float = (lhs && lhs->type &&
+        (lhs->type->kind == IR_F32 || lhs->type->kind == IR_F64));
 
     switch (op) {
     case TOK_PLUS:  case TOK_PLUSEQ:
-        return ir_build_add(b, lhs, rhs);
+        return is_float ? ir_build_fadd(b, lhs, rhs) : ir_build_add(b, lhs, rhs);
     case TOK_MINUS: case TOK_MINUSEQ:
-        return ir_build_sub(b, lhs, rhs);
+        return is_float ? ir_build_fsub(b, lhs, rhs) : ir_build_sub(b, lhs, rhs);
     case TOK_STAR:  case TOK_STAREQ:
-        return ir_build_mul(b, lhs, rhs);
+        return is_float ? ir_build_fmul(b, lhs, rhs) : ir_build_mul(b, lhs, rhs);
     case TOK_SLASH: case TOK_SLASHEQ:
-        return ir_build_sdiv(b, lhs, rhs);
+        return is_float ? ir_build_fdiv(b, lhs, rhs) : ir_build_sdiv(b, lhs, rhs);
     case TOK_PERCENT: case TOK_PERCENTEQ:
         return ir_build_srem(b, lhs, rhs);
     case TOK_AMP:   case TOK_AMPEQ:
@@ -108,12 +134,12 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
         return ir_build_xor(b, lhs, rhs);
     case TOK_LTLT:  case TOK_LTLTEQ:
         return ir_build_shl(b, lhs, rhs);
-    case TOK_EQEQ:     return ir_build_icmp(b, IR_COND_EQ, lhs, rhs);
-    case TOK_BANGEQ:   return ir_build_icmp(b, IR_COND_NE, lhs, rhs);
-    case TOK_LT:       return ir_build_icmp(b, IR_COND_SLT, lhs, rhs);
-    case TOK_GT:       return ir_build_icmp(b, IR_COND_SGT, lhs, rhs);
-    case TOK_LTEQ:     return ir_build_icmp(b, IR_COND_SLE, lhs, rhs);
-    case TOK_GTEQ:     return ir_build_icmp(b, IR_COND_SGE, lhs, rhs);
+    case TOK_EQEQ:     return is_float ? ir_build_fcmp(b, IR_COND_EQ, lhs, rhs) : ir_build_icmp(b, IR_COND_EQ, lhs, rhs);
+    case TOK_BANGEQ:   return is_float ? ir_build_fcmp(b, IR_COND_NE, lhs, rhs) : ir_build_icmp(b, IR_COND_NE, lhs, rhs);
+    case TOK_LT:       return is_float ? ir_build_fcmp(b, IR_COND_SLT, lhs, rhs) : ir_build_icmp(b, IR_COND_SLT, lhs, rhs);
+    case TOK_GT:       return is_float ? ir_build_fcmp(b, IR_COND_SGT, lhs, rhs) : ir_build_icmp(b, IR_COND_SGT, lhs, rhs);
+    case TOK_LTEQ:     return is_float ? ir_build_fcmp(b, IR_COND_SLE, lhs, rhs) : ir_build_icmp(b, IR_COND_SLE, lhs, rhs);
+    case TOK_GTEQ:     return is_float ? ir_build_fcmp(b, IR_COND_SGE, lhs, rhs) : ir_build_icmp(b, IR_COND_SGE, lhs, rhs);
     default:           return lhs;
     }
 }
@@ -161,27 +187,49 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
 
     case AST_UNARY:
     { IR_Value* op = gen_expr(ctx, n->body.unary.operand);
-      if (n->body.unary.op == TOK_MINUS) return ir_build_sub(b, ir_const_int(b, t_i32, 0), op);
+      if (n->body.unary.op == TOK_MINUS) {
+          IR_Type* ty = op->type ? op->type : t_i32;
+          if (ty->kind == IR_F32 || ty->kind == IR_F64) {
+              IR_Value* zero = ir_const_float(ty, 0.0);
+              return ir_build_fsub(b, zero, op);
+          }
+          return ir_build_sub(b, ir_const_int(b, ty, 0), op);
+      }
       if (n->body.unary.op == TOK_BANG) {
           IR_Value* zero;
           if (op->type && op->type->kind == IR_PTR) {
               zero = calloc(1, sizeof(IR_Value));
               zero->kind = VAL_CONST_NULL; zero->type = op->type;
+              return ir_build_icmp(b, IR_COND_EQ, op, zero);
+          } else if (op->type &&
+                     (op->type->kind == IR_F32 || op->type->kind == IR_F64)) {
+              zero = ir_const_float(op->type, 0.0);
+              return ir_build_fcmp(b, IR_COND_EQ, op, zero);
           } else {
               zero = ir_const_int(b, op->type ? op->type : t_i32, 0);
+              return ir_build_icmp(b, IR_COND_EQ, op, zero);
           }
-          return ir_build_icmp(b, IR_COND_EQ, op, zero);
       }
       return op; }
 
     case AST_CALL:
     { int n_args = 0; IR_Value* arg_buf[16]; String cn = {0,0};
-      if (n->body.call.callee->type == AST_IDENT) cn = n->body.call.callee->body.ident.name;
-      for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next) arg_buf[n_args++] = gen_expr(ctx, a);
+      IR_Value* fn_ptr = NULL;
+      if (n->body.call.callee->type == AST_IDENT)
+          cn = n->body.call.callee->body.ident.name;
+      else
+          fn_ptr = gen_expr(ctx, n->body.call.callee);
+      for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next)
+          arg_buf[n_args++] = gen_expr(ctx, a);
+      IR_Type* ret_t = t_i32;
+      if (cn.length > 0) ret_t = func_type_lookup(ctx->sigs, cn);
+      if (!ret_t) ret_t = t_i32;
+      if (fn_ptr) {
+          /* indirect call through function pointer */
+          return ir_build_call_ptr(b, fn_ptr, ret_t, arg_buf, n_args);
+      }
       char nb[128]; int nl = cn.length; if (nl > 127) nl = 127;
       memcpy(nb, cn.data, nl); nb[nl] = '\0';
-      IR_Type* ret_t = func_type_lookup(ctx->sigs, cn);
-      if (!ret_t) ret_t = t_i32;
       return ir_build_call(b, nb, ret_t, arg_buf, n_args); }
 
     case AST_KERNEL_LAUNCH:
@@ -204,8 +252,28 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
               IR_Value* nv = calloc(1, sizeof(IR_Value));
               nv->kind = VAL_CONST_NULL; nv->type = c->type;
               c = ir_build_icmp(b, IR_COND_NE, c, nv);
+          } else if (c->type->kind == IR_F32 || c->type->kind == IR_F64) {
+              c = ir_build_fcmp(b, IR_COND_NE, c, ir_const_float(c->type, 0.0));
           } else {
               c = ir_build_icmp(b, IR_COND_NE, c, ir_const_int(b, c->type, 0));
+          }
+      }
+      /* coerce both branches to same type */
+      if (t && e && t->type && e->type &&
+          (t->type->kind != e->type->kind ||
+           ir_type_size(t->type) != ir_type_size(e->type))) {
+          /* prefer wider type; if ptr on either side, use ptr */
+          int use_ptr = (t->type->kind == IR_PTR || e->type->kind == IR_PTR);
+          if (use_ptr) {
+              IR_Type* pt = t->type->kind == IR_PTR ? t->type : e->type;
+              if (t->type->kind != IR_PTR)
+                  t = ir_build_bitcast(b, t, pt);
+              if (e->type->kind != IR_PTR)
+                  e = ir_build_bitcast(b, e, pt);
+          } else if (ir_type_size(t->type) >= ir_type_size(e->type)) {
+              e = ir_build_zext(b, e, t->type);
+          } else {
+              t = ir_build_zext(b, t, e->type);
           }
       }
       return ir_build_select(b, c, t, e); }

@@ -75,6 +75,8 @@ void dump_instr(FILE* out, IR_Instr* inst)
         const char* op_names[] = {"fadd","fsub","fmul","fdiv"};
         int idx = inst->opcode - IROP_FADD;
         fprintf(out, "%s ", op_names[idx]);
+        dump_type(out, inst->type);
+        fprintf(out, " ");
         dump_value(out, inst->operands[0]);
         fprintf(out, ", ");
         dump_value(out, inst->operands[1]);
@@ -104,10 +106,26 @@ void dump_instr(FILE* out, IR_Instr* inst)
         dump_value(out, inst->operands[1]);
         break;
 
+    case IROP_FCMP:
+        fprintf(out, "fcmp o%s ", cond_str(inst->cond));
+        dump_type(out, inst->operands[0]->type);
+        fprintf(out, " ");
+        dump_value(out, inst->operands[0]);
+        fprintf(out, ", ");
+        dump_value(out, inst->operands[1]);
+        break;
+
     case IROP_CALL:
         fprintf(out, "call ");
         dump_type(out, inst->type);
-        fprintf(out, " @%.*s(", inst->callee.length, inst->callee.data);
+        if (inst->callee.length > 0)
+            fprintf(out, " @%.*s(", inst->callee.length, inst->callee.data);
+        else {
+            /* indirect call through function pointer */
+            fprintf(out, " ");
+            dump_value(out, inst->operands[0]);
+            fprintf(out, "(");
+        }
 
         for (int i = 0; i < inst->n_call_args; i++) {
             if (i > 0) fprintf(out, ", ");

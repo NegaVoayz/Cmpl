@@ -78,7 +78,13 @@ void dump_value(FILE* out, IR_Value* val)
         break;
 
     case VAL_CONST_FLOAT:
-        fprintf(out, "%g", val->body.float_val);
+        /* LLVM requires decimal point in float literals.
+         * %g strips trailing zeros including the decimal for 0.0,
+         * so handle 0.0 specially. */
+        if (val->body.float_val == 0.0)
+            fprintf(out, "0.0");
+        else
+            fprintf(out, "%g", val->body.float_val);
         break;
 
     case VAL_CONST_NULL:

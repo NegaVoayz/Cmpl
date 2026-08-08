@@ -51,13 +51,20 @@ IR_Value*   ir_build_sub(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_mul(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_sdiv(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_srem(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_fadd(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_fsub(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_fmul(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_fdiv(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_and(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_or(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_xor(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_shl(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_icmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_fcmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_call(IR_Builder* b, const char* callee, IR_Type* ret_ty,
                           IR_Value** args, int n_args);
+IR_Value*   ir_build_call_ptr(IR_Builder* b, IR_Value* fn_ptr, IR_Type* ret_ty,
+                              IR_Value** args, int n_args);
 void        ir_build_ret(IR_Builder* b, IR_Value* val);
 void        ir_build_br(IR_Builder* b, IR_Block* target);
 void        ir_build_unreachable(IR_Builder* b);
