@@ -41,6 +41,9 @@ Active development. The compiler parses C source, performs AST and IR optimizati
 invokes `clang` for native codegen (.o/.s), and generates SPIR-V from CUDA kernel code.
 The Vulkan runtime library (`rt/`) is planned but not yet implemented.
 
+**IR self-hosting: 52/54 source files (96%) generate valid LLVM IR** (clang -c clean).
+See the [Testing](#testing) section for the validation harness.
+
 See [CLAUDE.md](CLAUDE.md) for the design rationale and coding conventions.
 
 ## Build
@@ -82,6 +85,71 @@ installed and in your `PATH` at runtime.
 ./cmpl -cuda -S kernel.cu         # → also dumps device IR
 ```
 
+## Testing
+
+### Self-Hosting Validation
+
+Cmpl can compile its own source code to LLVM IR and validate it with `clang`:
+
+```sh
+# Test every source file: cmpl → .ll → clang -c (must be 0 errors)
+cd Cmpl
+for f in $(find . -maxdepth 2 -name '*.c' ! -path './test/*' ! -path './build/*' ! -path './rt/*' | sort); do
+  base=$(basename "$f" .c)
+  ./build/cmpl -emit-llvm -o /tmp/test.ll "$f" 2>/dev/null
+  if clang -c --target=x86_64-pc-linux-gnu /tmp/test.ll -o /dev/null 2>&1; then
+    echo "PASS: $base"
+  else
+    echo "FAIL: $base"
+    clang -c --target=x86_64-pc-linux-gnu /tmp/test.ll -o /dev/null 2>&1 | head -3
+  fi
+done
+```
+
+**Current status: 52/54 source files pass (96%).**
+
+### IR Correctness Test Suite
+
+`test/test_ir.c` contains 15 targeted tests covering every IR correctness fix
+category (float ops, array decay, pointer GEP, type coercion, etc.):
+
+```sh
+# Generate and validate the IR test suite
+./build/cmpl -emit-llvm -o test_ir.ll test/test_ir.c
+clang -c --target=x86_64-pc-linux-gnu test_ir.ll -o /dev/null
+```
+
+### Quick Single-File Check
+
+```sh
+# Generate IR for one file and check it
+./build/cmpl -emit-llvm -o /tmp/test.ll <source.c>
+clang -c --target=x86_64-pc-linux-gnu /tmp/test.ll -o /dev/null
+# No output = valid IR; errors = invalid IR
+```
+
+### Test Files
+
+| File | What It Tests |
+|---|---|
+| `test/test_ir.c` | Float ops, array decay, GEP, type coercion, nested loops, casts |
+| `test/test.c` | Basic for-loop + printf |
+| `test/test_full.c` | Full parse pipeline |
+| `test/test_pp.c` | Preprocessor |
+| `test/test_optimize.c` | AST optimizer |
+| `test/test_postfix.c` | Postfix ++/-- operators |
+| `test/test_cast.c` | Struct member access patterns |
+| `test/test_malloc_sizeof.c` | sizeof and allocation |
+| `test/test_sizeof.c` | sizeof operator |
+| `test/test_enum.c` | Enum definitions |
+| `test/test_enum2.c` | Enum edge cases |
+| `test/test_spv_enum.c` | SPIR-V enum emission |
+| `test/test_hex.c` | Hex literal handling |
+| `test/test_lr1_edge.c` | LR(1) parser edge cases |
+| `test/test_parse_recovery.c` | Parser error recovery |
+| `test/test_gpu.c` | CUDA kernel compilation |
+| `test/test_kernel.c` | Kernel launch syntax |
+
 ## Project Map
 
 | Directory | Module | Purpose |
@@ -103,7 +171,7 @@ installed and in your `PATH` at runtime.
 ## Documentation
 
 - **[CUDA-to-Vulkan Bridge](doc/cuda-bridge.md)** — full pipeline: split → IR → mock → SPIR-V → output
-- **[LLVM IR Design](doc/llvm-ir.md)** — in-memory IR tree: types, values, instructions, blocks
+- **[LLVM IR Design](doc/llvm-ir.md)** — in-memory IR tree: types, values, instructions, blocks, SSA numbering, float ops, array decay, indirect calls, GEP rules, type coercion
 - **[Vulkan & SPIR-V Backend](doc/vulkan-spirv.md)** — mock generation + SPIR-V binary emission
 - **[IR Optimizer](doc/ir-optimizer.md)** — IR-level optimization passes
 - **[AST Optimizer](doc/ast-optimizer.md)** — existing pre-IR passes: constant folding, propagation, dead code elimination
