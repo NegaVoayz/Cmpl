@@ -273,6 +273,17 @@ void dump_instr(FILE* out, IR_Instr* inst)
         dump_value(out, inst->operands[2]);
         break;
 
+    case IROP_PHI:
+        fprintf(out, "phi ");
+        dump_type(out, inst->type);
+        for (int i = 0; i < inst->n_incoming; i++) {
+            fprintf(out, " [ ");
+            dump_value(out, inst->in_vals[i]);
+            fprintf(out, ", %%%s ]", inst->in_blocks[i] ?
+                   inst->in_blocks[i]->name.data : "???");
+        }
+        break;
+
     case IROP_UNREACHABLE:
         fprintf(out, "  unreachable");
         break;
