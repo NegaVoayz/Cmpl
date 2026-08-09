@@ -77,7 +77,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
 
     for (;;) {
         String dname = {NULL, 0};
-        Type* full = ll_parse_declarator(p, base, &dname);
+        Type* full = ll_parse_declarator(p, base, &dname, 0);
 
         /* find function type through pointer layers (int* f(void) → PTR→FUNC→INT) */
         {

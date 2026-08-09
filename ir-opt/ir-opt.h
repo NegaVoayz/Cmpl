@@ -6,6 +6,19 @@
 #include "ir.h"
 
 /* ---------------------------------------------------------------
+ *  Block info for CFG analysis (shared by mem2reg pass)
+ * --------------------------------------------------------------- */
+
+#define MAX_BLK 512
+#define MAX_PRE 32
+
+typedef struct {
+    IR_Block* blk;
+    int       preds[MAX_PRE], n_preds, idom, df[32], n_df;
+    int       children[64], n_children;   /* dominator-tree children */
+} BlkInfo;
+
+/* ---------------------------------------------------------------
  *  Optimization levels (matching common -O flags)
  * --------------------------------------------------------------- */
 

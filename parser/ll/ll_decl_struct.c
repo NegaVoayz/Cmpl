@@ -60,7 +60,7 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
 
     for (;;) {
         String dname = {NULL, 0};
-        Type* full = ll_parse_declarator(p, stype, &dname);
+        Type* full = ll_parse_declarator(p, stype, &dname, 0);
 
         /* function definition: struct Token* func(...) { ... } */
         {

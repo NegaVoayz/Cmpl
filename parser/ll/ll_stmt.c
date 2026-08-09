@@ -111,33 +111,40 @@ static AST_Node* ll_parse_expr_stmt(LR1_Parser* p)
  *  Main dispatch
  * =========================================================== */
 
+#define MAX_STMT_DEPTH 256
+
 AST_Node* ll_parse_stmt(LR1_Parser* p)
 {
     TokenKind k = p->tok->kind;
+    AST_Node* result = NULL;
 
     switch (k) {
-    case TOK_IF:        return ll_parse_if(p);
-    case TOK_WHILE:     return ll_parse_while(p);
-    case TOK_DO:        return ll_parse_do_while(p);
-    case TOK_FOR:       return ll_parse_for(p);
-    case TOK_RETURN:    return ll_parse_return(p);
-    case TOK_BREAK:     return ll_parse_break(p);
-    case TOK_CONTINUE:  return ll_parse_continue(p);
-    case TOK_SWITCH:    return ll_parse_switch(p);
-    case TOK_CASE:      return ll_parse_case(p);
-    case TOK_DEFAULT:   return ll_parse_default(p);
-    case TOK_GOTO:      return ll_parse_goto(p);
-    case TOK_LBRACE:    return ll_parse_block(p);
+    case TOK_IF:        result = ll_parse_if(p);       break;
+    case TOK_WHILE:     result = ll_parse_while(p);    break;
+    case TOK_DO:        result = ll_parse_do_while(p); break;
+    case TOK_FOR:       result = ll_parse_for(p);      break;
+    case TOK_RETURN:    result = ll_parse_return(p);   break;
+    case TOK_BREAK:     result = ll_parse_break(p);    break;
+    case TOK_CONTINUE:  result = ll_parse_continue(p); break;
+    case TOK_SWITCH:    result = ll_parse_switch(p);   break;
+    case TOK_CASE:      result = ll_parse_case(p);     break;
+    case TOK_DEFAULT:   result = ll_parse_default(p);  break;
+    case TOK_GOTO:      result = ll_parse_goto(p);     break;
+    case TOK_LBRACE:    result = ll_parse_block(p);    break;
     case TOK_SEMI:
         p->tok = p->tok->next;
-        return NULL;
+        break;
 
     case TOK_IDENT:
         if (p->tok->next && p->tok->next->kind == TOK_COLON)
-            return ll_parse_label(p);
-        return ll_parse_expr_stmt(p);
+            { result = ll_parse_label(p); break; }
+        result = ll_parse_expr_stmt(p);
+        break;
 
     default:
-        return ll_parse_expr_stmt(p);
+        result = ll_parse_expr_stmt(p);
+        break;
     }
+
+    return result;
 }

@@ -24,7 +24,7 @@ AST_Node* ll_parse_decl_or_stmt(LR1_Parser* p);
 Type* ll_parse_type_specs(LR1_Parser* p);
 
 /* parse a C declarator (*x, x[10], f(int), etc.), returns full Type and fills name */
-Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name);
+Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth);
 
 /* check if a token kind starts a type/declaration */
 int is_type_start(Token* tok);

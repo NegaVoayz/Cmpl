@@ -5,15 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_BLK 64
-#define MAX_PRE 8
-
-/* duplicated from ir_opt_mem2reg.c */
-typedef struct {
-    IR_Block* blk;
-    int       preds[MAX_PRE], n_preds, idom, df[16], n_df;
-} BlkInfo;
-
 /* ---------------------------------------------------------------
  *  Collect blocks + build predecessor lists. Returns count.
  * --------------------------------------------------------------- */
@@ -85,12 +76,20 @@ compute_doms(BlkInfo* bi, int n)
 void
 compute_df(BlkInfo* bi, int n)
 {
-    for (int i = 0; i < n; i++) {
-        bi[i].n_df = 0;
-        for (int j = 0; j < n; j++) {
-            for (int p = 0; p < bi[j].n_preds; p++)
-                if (bi[j].preds[p] == i && bi[j].idom != i)
-                    bi[i].df[bi[i].n_df++] = j;
+    /* Standard DF: for each join point b, walk up the domtree from
+       each predecessor until hitting idom[b]. Every block on the path
+       (except idom itself) gets b added to its dominance frontier. */
+    for (int i = 0; i < n; i++) bi[i].n_df = 0;
+
+    for (int b = 0; b < n; b++) {
+        if (bi[b].n_preds < 2) continue;  /* only join points matter */
+        for (int pi = 0; pi < bi[b].n_preds; pi++) {
+            int runner = bi[b].preds[pi];
+            while (runner != bi[b].idom) {
+                if (bi[runner].n_df < 32)
+                    bi[runner].df[bi[runner].n_df++] = b;
+                runner = bi[runner].idom;
+            }
         }
     }
 }
@@ -102,7 +101,7 @@ compute_df(BlkInfo* bi, int n)
 int
 compute_idf(BlkInfo* bi, int n, int* defs, int nd, int* out)
 {
-    int in[64] = {0}, n_out = 0, changed;
+    int in[MAX_BLK] = {0}, n_out = 0, changed;
 
     for (int i = 0; i < nd; i++) in[defs[i]] = 1;
 
@@ -123,41 +122,5 @@ compute_idf(BlkInfo* bi, int n, int* defs, int nd, int* out)
 }
 
 /* ---------------------------------------------------------------
- *  Rename pass: SSA construction via dominator tree walk
+ *  Rename pass: defined in ir_opt_mem2reg_rename.c (domtree DFS)
  * --------------------------------------------------------------- */
-
-void
-rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
-{
-    IR_Value* stack[32]; int top = 0;
-
-    for (int bi_idx = 0; bi_idx < n; bi_idx++) {
-        IR_Block* blk = bi[bi_idx].blk;
-        IR_Value* cur = NULL;
-
-        if (bi_idx == 0)
-            cur = NULL;
-
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
-            if (inst->opcode == IROP_STORE &&
-                inst->operands[1] == alloca) {
-                cur = inst->operands[0];
-            }
-            if (inst->opcode == IROP_LOAD &&
-                inst->operands[0] == alloca) {
-                if (cur) {
-                    inst->result->type = cur->type;
-                    inst->result->body = cur->body;
-                    inst->result->id = cur->id;
-                }
-            }
-            if (inst->opcode == IROP_PHI) {
-                for (int pi = 0; pi < inst->n_incoming; pi++) {
-                    if (inst->in_vals[pi] == alloca && cur)
-                        inst->in_vals[pi] = cur;
-                }
-            }
-        }
-        (void)stack; (void)top;
-    }
-}

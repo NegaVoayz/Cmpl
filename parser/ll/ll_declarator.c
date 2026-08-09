@@ -27,9 +27,18 @@ static AST_Node* ll_parse_params(LR1_Parser* p);
  *  declared identifier name (empty String if abstract).
  * --------------------------------------------------------------- */
 
-Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name)
+#define MAX_DECL_DEPTH 256
+
+Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth)
 {
     int ptr_count = 0;
+
+    if (depth > MAX_DECL_DEPTH) {
+        p->error = 1;
+        out_name->data = NULL;
+        out_name->length = 0;
+        return base;
+    }
 
     out_name->data = NULL;
     out_name->length = 0;
@@ -50,7 +59,7 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name)
     if (p->tok->kind == TOK_LPAREN) {
         /* nested declarator: ( *x ), ( *f() ), etc. */
         p->tok = p->tok->next;
-        result = ll_parse_declarator(p, base, out_name);
+        result = ll_parse_declarator(p, base, out_name, depth + 1);
 
         if (p->tok->kind == TOK_RPAREN)
             p->tok = p->tok->next;
@@ -149,7 +158,7 @@ static AST_Node* ll_parse_params(LR1_Parser* p)
             break;
 
         String name = {NULL, 0};
-        Type* full = ll_parse_declarator(p, base, &name);
+        Type* full = ll_parse_declarator(p, base, &name, 0);
 
         AST_Node* param = ast_node_new(AST_PARAM_DECL,
                                        p->tok->loc.line, p->tok->loc.col);

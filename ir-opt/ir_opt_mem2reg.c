@@ -5,23 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_BLK 64
-#define MAX_PRE 8
-
-/* ---------------------------------------------------------------
- *  Block info for CFG analysis
- * --------------------------------------------------------------- */
-
-typedef struct {
-    IR_Block* blk;
-    int       preds[MAX_PRE], n_preds, idom, df[16], n_df;
-} BlkInfo;
-
 /* from ir_opt_mem2reg_cfg.c */
 extern int collect_blocks(IR_Func* fn, BlkInfo* bi, int cap);
 extern void compute_doms(BlkInfo* bi, int n);
 extern void compute_df(BlkInfo* bi, int n);
 extern int compute_idf(BlkInfo* bi, int n, int* defs, int nd, int* out);
+
+/* from ir_opt_mem2reg_rename.c */
 extern void rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca);
 
 /* ---------------------------------------------------------------
@@ -47,7 +37,7 @@ alloca_ok(IR_Func* fn, IR_Value* a)
 static int
 promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
 {
-    int defs[32], nd = 0;
+    int defs[MAX_BLK], nd = 0;
 
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
         for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
@@ -60,7 +50,7 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
     }
     if (!nd) return 0;
 
-    int idf[64], n_idf = compute_idf(bi, n, defs, nd, idf);
+    int idf[MAX_BLK], n_idf = compute_idf(bi, n, defs, nd, idf);
 
     /* insert phi nodes at IDF blocks */
     for (int k = 0; k < n_idf; k++) {
@@ -96,9 +86,11 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
 static int
 promote_func(IR_Func* fn)
 {
-    BlkInfo bi[MAX_BLK];
+    BlkInfo* bi = calloc(MAX_BLK, sizeof(BlkInfo));
+    if (!bi) return 0;
+
     int n = collect_blocks(fn, bi, MAX_BLK);
-    if (n < 1) return 0;
+    if (n < 1) { free(bi); return 0; }
 
     compute_doms(bi, n);
     compute_df(bi, n);
@@ -118,6 +110,8 @@ promote_func(IR_Func* fn)
         changed |= did;
         if (!did) break;
     }
+
+    free(bi);
     return changed;
 }
 

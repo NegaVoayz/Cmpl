@@ -28,7 +28,7 @@ AST_Node* ll_parse_struct_fields(LR1_Parser* p)
 
         for (;;) {
             String name = {NULL, 0};
-            Type* full = ll_parse_declarator(p, base, &name);
+            Type* full = ll_parse_declarator(p, base, &name, 0);
 
             AST_Node* field = ast_node_new(AST_VAR_DECL,
                                            p->tok->loc.line, p->tok->loc.col);
@@ -120,7 +120,7 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
         etype->name = tag;
 
         String dname = {NULL, 0};
-        Type* full = ll_parse_declarator(p, etype, &dname);
+        Type* full = ll_parse_declarator(p, etype, &dname, 0);
 
         (void)full;
         (void)dname;

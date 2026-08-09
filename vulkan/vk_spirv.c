@@ -62,7 +62,8 @@ int map_id(IdMap* m, int* n, int cap, void* key)
     for (int i = 0; i < *n; i++)
         if (m[i].key == key) return m[i].id;
 
-    int id = (*n < cap) ? *n + 1 : 0;
+    if (*n >= cap) return 0;   /* table full — signal overflow */
+    int id = *n + 1;
     m[*n].key = key; m[*n].id = id; (*n)++;
     return id;
 }

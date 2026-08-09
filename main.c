@@ -194,7 +194,7 @@ main(int argc, char** argv)
                 fprintf(stderr, "Codegen failed.\n");
         }
     } else if (dump_ir) {
-        printf("\n--- IR ---\n");
+        printf("\n--- IR ---\n"); fflush(stdout);
         IR_Module* mod = ir_gen_program(root);
 
         if (mod) {
