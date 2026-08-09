@@ -227,6 +227,10 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
               return ir_build_icmp(b, IR_COND_EQ, op, zero);
           }
       }
+	      if (n->body.unary.op == TOK_STAR) {
+	          /* dereference: *ptr → load from the pointer to get pointee */
+	          return ir_build_load(b, op);
+	      }
       return op; }
 
     case AST_CALL:

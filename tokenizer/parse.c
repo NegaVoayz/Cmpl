@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <stdlib.h>
+#include <string.h>
 
 Token*
 token_new(TokenKind kind, int line, int col)
@@ -81,6 +82,48 @@ skip_ws_and_comments(Lexer* lex)
     }
 }
 
+/* Merge adjacent string literals ("a" "b" -> "ab").
+ * C11 5.1.1.2 Translation phase 6: adjacent string literal tokens
+ * are concatenated. */
+static void
+merge_adjacent_strings(Token* head)
+{
+    Token* prev = head;
+
+    while (prev) {
+        if (prev->kind != TOK_STRING_LIT) {
+            prev = prev->next;
+            continue;
+        }
+
+        Token* cur = prev->next;
+
+        while (cur && cur->kind == TOK_STRING_LIT) {
+            /* merge prev and cur */
+            int new_len = prev->body.str_val.length + cur->body.str_val.length;
+            char* new_data = malloc(new_len + 1);
+
+            memcpy(new_data, prev->body.str_val.data, prev->body.str_val.length);
+            memcpy(new_data + prev->body.str_val.length,
+                   cur->body.str_val.data, cur->body.str_val.length);
+            new_data[new_len] = '\0';
+
+            /* free old data (caller-owned copy) */
+            free((void*)prev->body.str_val.data);
+            prev->body.str_val.data = new_data;
+            prev->body.str_val.length = new_len;
+
+            /* remove cur from list */
+            prev->next = cur->next;
+            free((void*)cur->body.str_val.data);
+            free(cur);
+            cur = prev->next;
+        }
+
+        prev = prev->next;
+    }
+}
+
 /* --- public API --- */
 
 Token*
@@ -128,5 +171,6 @@ parse(const char* code)
         }
     }
 
+    merge_adjacent_strings(lex.head);
     return lex.head;
 }

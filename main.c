@@ -65,8 +65,7 @@ main(int argc, char** argv)
     }
 
     if (!filename) {
-        fprintf(stderr, "Usage: %s [-E] [-I dir]... [-ir] [-cuda] [-c|-S|-emit-llvm] [-o outfile]\n"
-                "              [-O0|-O1|-O2] <source-file>\n",
+        fprintf(stderr, "Usage: %s [-E] [-I dir]... [-ir] [-cuda] [-c|-S|-emit-llvm] [-o outfile]\n              [-O0|-O1|-O2] <source-file>\n",
                 argv[0]);
         pp_ctx_free(&pp_ctx);
         return 1;

@@ -72,6 +72,9 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name)
             if (p->tok->kind == TOK_INT_LIT) {
                 arr->arr_size = (int)p->tok->body.int_val;
                 p->tok = p->tok->next;
+            } else if (p->tok->kind == TOK_IDENT) {
+                /* enum constant or macro value -- skip (size unknown at parse time) */
+                p->tok = p->tok->next;
             }
 
             if (p->tok->kind == TOK_RBRACKET)
