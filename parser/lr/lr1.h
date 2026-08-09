@@ -156,5 +156,6 @@ AST_Node*   lr1_parse_expr(LR1_Parser* p);
 
 /* stack helper used by reduce functions */
 void goto_push(LR1_Parser* p, AST_Node* node, int lhs_sym);
+void goto_passthru(LR1_Parser* p, int lhs_sym);
 
 #endif /* LR1_H */

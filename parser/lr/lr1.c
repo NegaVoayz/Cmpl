@@ -125,6 +125,15 @@ void goto_push(LR1_Parser* p, AST_Node* node, int lhs_sym)
     p->stack[p->sp].node = node;
 }
 
+void goto_passthru(LR1_Parser* p, int lhs_sym)
+{
+    /* For passthrough reductions (pop 1, push same node with new sym).
+     * Instead of pop+push, just update the state in-place. */
+    int target = goto_table[p->stack[p->sp - 1].state][lhs_sym];
+
+    p->stack[p->sp].state = target;
+}
+
 AST_Node* lr1_parse_expr(LR1_Parser* p)
 {
     /* reset for a fresh expression */

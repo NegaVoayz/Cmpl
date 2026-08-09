@@ -1,11 +1,10 @@
-/* lr1_reduce_passthrough.c -- passthrough reductions (pop 1, repush at higher level) */
+/* lr1_reduce_passthrough.c -- passthrough reductions (in-place state update) */
 
 #include "lr1.h"
 
 #define PASSTHRU(NAME, SYM)                                   \
 LR_Action NAME(LR1_Parser* p) {                                \
-    AST_Node* n = p->stack[p->sp].node; p->sp--;               \
-    goto_push(p, n, SYM); return LR_REDUCE;                    \
+    goto_passthru(p, SYM); return LR_REDUCE;                   \
 }
 
 PASSTHRU(reduce_to_postfix, SYM_POSTFIX)
