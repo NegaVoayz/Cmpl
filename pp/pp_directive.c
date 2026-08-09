@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arena.h"
+
 static void
 skip_to_eol(const char** pp, const char* end)
 {
@@ -83,7 +85,7 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
             int plen = (int)(p - pstart);
 
             if (plen > 0 && nparams < 64) {
-                params[nparams] = malloc(plen + 1);
+                params[nparams] = arena_alloc(ctx->arena, plen + 1);
                 memcpy(params[nparams], pstart, plen);
                 params[nparams][plen] = '\0';
                 nparams++;
@@ -110,18 +112,17 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
             body_len--;
         body_buf[body_len] = '\0';
 
-        char* body = malloc(body_len + 1);
+        char* body = arena_alloc(ctx->arena, body_len + 1);
         memcpy(body, body_buf, body_len);
         body[body_len] = '\0';
 
         char** params_copy = NULL;
         if (is_func && nparams > 0) {
-            params_copy = malloc(nparams * sizeof(char*));
+            params_copy = arena_alloc(ctx->arena, nparams * sizeof(char*));
             memcpy(params_copy, params, nparams * sizeof(char*));
         }
 
         macro_add(&ctx->macros, name_buf, body, is_func, nparams, params_copy);
-        free(body);
     }
 
     *pp = p;

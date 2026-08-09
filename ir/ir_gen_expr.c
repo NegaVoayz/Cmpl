@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "ast.h"
+#include "arena.h"
 
 /* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
 typedef struct SymEntry { String name; IR_Value* alloca; struct SymEntry* next; } SymEntry;
@@ -83,12 +84,12 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
         op == TOK_GT || op == TOK_LTEQ || op == TOK_GTEQ) {
         if (lhs && rhs && lhs->type && lhs->type->kind == IR_PTR &&
             rhs->kind == VAL_CONST_INT && rhs->body.int_val == 0) {
-            IR_Value* nv = calloc(1, sizeof(IR_Value));
+            IR_Value* nv = arena_alloc(ctx->b->arena, sizeof(IR_Value));
             nv->kind = VAL_CONST_NULL; nv->type = lhs->type; rhs = nv;
         }
         if (lhs && rhs && rhs->type && rhs->type->kind == IR_PTR &&
             lhs->kind == VAL_CONST_INT && lhs->body.int_val == 0) {
-            IR_Value* nv = calloc(1, sizeof(IR_Value));
+            IR_Value* nv = arena_alloc(ctx->b->arena, sizeof(IR_Value));
             nv->kind = VAL_CONST_NULL; nv->type = rhs->type; lhs = nv;
         }
         /* ptr vs non-zero int: convert int to ptr via inttoptr */
@@ -175,12 +176,12 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     case AST_INT_LIT:   return ir_const_int(b, t_i32, n->body.literal.int_val);
     case AST_LONG_LIT:  return ir_const_int(b, t_i64, n->body.literal.int_val);
     case AST_CHAR_LIT:  return ir_const_int(b, t_i8, n->body.literal.char_val);
-    case AST_FLOAT_LIT: return ir_const_float(t_f32, n->body.literal.float_val);
-    case AST_DOUBLE_LIT:return ir_const_float(t_f64, n->body.literal.float_val);
+    case AST_FLOAT_LIT: return ir_const_float(ctx->b->arena, t_f32, n->body.literal.float_val);
+    case AST_DOUBLE_LIT:return ir_const_float(ctx->b->arena, t_f64, n->body.literal.float_val);
 
     case AST_STRING_LIT:
-    { IR_Value* v = calloc(1, sizeof(IR_Value));
-      v->kind = VAL_CONST_STRING; v->type = ir_ptr_type(t_i8, 0);
+    { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+      v->kind = VAL_CONST_STRING; v->type = ir_ptr_type(ctx->b->arena, t_i8, 0);
       v->body.str_val = n->body.literal.str_val; return v; }
 
     case AST_IDENT:
@@ -188,7 +189,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       if (ptr) return ir_build_load(b, ptr);
       ptr = global_lookup(ctx->mod, n->body.ident.name);
       if (ptr) return ir_build_load(b, ptr);
-      IR_Value* v = calloc(1, sizeof(IR_Value));
+      IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
       v->kind = VAL_UNDEF; v->type = t_i32; return v; }
 
     case AST_BINARY:
@@ -271,7 +272,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       if (n->body.unary.op == TOK_MINUS) {
           IR_Type* ty = op->type ? op->type : t_i32;
           if (ty->kind == IR_F32 || ty->kind == IR_F64) {
-              IR_Value* zero = ir_const_float(ty, 0.0);
+              IR_Value* zero = ir_const_float(ctx->b->arena, ty, 0.0);
               return ir_build_fsub(b, zero, op);
           }
           return ir_build_sub(b, ir_const_int(b, ty, 0), op);
@@ -279,12 +280,12 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       if (n->body.unary.op == TOK_BANG) {
           IR_Value* zero;
           if (op->type && op->type->kind == IR_PTR) {
-              zero = calloc(1, sizeof(IR_Value));
+              zero = arena_alloc(ctx->b->arena, sizeof(IR_Value));
               zero->kind = VAL_CONST_NULL; zero->type = op->type;
               return ir_build_icmp(b, IR_COND_EQ, op, zero);
           } else if (op->type &&
                      (op->type->kind == IR_F32 || op->type->kind == IR_F64)) {
-              zero = ir_const_float(op->type, 0.0);
+              zero = ir_const_float(ctx->b->arena, op->type, 0.0);
               return ir_build_fcmp(b, IR_COND_EQ, op, zero);
           } else {
               zero = ir_const_int(b, op->type ? op->type : t_i32, 0);
@@ -338,11 +339,11 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       /* coerce condition to i1 */
       if (c && c->type && c->type->kind != IR_I1) {
           if (c->type->kind == IR_PTR) {
-              IR_Value* nv = calloc(1, sizeof(IR_Value));
+              IR_Value* nv = arena_alloc(ctx->b->arena, sizeof(IR_Value));
               nv->kind = VAL_CONST_NULL; nv->type = c->type;
               c = ir_build_icmp(b, IR_COND_NE, c, nv);
           } else if (c->type->kind == IR_F32 || c->type->kind == IR_F64) {
-              c = ir_build_fcmp(b, IR_COND_NE, c, ir_const_float(c->type, 0.0));
+              c = ir_build_fcmp(b, IR_COND_NE, c, ir_const_float(ctx->b->arena, c->type, 0.0));
           } else {
               c = ir_build_icmp(b, IR_COND_NE, c, ir_const_int(b, c->type, 0));
           }
@@ -369,7 +370,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
 
     case AST_CAST: return gen_expr(ctx, n->body.cast.cast_expr);
     case AST_COMPOUND_LIT:
-        { IR_Value* v = calloc(1, sizeof(IR_Value));
+        { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
           v->kind = VAL_UNDEF; v->type = t_i32; return v; }
 
     case AST_INDEX:
@@ -412,7 +413,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
             IR_Value* record_val = gen_expr(ctx, n->body.member.record);
             if (!record_val || !record_val->type ||
                 record_val->type->kind != IR_PTR) {
-                IR_Value* v = calloc(1, sizeof(IR_Value));
+                IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
                 v->kind = VAL_UNDEF; v->type = t_i32; return v;
             }
             struct_ty = record_val->type->inner;
@@ -439,7 +440,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
                     n->body.member.record);
                 if (!record_val || !record_val->type ||
                     record_val->type->kind != IR_STRUCT) {
-                    IR_Value* v = calloc(1, sizeof(IR_Value));
+                    IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
                     v->kind = VAL_UNDEF; v->type = t_i32; return v;
                 }
                 struct_ty = record_val->type;
@@ -449,7 +450,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
         }
 
         if (!struct_ty || struct_ty->kind != IR_STRUCT) {
-            IR_Value* v = calloc(1, sizeof(IR_Value));
+            IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
             v->kind = VAL_UNDEF; v->type = t_i32; return v;
         }
 
@@ -460,7 +461,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
             field_idx = ir_struct_field_index(ast_struct, mem_name);
 
         if (field_idx < 0) {
-            IR_Value* v = calloc(1, sizeof(IR_Value));
+            IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
             v->kind = VAL_UNDEF; v->type = t_i32; return v;
         }
 
@@ -473,7 +474,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
         if (ast_struct && ast_struct->kind == TYPE_UNION) {
             /* union: all fields at offset 0 — bitcast pointer, then load */
             IR_Value* cast_ptr = ir_build_bitcast(b, struct_ptr,
-                ir_ptr_type(field_ty, struct_ptr->type ?
+                ir_ptr_type(ctx->b->arena, field_ty, struct_ptr->type ?
                     struct_ptr->type->addrspace : 0));
             return ir_build_load(b, cast_ptr);
         }
@@ -482,12 +483,12 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
         IR_Value* gep = ir_build_gep(b, struct_ptr,
             ir_const_int(b, t_i32, 0),
             ir_const_int(b, t_i32, field_idx));
-        gep->type = ir_ptr_type(field_ty, 0);
+        gep->type = ir_ptr_type(ctx->b->arena, field_ty, 0);
         return ir_build_load(b, gep);
     }
 
     case AST_SIZEOF_TYPE:
-    { IR_Type* t = ir_type_from_ast(n->body.sizeof_type.type_expr);
+    { IR_Type* t = ir_type_from_ast(ctx->b->arena, n->body.sizeof_type.type_expr);
       return ir_const_int(b, t_i32, ir_type_size(t)); }
 
     case AST_SIZEOF_EXPR:
@@ -499,7 +500,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     { IR_Value* ptr = NULL;
       if (n->body.postfix.operand->type == AST_IDENT)
           ptr = sym_lookup(ctx, n->body.postfix.operand->body.ident.name);
-      if (!ptr) { IR_Value* v = calloc(1, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+      if (!ptr) { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
       IR_Value* old_val = ir_build_load(b, ptr);
       IR_Value* new_val;
       if (old_val->type && old_val->type->kind == IR_PTR) {
@@ -522,6 +523,6 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       return old_val; }
 
     default:
-    { IR_Value* v = calloc(1, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+    { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
     }
 }

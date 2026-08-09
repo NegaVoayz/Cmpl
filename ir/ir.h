@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 #include "ast.h"          /* for String, Type, AST_Node */
+#include "arena.h"        /* for Arena */
 
 /* forward */
 typedef struct IR_Block IR_Block;
@@ -180,6 +181,7 @@ struct IR_Module {
     int          addr_space;     /* default address space */
     const char*  target_triple;
     const char*  data_layout;
+    Arena*       arena;          /* owns all IR objects in this module */
 };
 
 /* ---------------------------------------------------------------
@@ -192,6 +194,7 @@ typedef struct {
     IR_Block*    cur_block;
     int          next_vreg_id;
     int          next_label_id;
+    Arena*       arena;        /* allocator for all IR objects */
 } IR_Builder;
 
 extern IR_Type *t_void, *t_i1, *t_i8, *t_i16, *t_i32, *t_i64;

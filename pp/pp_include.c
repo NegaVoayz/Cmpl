@@ -202,7 +202,9 @@ include_resolve(PPCtx* ctx, const char* inc_path, int is_local)
 
     if (ctx->seen_count >= MAX_INCLUDES) return -1;
 
-    ctx->seen[ctx->seen_count] = strdup(full);
+    { int n = (int)strlen(full) + 1;
+      ctx->seen[ctx->seen_count] = arena_alloc(ctx->arena, n);
+      memcpy(ctx->seen[ctx->seen_count], full, n); }
     ctx->seen_count++;
 
     int  inc_len;

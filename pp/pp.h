@@ -1,6 +1,8 @@
 #ifndef PP_H
 #define PP_H
 
+#include "arena.h"
+
 /* --- Public API --- */
 
 /* Preprocess the file at `filename`.
@@ -40,9 +42,10 @@ typedef struct Macro {
 /* Macro hash table */
 typedef struct {
     Macro* buckets[MACRO_TABLE_SIZE];
+    Arena* arena;                         /* owns all Macro entries */
 } MacroTable;
 
-void   macro_init(MacroTable* mt);
+void   macro_init(MacroTable* mt, Arena* a);
 Macro* macro_lookup(MacroTable* mt, const char* name);
 void   macro_add(MacroTable* mt, const char* name, const char* body,
                  int is_func, int nparams, char** params);
@@ -91,6 +94,7 @@ typedef struct PPCtx {
     char       base_dir[MAX_PATH];
     char       include_paths[MAX_INCLUDES][MAX_PATH];
     int        n_include_paths;
+    Arena*     arena;       /* owns macro entries, directive strings, work bufs */
 } PPCtx;
 
 /* Two-step API: init context, add include paths, run preprocessing.
@@ -104,7 +108,7 @@ char* pp_preprocess(PPCtx* ctx, const char* filename);
 void  pp_ctx_free(PPCtx* ctx);
 
 /* Expand all macros in a line (fixed-point iteration) */
-void expand_line(MacroTable* mt, const char* line, Buffer* out);
+void expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a);
 
 /* Process source text: the main preprocessor loop */
 void process_source(PPCtx* ctx, const char* src, int srclen);

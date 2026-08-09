@@ -91,7 +91,7 @@ IR_Type* func_type_lookup(FuncSig* sigs, String name)
 
 void sym_add(GenCtx* ctx, String name, IR_Value* alloca)
 {
-    SymEntry* e = calloc(1, sizeof(SymEntry));
+    SymEntry* e = arena_alloc(ctx->b->arena, sizeof(SymEntry));
     e->name = name;
     e->alloca = alloca;
     e->next = ctx->syms;
@@ -296,12 +296,13 @@ IR_Func*
 ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs)
 {
     AST_Node*   fd = func_def;
-    IR_Builder* b = ir_builder_new(mod);
+    Arena*      a = mod->arena;
+    IR_Builder* b = ir_builder_new(mod, a);
     GenCtx      ctx = {b, NULL, sigs, NULL, NULL, NULL, mod, is_device};
-    IR_Func*    func = calloc(1, sizeof(IR_Func));
+    IR_Func*    func = arena_alloc(a, sizeof(IR_Func));
 
     func->name = fd->body.func_def.name;
-    func->ret_type = ir_type_from_ast(fd->body.func_def.ret_type);
+    func->ret_type = ir_type_from_ast(a, fd->body.func_def.ret_type);
 
     if (!func->ret_type)
         func->ret_type = t_void;
@@ -321,10 +322,10 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs
     for (AST_Node* p = fd->body.func_def.params; p; p = p->next) n++;
 
     func->n_params = n;
-    func->params = calloc(n, sizeof(IR_Value*));
+    func->params = arena_alloc(a, n * sizeof(IR_Value*));
 
     for (int i = 0; i < n; i++) {
-        func->params[i] = calloc(1, sizeof(IR_Value));
+        func->params[i] = arena_alloc(a, sizeof(IR_Value));
         func->params[i]->kind = VAL_PARAM;
         func->params[i]->type = t_i32;
         func->params[i]->id = b->next_vreg_id++;
@@ -341,14 +342,14 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs
     {
         int i = 0;
         for (AST_Node* p = fd->body.func_def.params; p; p = p->next, i++) {
-            IR_Type* pty = ir_type_from_ast(p->body.param_decl.param_type);
+            IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type);
             /* if resolved type is i32 but AST type is a named typedef
              * (e.g. unresolved typedef for function pointer or struct),
              * default to ptr — typedefs aren't resolved at parse time. */
             if (pty && pty->kind == IR_I32) {
                 Type* ast = p->body.param_decl.param_type;
                 if (ast && ast->kind == TYPE_NAMED)
-                    pty = ir_ptr_type(t_i8, 0);
+                    pty = ir_ptr_type(a, t_i8, 0);
             }
             func->params[i]->type = pty ? pty : t_i32;
 
@@ -380,7 +381,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs
                     ir_builder_set_block(b, blk);
 
                     if (func->ret_type && func->ret_type->kind != IR_VOID) {
-                        IR_Value* undef = calloc(1, sizeof(IR_Value));
+                        IR_Value* undef = arena_alloc(a, sizeof(IR_Value));
                         undef->kind = VAL_UNDEF;
                         undef->type = func->ret_type;
                         ir_build_ret(b, undef);
@@ -400,7 +401,6 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs
         mod->funcs = func;
     mod->last_func = func;
 
-    ir_builder_free(b);
     return func;
 }
 
@@ -414,7 +414,9 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     if (!root || root->type != AST_PROGRAM)
         return NULL;
 
-    IR_Module* mod = calloc(1, sizeof(IR_Module));
+    Arena*     a = arena_new();
+    IR_Module* mod = arena_alloc(a, sizeof(IR_Module));
+    mod->arena = a;
     mod->addr_space = is_device ? 1 : 0;
     mod->target_triple = is_device ? "spir64-unknown-unknown"
                                    : "x86_64-unknown-linux-gnu";
@@ -425,9 +427,9 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type != AST_FUNC_DEF) continue;
 
-        FuncSig* s = calloc(1, sizeof(FuncSig));
+        FuncSig* s = arena_alloc(a, sizeof(FuncSig));
         s->name = decl->body.func_def.name;
-        s->ret_type = ir_type_from_ast(decl->body.func_def.ret_type);
+        s->ret_type = ir_type_from_ast(a, decl->body.func_def.ret_type);
         if (!s->ret_type) s->ret_type = t_void;
         s->next = sigs;
         sigs = s;
@@ -440,7 +442,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         /* collect typedefs */
         for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
             if (decl->type != AST_TYPEDEF) continue;
-            TypedefEntry* te = calloc(1, sizeof(TypedefEntry));
+            TypedefEntry* te = arena_alloc(a, sizeof(TypedefEntry));
             te->name = decl->body.typedef_decl.name;
             te->aliased_type = decl->body.typedef_decl.aliased_type;
             te->next = typedefs; typedefs = te;
@@ -470,7 +472,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
                 if (en->body.enumerator.value &&
                     en->body.enumerator.value->type == AST_INT_LIT)
                     val = (int)en->body.enumerator.value->body.literal.int_val;
-                TypedefEntry* ev = calloc(1, sizeof(TypedefEntry));
+                TypedefEntry* ev = arena_alloc(a, sizeof(TypedefEntry));
                 ev->name = en->body.enumerator.name;
                 ev->aliased_type = (Type*)(intptr_t)val;
                 ev->next = enum_vals; enum_vals = ev;
@@ -490,7 +492,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
             for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
                 if (decl->type != AST_STRUCT_DEF && decl->type != AST_UNION_DEF) continue;
                 if (!decl->body.struct_def.name.data) continue;
-                StructDefEntry* se = calloc(1, sizeof(StructDefEntry));
+                StructDefEntry* se = arena_alloc(a, sizeof(StructDefEntry));
                 se->name = decl->body.struct_def.name;
                 se->fields = decl->body.struct_def.fields;
                 se->is_union = (decl->type == AST_UNION_DEF);
@@ -543,7 +545,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
                  * or tentative definition (linkage==0, no extern keyword) */
                 if (!g->body.init_val &&
                     (decl->body.var_decl.init || decl->body.var_decl.linkage == 0)) {
-                    IR_Value* init = calloc(1, sizeof(IR_Value));
+                    IR_Value* init = arena_alloc(a, sizeof(IR_Value));
                     if (g->type->kind == IR_PTR) {
                         init->kind = VAL_CONST_NULL;
                     } else {
@@ -557,10 +559,10 @@ ir_gen_module_ex(AST_Node* root, int is_device)
             if (dup) continue;
         }
 
-        IR_Value* gv = calloc(1, sizeof(IR_Value));
+        IR_Value* gv = arena_alloc(a, sizeof(IR_Value));
         gv->kind = VAL_GLOBAL;
         gv->name = decl->body.var_decl.name;
-        gv->type = ir_type_from_ast(decl->body.var_decl.var_type);
+        gv->type = ir_type_from_ast(a, decl->body.var_decl.var_type);
 
         /* fix up: if the IR type is an array-of-i32 but the AST element
          * type is a named typedef (likely fn ptr), use ptr elements */
@@ -575,10 +577,10 @@ ir_gen_module_ex(AST_Node* root, int is_device)
             if (inner && inner->kind == TYPE_NAMED && !inner->inner) {
                 /* typedef not resolved — assume pointer-sized element,
                  * rebuild the array type chain with ptr as leaf */
-                IR_Type* leaf = ir_ptr_type(t_i8, 0);
+                IR_Type* leaf = ir_ptr_type(a, t_i8, 0);
                 IR_Type* arr = leaf;
                 for (int d = 0; d < depth; d++)
-                    arr = ir_array_type(arr, 0);
+                    arr = ir_array_type(a, arr, 0);
                 gv->type = arr;
             }
         }
@@ -590,7 +592,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         gv->linkage = (decl->body.var_decl.linkage == 4) ? 0 : 1;
 
         if (decl->body.var_decl.init) {
-            IR_Value* init = calloc(1, sizeof(IR_Value));
+            IR_Value* init = arena_alloc(a, sizeof(IR_Value));
             if (gv->type->kind == IR_PTR) {
                 init->kind = VAL_CONST_NULL;
             } else {
@@ -600,7 +602,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
             gv->body.init_val = init;
         } else if (decl->body.var_decl.linkage != 5) {
             /* not extern: tentative definition or static → zero-initialize */
-            IR_Value* init = calloc(1, sizeof(IR_Value));
+            IR_Value* init = arena_alloc(a, sizeof(IR_Value));
             if (gv->type->kind == IR_PTR) {
                 init->kind = VAL_CONST_NULL;
             } else {

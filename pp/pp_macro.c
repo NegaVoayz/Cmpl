@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arena.h"
+
 /* djb2 hash */
 static unsigned int
 hash_str(const char* s)
@@ -16,9 +18,10 @@ hash_str(const char* s)
 }
 
 void
-macro_init(MacroTable* mt)
+macro_init(MacroTable* mt, Arena* a)
 {
     memset(mt->buckets, 0, sizeof(mt->buckets));
+    mt->arena = a;
 }
 
 Macro*
@@ -32,22 +35,11 @@ macro_lookup(MacroTable* mt, const char* name)
     return NULL;
 }
 
-static void
-macro_free_entry(Macro* m)
-{
-    free(m->name);
-    free(m->body);
-    if (m->params) {
-        for (int i = 0; i < m->nparams; i++)
-            free(m->params[i]);
-        free(m->params);
-    }
-}
-
 void
 macro_add(MacroTable* mt, const char* name, const char* body,
           int is_func, int nparams, char** params)
 {
+    Arena* a = mt->arena;
     unsigned int h = hash_str(name);
     Macro* existing = mt->buckets[h];
 
@@ -57,15 +49,19 @@ macro_add(MacroTable* mt, const char* name, const char* body,
     }
 
     if (existing) {
-        macro_free_entry(existing);
+        /* reuse entry: old name/body/params stay in arena — just update fields */
     } else {
-        existing = calloc(1, sizeof(Macro));
-        existing->name = strdup(name);
+        existing = arena_alloc(a, sizeof(Macro));
+        int nlen = (int)strlen(name) + 1;
+        existing->name = arena_alloc(a, nlen);
+        memcpy(existing->name, name, nlen);
         existing->next = mt->buckets[h];
         mt->buckets[h] = existing;
     }
 
-    existing->body = strdup(body ? body : "");
+    int blen = (int)strlen(body ? body : "") + 1;
+    existing->body = arena_alloc(a, blen);
+    memcpy(existing->body, body ? body : "", blen);
     existing->is_func = is_func;
     existing->nparams = nparams;
     existing->params = params;
@@ -82,8 +78,7 @@ macro_remove(MacroTable* mt, const char* name)
         if (strcmp(m->name, name) == 0) {
             if (prev) prev->next = m->next;
             else      mt->buckets[h] = m->next;
-            macro_free_entry(m);
-            free(m);
+            /* memory stays in arena — no explicit free needed */
             return;
         }
         prev = m;
@@ -94,13 +89,6 @@ macro_remove(MacroTable* mt, const char* name)
 void
 macro_free(MacroTable* mt)
 {
-    for (int i = 0; i < MACRO_TABLE_SIZE; i++) {
-        Macro* m = mt->buckets[i];
-        while (m) {
-            Macro* next = m->next;
-            macro_free_entry(m);
-            free(m);
-            m = next;
-        }
-    }
+    /* arena handles teardown — just clear the bucket table */
+    memset(mt->buckets, 0, sizeof(mt->buckets));
 }

@@ -115,7 +115,7 @@ process_source(PPCtx* ctx, const char* src, int srclen)
         buf_append(&line, "\0", 1);
 
         if (line.len > 0)
-            expand_line(&ctx->macros, line.data, &ctx->out);
+            expand_line(&ctx->macros, line.data, &ctx->out, ctx->arena);
 
         buf_free(&line);
     }
@@ -127,7 +127,8 @@ void
 pp_ctx_init(PPCtx* ctx)
 {
     memset(ctx, 0, sizeof(*ctx));
-    macro_init(&ctx->macros);
+    ctx->arena = arena_new();
+    macro_init(&ctx->macros, ctx->arena);
     cond_init(&ctx->cond);
     buf_init(&ctx->out);
     ctx->n_include_paths = 0;
@@ -167,10 +168,9 @@ pp_preprocess(PPCtx* ctx, const char* filename)
 void
 pp_ctx_free(PPCtx* ctx)
 {
-    macro_free(&ctx->macros);
-
-    for (int i = 0; i < ctx->seen_count; i++)
-        free(ctx->seen[i]);
+    /* arena frees all macro entries, directive strings, work buffers,
+     * and seen[] paths at once. */
+    arena_free(ctx->arena);
 
     /* NOTE: ctx->out is NOT freed — the caller owns the
      * preprocessed buffer returned by pp_preprocess(). */

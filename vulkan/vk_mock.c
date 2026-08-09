@@ -5,17 +5,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arena.h"
+
 /* ---------------------------------------------------------------
  *  Create a string constant IR value for the kernel name
  * --------------------------------------------------------------- */
 
 static IR_Value*
-make_str_const(IR_Type* ptr_ty, const char* s, int len)
+make_str_const(Arena* a, IR_Type* ptr_ty, const char* s, int len)
 {
-    IR_Value* v = calloc(1, sizeof(IR_Value));
+    IR_Value* v = arena_alloc(a, sizeof(IR_Value));
     v->kind = VAL_CONST_STRING;
     v->type = ptr_ty;
-    char* copy = malloc(len + 1);
+    char* copy = arena_alloc(a, len + 1);
     memcpy(copy, s, len);
     copy[len] = '\0';
     v->body.str_val.data = copy;
@@ -35,7 +37,7 @@ make_str_const(IR_Type* ptr_ty, const char* s, int len)
  * --------------------------------------------------------------- */
 
 static void
-transform_call(IR_Instr* inst)
+transform_call(IR_Instr* inst, Arena* a)
 {
     const char* callee = inst->callee.data;
     int         clen   = inst->callee.length;
@@ -70,28 +72,28 @@ transform_call(IR_Instr* inst)
     IR_Value* stream = (n_cfg >= 4 && inst->call_args[3]) ? inst->call_args[3] : NULL;
 
     /* build constant 1 and 0 */
-    IR_Value* one = calloc(1, sizeof(IR_Value));
+    IR_Value* one = arena_alloc(a, sizeof(IR_Value));
     one->kind = VAL_CONST_INT; one->type = t_i32; one->body.int_val = 1;
 
-    IR_Value* zero = calloc(1, sizeof(IR_Value));
+    IR_Value* zero = arena_alloc(a, sizeof(IR_Value));
     zero->kind = VAL_CONST_INT; zero->type = t_i32; zero->body.int_val = 0;
 
-    IR_Value* zero64 = calloc(1, sizeof(IR_Value));
+    IR_Value* zero64 = arena_alloc(a, sizeof(IR_Value));
     zero64->kind = VAL_CONST_INT; zero64->type = t_i64; zero64->body.int_val = 0;
 
     /* count kernel args */
-    IR_Value* nka = calloc(1, sizeof(IR_Value));
+    IR_Value* nka = arena_alloc(a, sizeof(IR_Value));
     nka->kind = VAL_CONST_INT; nka->type = t_i32; nka->body.int_val = n_ka;
 
     /* build new args array:
      * [name_str, grid_x, 1, 1, block_x, 1, 1, shared, stream, n_ka, kernel_args...] */
     int new_n = 10 + n_ka;
-    IR_Value** new_args = calloc(new_n, sizeof(IR_Value*));
+    IR_Value** new_args = arena_alloc(a, new_n * sizeof(IR_Value*));
     int idx = 0;
 
-    IR_Type* i8_ptr = ir_ptr_type(t_i8, 0);
+    IR_Type* i8_ptr = ir_ptr_type(a, t_i8, 0);
 
-    new_args[idx++] = make_str_const(i8_ptr, kname, name_len);
+    new_args[idx++] = make_str_const(a, i8_ptr, kname, name_len);
     new_args[idx++] = grid ? grid : zero;     /* grid_x */
     new_args[idx++] = one;                     /* grid_y */
     new_args[idx++] = one;                     /* grid_z */
@@ -106,15 +108,15 @@ transform_call(IR_Instr* inst)
     for (int i = 0; i < n_ka; i++)
         new_args[idx++] = inst->call_args[n_cfg + i];
 
-    /* replace callee */
-    free((void*)inst->callee.data);
-    char* new_callee = malloc(strlen("cmpl_vk_launch") + 1);
-    strcpy(new_callee, "cmpl_vk_launch");
+    /* replace callee — old data was arena-allocated, no free needed */
+    const char* vk_launch = "cmpl_vk_launch";
+    int vk_len = (int)strlen(vk_launch);
+    char* new_callee = arena_alloc(a, vk_len + 1);
+    memcpy(new_callee, vk_launch, vk_len + 1);
     inst->callee.data = new_callee;
-    inst->callee.length = strlen("cmpl_vk_launch");
+    inst->callee.length = vk_len;
 
-    /* replace args */
-    free(inst->call_args);
+    /* replace args — old call_args was arena-allocated, no free needed */
     inst->call_args = new_args;
     inst->n_call_args = new_n;
 
@@ -132,7 +134,7 @@ walk_module(IR_Module* mod)
         for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
             for (IR_Instr* inst = blk->first; inst; inst = inst->next)
                 if (inst->opcode == IROP_CALL)
-                    transform_call(inst);
+                    transform_call(inst, mod->arena);
 }
 
 /* ---------------------------------------------------------------

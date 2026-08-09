@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "ast.h"
+#include "arena.h"
 
 /* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
 typedef struct SymEntry { String name; IR_Value* alloca; struct SymEntry* next; } SymEntry;
@@ -38,14 +39,14 @@ coerce_to_i1(IR_Builder* b, IR_Value* v)
 
     /* pointer → icmp ne ptr %v, null */
     if (v->type && v->type->kind == IR_PTR) {
-        IR_Value* nv = calloc(1, sizeof(IR_Value));
+        IR_Value* nv = arena_alloc(b->arena, sizeof(IR_Value));
         nv->kind = VAL_CONST_NULL; nv->type = v->type;
         return ir_build_icmp(b, IR_COND_NE, v, nv);
     }
 
     /* float/double → fcmp one ty %v, 0.0 */
     if (v->type && (v->type->kind == IR_F32 || v->type->kind == IR_F64)) {
-        IR_Value* zero = ir_const_float(v->type, 0.0);
+        IR_Value* zero = ir_const_float(b->arena, v->type, 0.0);
         return ir_build_fcmp(b, IR_COND_NE, v, zero);
     }
 
@@ -156,7 +157,7 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
     case AST_RETURN:
     { IR_Value* rv = gen_expr(ctx, n->body.ret.expr);
       if (!rv && ctx->ret_type && ctx->ret_type->kind != IR_VOID) {
-          IR_Value* undef = calloc(1, sizeof(IR_Value));
+          IR_Value* undef = arena_alloc(b->arena, sizeof(IR_Value));
           undef->kind = VAL_UNDEF; undef->type = ctx->ret_type; rv = undef;
       }
       /* coerce return value to function return type */
@@ -172,7 +173,7 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
               /* int 0 → ptr null */
               else if (fk == IR_PTR && rk != IR_PTR) {
                   if (rv->kind == VAL_CONST_INT && rv->body.int_val == 0)
-                      rv = ir_const_null(ctx->ret_type);
+                      rv = ir_const_null(b->arena, ctx->ret_type);
                   else
                       rv = ir_build_bitcast(b, rv, ctx->ret_type);
               }
@@ -191,7 +192,7 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
     case AST_BREAK: if (ctx->break_blk) ir_build_br(b, ctx->break_blk); break;
     case AST_CONTINUE: if (ctx->cont_blk) ir_build_br(b, ctx->cont_blk); break;
     case AST_VAR_DECL:
-    { IR_Type* vt = ir_type_from_ast(n->body.var_decl.var_type);
+    { IR_Type* vt = ir_type_from_ast(b->arena, n->body.var_decl.var_type);
       if (!vt || vt->kind == IR_VOID) vt = t_i8;
       /* evaluate init before creating alloca — init type may reveal
        * that an unresolved typedef is actually a fn ptr */
@@ -203,7 +204,7 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
           n->body.var_decl.var_type->kind == TYPE_NAMED &&
           !n->body.var_decl.var_type->inner &&
           init->type && init->type->kind == IR_PTR)
-          vt = ir_ptr_type(t_i8, 0);
+          vt = ir_ptr_type(b->arena, t_i8, 0);
       IR_Value* al = ir_build_alloca(b, vt);
       sym_add(ctx, n->body.var_decl.name, al);
       if (init) ir_build_store(b, init, al);

@@ -11,3 +11,4 @@ add_library(pp STATIC
 )
 
 target_include_directories(pp PUBLIC .)
+target_link_libraries(pp PUBLIC base)

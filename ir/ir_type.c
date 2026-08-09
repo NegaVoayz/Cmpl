@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "ast.h"
+#include "arena.h"
 
 /* ---------------------------------------------------------------
  *  Common type singletons
@@ -71,35 +72,35 @@ init_singletons(void)
  * --------------------------------------------------------------- */
 
 IR_Type*
-ir_type_new(IR_TypeKind kind)
+ir_type_new(Arena* a, IR_TypeKind kind)
 {
-    IR_Type* t = calloc(1, sizeof(IR_Type));
+    IR_Type* t = arena_alloc(a, sizeof(IR_Type));
     t->kind = kind;
     return t;
 }
 
 IR_Type*
-ir_ptr_type(IR_Type* inner, int addrspace)
+ir_ptr_type(Arena* a, IR_Type* inner, int addrspace)
 {
-    IR_Type* t = ir_type_new(IR_PTR);
+    IR_Type* t = ir_type_new(a, IR_PTR);
     t->inner = inner;
     t->addrspace = addrspace;
     return t;
 }
 
 IR_Type*
-ir_array_type(IR_Type* elem, int size)
+ir_array_type(Arena* a, IR_Type* elem, int size)
 {
-    IR_Type* t = ir_type_new(IR_ARRAY);
+    IR_Type* t = ir_type_new(a, IR_ARRAY);
     t->inner = elem;
     t->size = size;
     return t;
 }
 
 IR_Type*
-ir_func_type(IR_Type* ret, IR_Type* params)
+ir_func_type(Arena* a, IR_Type* ret, IR_Type* params)
 {
-    IR_Type* t = ir_type_new(IR_FUNC);
+    IR_Type* t = ir_type_new(a, IR_FUNC);
     t->inner = ret;
     t->members = params;
     return t;
@@ -109,10 +110,10 @@ ir_func_type(IR_Type* ret, IR_Type* params)
  * shallow copy shares inner/members/name; only next is independent.
  * prevents corrupting singletons like t_i32 when two members
  * have the same type. */
-static IR_Type* clone_type_for_chain(IR_Type* src)
+static IR_Type* clone_type_for_chain(Arena* a, IR_Type* src)
 {
     if (!src) return NULL;
-    IR_Type* cp = calloc(1, sizeof(IR_Type));
+    IR_Type* cp = arena_alloc(a, sizeof(IR_Type));
     memcpy(cp, src, sizeof(IR_Type));
     cp->next = NULL;
     return cp;
@@ -123,7 +124,7 @@ static IR_Type* clone_type_for_chain(IR_Type* src)
  * --------------------------------------------------------------- */
 
 static IR_Type*
-ast_to_ir_type(Type* ast)
+ast_to_ir_type(Arena* a, Type* ast)
 {
     if (!ast) return t_void;
 
@@ -139,25 +140,25 @@ ast_to_ir_type(Type* ast)
 
     case TYPE_SIGNED:
     case TYPE_UNSIGNED:
-        if (ast->next) return ast_to_ir_type(ast->next);
+        if (ast->next) return ast_to_ir_type(a, ast->next);
         return t_i32;
     case TYPE_PTR:
-    { IR_Type* inner = ast_to_ir_type(ast->inner); int as = ast->is_const ? 3 : 0;
-      return ir_ptr_type(inner, as); }
+    { IR_Type* inner = ast_to_ir_type(a, ast->inner); int as = ast->is_const ? 3 : 0;
+      return ir_ptr_type(a, inner, as); }
     case TYPE_ARRAY:
-    { IR_Type* inner = ast_to_ir_type(ast->inner);
-      return ir_array_type(inner, ast->arr_size > 0 ? ast->arr_size : 0); }
+    { IR_Type* inner = ast_to_ir_type(a, ast->inner);
+      return ir_array_type(a, inner, ast->arr_size > 0 ? ast->arr_size : 0); }
     case TYPE_FUNC:
     {
-        IR_Type* ret = ast_to_ir_type(ast->inner);
+        IR_Type* ret = ast_to_ir_type(a, ast->inner);
         IR_Type *params = NULL, **tail = &params;
 
         for (AST_Node* p = ast->params; p; p = p->next) {
-            IR_Type* pt = ast_to_ir_type(p->body.param_decl.param_type);
-            *tail = clone_type_for_chain(pt);
+            IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type);
+            *tail = clone_type_for_chain(a, pt);
             tail = &(*tail)->next;
         }
-        return ir_func_type(ret, params);
+        return ir_func_type(a, ret, params);
     }
 
     case TYPE_STRUCT:
@@ -173,14 +174,14 @@ ast_to_ir_type(Type* ast)
                   return sc;
           }
       }
-      IR_Type* t = ir_type_new(IR_STRUCT);
+      IR_Type* t = ir_type_new(a, IR_STRUCT);
       t->name = ast->name;
       if (ast->params) {
           IR_Type** tail = &t->members;
           for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL; f = f->next) {
-              IR_Type* ft = ast_to_ir_type(f->body.var_decl.var_type);
+              IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type);
               if (!ft || ft->kind == IR_VOID) ft = t_i8;
-              *tail = clone_type_for_chain(ft);
+              *tail = clone_type_for_chain(a, ft);
               tail = &(*tail)->next;
           }
       }
@@ -189,7 +190,7 @@ ast_to_ir_type(Type* ast)
       register_struct_ast(t, ast);
       return t; }
     case TYPE_NAMED:
-        if (ast->inner) return ast_to_ir_type(ast->inner);
+        if (ast->inner) return ast_to_ir_type(a, ast->inner);
         return t_i32;
     default:
         return t_i32;
@@ -197,10 +198,10 @@ ast_to_ir_type(Type* ast)
 }
 
 IR_Type*
-ir_type_from_ast(Type* ast_type)
+ir_type_from_ast(Arena* a, Type* ast_type)
 {
     init_singletons();
-    return ast_to_ir_type(ast_type);
+    return ast_to_ir_type(a, ast_type);
 }
 
 void

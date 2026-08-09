@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arena.h"
+
 /* shared with ir_builder_ops.c */
 IR_Value* make_vreg(IR_Builder* b, IR_Type* ty);
 IR_Instr* make_instr(IR_Builder* b, IR_Opcode op, IR_Type* ty);
@@ -15,19 +17,14 @@ void      append_instr(IR_Builder* b, IR_Instr* inst);
  * --------------------------------------------------------------- */
 
 IR_Builder*
-ir_builder_new(IR_Module* mod)
+ir_builder_new(IR_Module* mod, Arena* a)
 {
-    IR_Builder* b = calloc(1, sizeof(IR_Builder));
+    IR_Builder* b = arena_alloc(a, sizeof(IR_Builder));
     b->module = mod;
     b->next_vreg_id = 0;
     b->next_label_id = 0;
+    b->arena = a;
     return b;
-}
-
-void
-ir_builder_free(IR_Builder* b)
-{
-    free(b);
 }
 
 /* ---------------------------------------------------------------
@@ -37,7 +34,7 @@ ir_builder_free(IR_Builder* b)
 IR_Block*
 ir_builder_new_block(IR_Builder* b, const char* name)
 {
-    IR_Block* blk = calloc(1, sizeof(IR_Block));
+    IR_Block* blk = arena_alloc(b->arena, sizeof(IR_Block));
 
     if (name) {
         /* make label unique by appending a counter to avoid collisions
@@ -45,7 +42,7 @@ ir_builder_new_block(IR_Builder* b, const char* name)
         char buf[64];
         int id = b->next_label_id++;
         int n = snprintf(buf, sizeof(buf), "%s.%d", name, id);
-        char* copy = malloc(n + 1);
+        char* copy = arena_alloc(b->arena, n + 1);
         memcpy(copy, buf, n + 1);
         blk->name.data = copy;
         blk->name.length = n;
@@ -66,7 +63,7 @@ ir_builder_set_block(IR_Builder* b, IR_Block* block)
 IR_Value*
 make_vreg(IR_Builder* b, IR_Type* ty)
 {
-    IR_Value* v = calloc(1, sizeof(IR_Value));
+    IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
     v->kind = VAL_INSTR;
     v->type = ty;
     v->id = b->next_vreg_id++;
@@ -76,7 +73,7 @@ make_vreg(IR_Builder* b, IR_Type* ty)
 IR_Instr*
 make_instr(IR_Builder* b, IR_Opcode op, IR_Type* ty)
 {
-    IR_Instr* inst = calloc(1, sizeof(IR_Instr));
+    IR_Instr* inst = arena_alloc(b->arena, sizeof(IR_Instr));
     inst->opcode = op;
     inst->type = ty;
     inst->result = make_vreg(b, ty);
@@ -104,8 +101,7 @@ append_instr(IR_Builder* b, IR_Instr* inst)
 IR_Value*
 ir_const_int(IR_Builder* b, IR_Type* ty, long val)
 {
-    (void)b;
-    IR_Value* v = calloc(1, sizeof(IR_Value));
+    IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
     v->kind = VAL_CONST_INT;
     v->type = ty;
     v->body.int_val = val;
@@ -113,9 +109,9 @@ ir_const_int(IR_Builder* b, IR_Type* ty, long val)
 }
 
 IR_Value*
-ir_const_float(IR_Type* ty, double val)
+ir_const_float(Arena* a, IR_Type* ty, double val)
 {
-    IR_Value* v = calloc(1, sizeof(IR_Value));
+    IR_Value* v = arena_alloc(a, sizeof(IR_Value));
     v->kind = VAL_CONST_FLOAT;
     v->type = ty;
     v->body.float_val = val;
@@ -123,9 +119,9 @@ ir_const_float(IR_Type* ty, double val)
 }
 
 IR_Value*
-ir_const_null(IR_Type* ty)
+ir_const_null(Arena* a, IR_Type* ty)
 {
-    IR_Value* v = calloc(1, sizeof(IR_Value));
+    IR_Value* v = arena_alloc(a, sizeof(IR_Value));
     v->kind = VAL_CONST_NULL;
     v->type = ty;
     return v;
@@ -138,7 +134,7 @@ ir_const_null(IR_Type* ty)
 IR_Value*
 ir_build_alloca(IR_Builder* b, IR_Type* ty)
 {
-    IR_Instr* inst = make_instr(b, IROP_ALLOCA, ir_ptr_type(ty, 0));
+    IR_Instr* inst = make_instr(b, IROP_ALLOCA, ir_ptr_type(b->arena, ty, 0));
     append_instr(b, inst);
     return inst->result;
 }
@@ -152,7 +148,7 @@ ir_build_load(IR_Builder* b, IR_Value* ptr)
         /* PTR source: for alloca with inner, use inner type;
            for opaque ptr (no inner, or VAL_GLOBAL), use generic ptr */
         if (ptr->kind == VAL_GLOBAL || !ptr->type->inner)
-            elem = ir_ptr_type(t_i8, 0);
+            elem = ir_ptr_type(b->arena, t_i8, 0);
         else
             elem = ptr->type->inner;
     } else if (ptr->kind == VAL_GLOBAL) {

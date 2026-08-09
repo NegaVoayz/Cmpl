@@ -22,11 +22,11 @@ extern IR_Type *t_f32, *t_f64;
 
 /* --- Type API (ir_type.c) --- */
 
-IR_Type*    ir_type_new(IR_TypeKind kind);
-IR_Type*    ir_ptr_type(IR_Type* inner, int addrspace);
-IR_Type*    ir_array_type(IR_Type* elem, int size);
-IR_Type*    ir_func_type(IR_Type* ret, IR_Type* params);
-IR_Type*    ir_type_from_ast(Type* ast_type);
+IR_Type*    ir_type_new(Arena* a, IR_TypeKind kind);
+IR_Type*    ir_ptr_type(Arena* a, IR_Type* inner, int addrspace);
+IR_Type*    ir_array_type(Arena* a, IR_Type* elem, int size);
+IR_Type*    ir_func_type(Arena* a, IR_Type* ret, IR_Type* params);
+IR_Type*    ir_type_from_ast(Arena* a, Type* ast_type);
 void        ir_clear_struct_cache(void);
 int         ir_type_size(IR_Type* t);
 int         ir_type_eq(IR_Type* a, IR_Type* b);
@@ -36,14 +36,13 @@ int         ir_struct_field_index(Type* ast_struct, String field_name);
 
 /* --- Builder API (ir_builder.c) --- */
 
-IR_Builder* ir_builder_new(IR_Module* mod);
-void        ir_builder_free(IR_Builder* b);
+IR_Builder* ir_builder_new(IR_Module* mod, Arena* a);
 IR_Block*   ir_builder_new_block(IR_Builder* b, const char* name);
 void        ir_builder_set_block(IR_Builder* b, IR_Block* block);
 
 IR_Value*   ir_const_int(IR_Builder* b, IR_Type* ty, long val);
-IR_Value*   ir_const_float(IR_Type* ty, double val);
-IR_Value*   ir_const_null(IR_Type* ty);
+IR_Value*   ir_const_float(Arena* a, IR_Type* ty, double val);
+IR_Value*   ir_const_null(Arena* a, IR_Type* ty);
 
 /* instruction builders */
 IR_Value*   ir_build_alloca(IR_Builder* b, IR_Type* ty);

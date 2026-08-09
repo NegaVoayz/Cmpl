@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arena.h"
+
 /* from ir_builder.c */
 extern IR_Value* make_vreg(IR_Builder* b, IR_Type* ty);
 extern IR_Instr* make_instr(IR_Builder* b, IR_Opcode op, IR_Type* ty);
@@ -71,15 +73,16 @@ ir_build_call(IR_Builder* b, const char* callee, IR_Type* ret_ty,
     IR_Instr* inst = make_instr(b, IROP_CALL, ret_ty);
 
     if (callee) {
-        char* copy = malloc(strlen(callee) + 1);
-        strcpy(copy, callee);
+        int clen = (int)strlen(callee);
+        char* copy = arena_alloc(b->arena, clen + 1);
+        memcpy(copy, callee, clen + 1);
         inst->callee.data = copy;
-        inst->callee.length = strlen(callee);
+        inst->callee.length = clen;
     }
     inst->n_call_args = n_args;
 
     if (n_args > 0) {
-        inst->call_args = calloc(n_args, sizeof(IR_Value*));
+        inst->call_args = arena_alloc(b->arena, n_args * sizeof(IR_Value*));
         memcpy(inst->call_args, args, n_args * sizeof(IR_Value*));
     }
     append_instr(b, inst);
@@ -95,12 +98,11 @@ ir_build_call_ptr(IR_Builder* b, IR_Value* fn_ptr, IR_Type* ret_ty,
     /* indirect call: store function pointer in operands[0],
      * leave callee empty to signal indirect call in dump */
     inst->operands[0] = fn_ptr;
-    /* callee.data stays NULL, callee.length stays 0 from calloc */
 
     inst->n_call_args = n_args;
 
     if (n_args > 0) {
-        inst->call_args = calloc(n_args, sizeof(IR_Value*));
+        inst->call_args = arena_alloc(b->arena, n_args * sizeof(IR_Value*));
         memcpy(inst->call_args, args, n_args * sizeof(IR_Value*));
     }
     append_instr(b, inst);
@@ -120,7 +122,7 @@ ir_build_br(IR_Builder* b, IR_Block* target)
 {
     IR_Instr* inst = make_instr(b, IROP_BR, t_void);
     inst->operands[0] = NULL;
-    inst->in_blocks = calloc(1, sizeof(IR_Block*));
+    inst->in_blocks = arena_alloc(b->arena, sizeof(IR_Block*));
     inst->in_blocks[0] = target;
     inst->n_incoming = 1;
     append_instr(b, inst);
@@ -132,7 +134,7 @@ ir_build_cond_br(IR_Builder* b, IR_Value* cond,
 {
     IR_Instr* inst = make_instr(b, IROP_COND_BR, t_void);
     inst->operands[0] = cond;
-    inst->in_blocks = calloc(2, sizeof(IR_Block*));
+    inst->in_blocks = arena_alloc(b->arena, 2 * sizeof(IR_Block*));
     inst->in_blocks[0] = then_blk;
     inst->in_blocks[1] = else_blk;
     inst->n_incoming = 2;
@@ -151,9 +153,9 @@ ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
      * so wrap them to get a proper pointer type for aggregate detection. */
     IR_Type* ptr_ty = ptr->type;
     if (ptr_ty && ptr_ty->kind != IR_PTR)
-        ptr_ty = ir_ptr_type(ptr_ty, 0);
+        ptr_ty = ir_ptr_type(b->arena, ptr_ty, 0);
     if (!ptr_ty || !ptr_ty->inner || ptr_ty->inner->kind == IR_VOID)
-        ptr_ty = ir_ptr_type(t_i8, 0);
+        ptr_ty = ir_ptr_type(b->arena, t_i8, 0);
 
     /* coerce index operands to integer type (LLVM requires integer indices) */
     if (idx0 && idx0->type && idx0->type->kind == IR_PTR)
@@ -175,12 +177,12 @@ ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
 
     if (idx1 && !skip_idx1) {
         inst->operands[2] = idx1;
-        inst->call_args = calloc(1, sizeof(IR_Value*));
+        inst->call_args = arena_alloc(b->arena, sizeof(IR_Value*));
         inst->call_args[0] = idx1;
         inst->n_call_args = 1;
         /* after two-index GEP, result is ptr to the array element type */
         if (is_aggregate && ptr_ty->inner->inner)
-            result_ty = ir_ptr_type(ptr_ty->inner->inner, ptr_ty->addrspace);
+            result_ty = ir_ptr_type(b->arena, ptr_ty->inner->inner, ptr_ty->addrspace);
     } else if (is_aggregate && !idx1) {
         /* single-index GEP on aggregate: result still ptr-to-aggregate */
         /* (array decay needs the second index to reach the element) */
