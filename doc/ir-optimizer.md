@@ -17,48 +17,31 @@ See [AST Optimizer](ast-optimizer.md) for the first optimization layer.
 
 ## Architecture
 
-The optimizer uses a **pass manager** that runs passes to a fixed point:
-
-```c
-typedef struct {
-    IR_Module*  module;
-    int         changed;     // set by each pass if it modified anything
-    int         verbose;     // -v flag: print pass names
-} OptCtx;
-```
-
-Passes are function pointers:
-
-```c
-typedef void (*OptPass)(OptCtx* ctx);
-```
-
-The pass pipeline:
+The optimizer uses a simple fixed-point loop that runs passes until none
+report a change (max 8 iterations):
 
 ```c
 void ir_optimize(IR_Module* mod, int level)
 {
-    OptCtx ctx = { mod, 0, 0 };
-
-    /* level 0: minimal (fast) */
-    OptPass level0[] = { opt_mem2reg, opt_dce, opt_const_fold, opt_simplify_cfg, NULL };
-    /* level 1: default */
-    OptPass level1[] = { opt_mem2reg, opt_const_fold, opt_dce, opt_simplify_cfg,
-                         opt_gvn, opt_inline_dev, NULL };
-    /* level 2: aggressive (expensive) */
-    OptPass level2[] = { opt_mem2reg, opt_const_fold, opt_dce, opt_simplify_cfg,
-                         opt_inline_dev, opt_gvn, opt_const_fold, opt_dce,
-                         opt_loop_unroll, opt_simplify_cfg, NULL };
-
-    OptPass* passes = (level >= 2) ? level2 : (level == 1) ? level1 : level0;
+    int changed, iter = 0;
+    int max_iter = 8;
 
     do {
-        ctx.changed = 0;
-        for (OptPass* p = passes; *p; p++)
-            (*p)(&ctx);
-    } while (ctx.changed);
+        changed = 0;
+        changed |= opt_mem2reg(mod);
+        changed |= opt_dce(mod);
+        changed |= opt_const_fold(mod);
+        changed |= opt_simplify_cfg(mod);
+        if (level >= OPT_DEFAULT) {
+            changed |= opt_gvn(mod);
+            changed |= opt_inline_dev(mod);
+        }
+    } while (changed && ++iter < max_iter);
 }
 ```
+
+Each pass returns 1 if it modified the IR, 0 otherwise. The fixed-point loop
+re-runs all passes until no pass reports a change, or 8 iterations are reached.
 
 ## Pass 1: mem2reg — Alloca to SSA Promotion
 
@@ -81,7 +64,7 @@ Promotes `alloca`+`load`/`store` patterns to SSA registers with `phi` nodes.
    surviving store references).
 
 ```c
-void opt_mem2reg(OptCtx* ctx)
+int opt_mem2reg(IR_Module* mod)
 {
     for each IR_Func:
         for each IR_Block:
@@ -110,37 +93,28 @@ other passes).
 
 Removes instructions whose results are never used.
 
-### Algorithm (mark-sweep)
+### Algorithm (mark-sweep, def-use chain accelerated)
 
-1. Mark all instructions as dead
-2. Walk from "roots":
-   - Return values
-   - Store instructions (side effects)
-   - Call instructions (side effects, unless pure)
-   - **Alloca instructions** (side effects — see below)
-   - Branch conditions
-   - Instructions that feed into live instructions
-3. Sweep: remove all unmarked instructions
+1. **Build use lists**: `build_use_lists(func, arena)` walks all instructions and
+   populates `IR_Value.uses` arrays (dynamic, grow from 4 slots).
+2. Mark all instructions as dead (arena-allocated `marked[]` array).
+3. Walk from "roots" (side-effecting instructions: store, call, ret, br, cond_br,
+   unreachable, alloca), recursively mark operand-defining instructions via
+   **O(1) `v->def_instr`** lookup (previously O(n) linear scan over `all[]`).
+4. Sweep: remove all unmarked instructions from block chains.
 
 **Alloca preservation.** Allocas are treated as side-effecting so they survive DCE even
-when mem2reg has promoted their loads/stores away.  After promotion, surviving stores
-still reference the alloca via their pointer operand; if DCE removed the alloca, the
-orphaned value would never be renumbered during IR dump, creating a gap in SSA numbering
-that clang rejects.  Keeping the alloca ensures every referenced `%id` has a definition.
+when mem2reg has promoted their loads/stores away.  Keeping the alloca ensures every
+referenced `%id` has a definition.
 
-**Instruction buffer:** DCE collects up to **1024** instructions per function (raised
-from 512).  Functions with large switch-statements (e.g. `ir_gen_expr.c`'s `gen_expr()`
-at ~550 instructions) would otherwise exceed the buffer, causing untracked instructions
-to be misidentified as dead/live.
+**Dynamic buffer:** DCE counts instructions first, then allocates exact-sized `all[]`
+and `marked[]` arrays from the module arena — no fixed limit.
 
 ```c
-void opt_dce(OptCtx* ctx)
+int opt_dce(IR_Module* mod)
 {
     for each IR_Func:
-        int dead = 0;
-        do {
-            dead = mark_sweep_dce(func);
-            if (dead) ctx->changed = 1;
+        int changed = dce_func(func, mod->arena);
         } while (dead);  // iterate: removing dead insns may expose more dead insns
 
         /* remove empty blocks (except if they're branch targets) */
@@ -203,26 +177,29 @@ void opt_simplify_cfg(OptCtx* ctx)
 }
 ```
 
-## Pass 5: GVN — Global Value Numbering (CSE)
+## Pass 5: GVN — Local Value Numbering (CSE)
 
-Eliminates duplicate computations within a function.
+Eliminates duplicate computations within basic blocks.
 
-### Algorithm (local GVN per basic block, then extended basic blocks)
+### Algorithm (local GVN, def-use aware)
 
-1. Hash each instruction by `(opcode, operand0, operand1, type)`
-2. If a hash match is found and operands are identical, redirect all uses of the duplicate
-   to the original
-3. Remove duplicate instructions
+1. `build_use_lists(func, arena)` — populate `IR_Value.uses` arrays.
+2. Per basic block: maintain a VN table (max 64 entries, `(opcode, ops[2], type, cond)`).
+3. For each CSE-able instruction, check for a VN match.
+4. On match: call `redirect_users(inst->result, canonical_result)` which iterates
+   the uses list and patches all operand references (regular operands, call args,
+   phi incoming values) to point to the canonical result.
+5. Side-effecting instructions (store, call) invalidate the VN table.
 
 ```c
-void opt_gvn(OptCtx* ctx)
+int opt_gvn(IR_Module* mod)
 {
     for each IR_Func:
+        build_use_lists(func, mod->arena);
         for each IR_Block:
-            hash_table_t seen;
+            VNEntry table[64]; int n = 0;
             for each IR_Instr:
-                key = hash(inst->opcode, inst->operands[0], inst->operands[1]);
-                if (key in seen) {
+                if (vn_match) redirect_users(inst->result, canonical);
                     replace_all_uses_with(inst->result, seen[key]->result);
                     remove_inst(inst);
                     ctx->changed = 1;
@@ -299,9 +276,10 @@ void opt_addrspace_canon(OptCtx* ctx, IR_Module* mod)
 |---|---|
 | `ir-opt.h` | OptCtx, OptPass type, ir_optimize() declaration |
 | `ir_opt.c` | Pass runner: orchestrates passes to fixed point (max 8 iterations) |
-| `ir_opt_mem2reg.c` | Alloca → SSA phi promotion |
-| `ir_opt_mem2reg_cfg.c` | CFG analysis for mem2reg: dominance frontiers, block ordering |
-| `ir_opt_dce.c` | Mark-sweep dead instruction + dead block elimination |
+| `ir_opt_mem2reg.c` | Alloca → SSA phi promotion (orchestrator) |
+| `ir_opt_mem2reg_cfg.c` | CFG analysis: dominance frontiers, idom, block ordering |
+| `ir_opt_mem2reg_rename.c` | SSA rename: DFS over dominator tree, scoped value stacks |
+| `ir_opt_dce.c` | DCE + `build_use_lists()`: def-use chain builder + mark-sweep |
 | `ir_opt_const.c` | IR-level constant folding for all binary + compare + select ops |
 | `ir_opt_simplify.c` | CFG simplification: block merge, unreachable removal, jump threading |
 | `ir_opt_gvn.c` | Local value numbering / CSE |

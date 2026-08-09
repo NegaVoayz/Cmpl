@@ -74,7 +74,7 @@ The lexer cursor abstraction (`lexer.h`) provides:
 
 | File | Responsibility |
 |---|---|
-| `parse.c` | Driver: `parse(const char* code)` creates a `Lexer`, runs the scan loop, returns the token chain |
+| `parse.c` | Driver: `parse(const char* code, Arena* a)` — all tokens arena-allocated, returns token chain |
 | `lexer.c` | Core lexing: `read_ident_or_keyword()`, `read_operator()`, `read_char_or_string()`, `token_new()` |
 | `number.c` | Numeric literals: `read_number()` handles int, long, float, double, hex, octal |
 | `ast.c` | Node/type allocators (see [AST doc](ast.md)) |
@@ -82,6 +82,8 @@ The lexer cursor abstraction (`lexer.h`) provides:
 ## Example
 
 ```c
-Token* tokens = parse("int x = 42;");
+Arena* a = arena_new();
+Token* tokens = parse("int x = 42;", a);
 // Produces: TOK_INT → TOK_IDENT("x") → TOK_EQ → TOK_INT_LIT(42) → TOK_SEMI → TOK_EOF
+// All tokens live in arena; teardown: arena_free(a)
 ```

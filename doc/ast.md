@@ -83,8 +83,8 @@ Each suffix strips one layer from the declarator and wraps the accumulated type.
 ## Allocation
 
 ```c
-AST_Node* ast_node_new(AST_Type type, int line, int col);  // malloc + zero-init
-Type*     type_new(TypeKind kind);                          // malloc + zero-init
+AST_Node* ast_node_new(Arena* a, AST_Type type, int line, int col);  // arena + zeroed
+Type*     type_new(Arena* a, TypeKind kind);                          // arena + zeroed
 ```
 
 Both return zeroed memory. Callers fill in the union body fields after allocation.

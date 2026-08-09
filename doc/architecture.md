@@ -64,6 +64,7 @@ When `-cuda` is passed, stages 4–7 change:
 ## Module Composition
 
 ```
+base/          →  libbase.a        (arena.c, hash.c)  — shared data-structure infrastructure
 tokenizer/     →  libtokenizer.a   (parse.c, lexer.c, number.c, ast.c)
 pp/            →  libpp.a          (pp.c, pp_macro.c, pp_expand.c, pp_if.c, pp_cond.c,
                                      pp_eval.c, pp_include.c, pp_directive.c, pp_line.c)
@@ -75,16 +76,16 @@ parser/ll/     →  libparser_ll.a   (ll.c, ll_decl.c, ll_decl_agg.c, ll_decl_st
                                      ll_declarator.c, ll_stmt.c, ll_stmt_ctrl.c,
                                      ll_stmt_ctrl_jump.c, ll_type.c)
 parser/        →  libparser.a      (parse.c) — links lr + ll + tokenizer
-ast-opt/       →  libastopt.a      (optimize.c, opt_fold.c, opt_fold_walk.c, opt_fold_try.c,
+ast-opt/       →  libast_opt.a     (optimize.c, opt_fold.c, opt_fold_walk.c, opt_fold_try.c,
                                      opt_propagate.c, opt_propagate_scan.c,
                                      opt_propagate_replace.c, opt_dead.c, ast_walk.c)
 ir/            →  libir.a          (ir_type.c, ir_builder.c, ir_builder_ops.c,
                                      ir_gen.c, ir_gen_expr.c, ir_gen_stmt.c, ir_gen_cuda.c,
                                      ir_dump.c, ir_dump_instr.c, ir_dump_func.c, ir_dump_str.c)
-ir-opt/        →  libiropt.a       (ir_opt.c, ir_opt_mem2reg.c, ir_opt_mem2reg_cfg.c,
-                                     ir_opt_dce.c, ir_opt_const.c, ir_opt_simplify.c,
-                                     ir_opt_gvn.c, ir_opt_inline.c)
-llvm-codegen/  →  libllvmcg.a      (llvm_cg.c)
+ir-opt/        →  libir-opt.a      (ir_opt.c, ir_opt_mem2reg.c, ir_opt_mem2reg_cfg.c,
+                                     ir_opt_mem2reg_rename.c, ir_opt_dce.c, ir_opt_const.c,
+                                     ir_opt_simplify.c, ir_opt_gvn.c, ir_opt_inline.c)
+llvm-codegen/  →  libllvm-codegen.a (llvm_cg.c)
 cuda/          →  libcuda.a        (cuda_qual.c, cuda_split.c, cuda_launch.c)
 vulkan/        →  libvulkan.a      (vk_mock.c, vk_spirv.c, vk_spirv_collect.c,
                                      vk_spirv_emit.c, vk_spirv_func.c)
@@ -94,6 +95,16 @@ vulkan/        →  libvulkan.a      (vk_mock.c, vk_spirv.c, vk_spirv_collect.c,
 
 - **`cmpl`** — Full compiler: `main.c` links all libraries above. Supports `-E`, `-ir`, `-c`, `-S`, `-emit-llvm`, `-cuda`, `-O0`/`-O1`/`-O2`, `-o`, `-I`.
 - **`cmpl-pp`** — Preprocessor only: `main_pp.c` → tokenizer + pp.
+
+## Key Data Structures (base/)
+
+The `base/` module provides shared infrastructure used by all other modules:
+
+| File | Purpose |
+|---|---|
+| `arena.h` / `arena.c` | Bump-pointer arena allocator. 64 KB slabs, O(1) teardown via `arena_free()`. Replaces ~99% of `calloc` calls. |
+| `hash.h` / `hash.c` | String-keyed open-addressing HashMap (FNV-1a hash, linear probing, auto-resize at 70%). Used for symbol tables, type lookups, macro table. |
+| `types.h` | Shared `String` type (`{const char* data; int length}`) — used throughout the compiler. |
 
 ## Supporting Directories
 
@@ -108,9 +119,10 @@ vulkan/        →  libvulkan.a      (vk_mock.c, vk_spirv.c, vk_spirv_collect.c,
 
 From [CLAUDE.md](../CLAUDE.md):
 
-- **Token chain**: Tokens form a singly-linked list via `Token.next`. No array — the parser walks the chain.
-- **AST with upward links**: The last child's `next` pointer points to the parent node for convenient traversal.
+- **Token chain**: Tokens form a singly-linked list via `Token.next`. No array — the parser walks the chain. All tokens are arena-allocated; teardown is a single `arena_free()`.
+- **AST with parent-stores-tail**: Chain-owning AST/IR nodes have both `head` and `last` pointers. The last child's `next` points to the parent for upward traversal. Append is O(1): `parent->last->next = node; parent->last = node`.
 - **Hybrid reduction**: LR(1) handles expressions (operator precedence is natural as shift/reduce rules). LL handles everything else (statements, declarations, blocks) — structural constructs that are awkward to express as LR productions.
-- **Own IR tree**: In-memory LLVM IR data structures with no external LLVM dependency. The `.ll` text bridge connects to the LLVM ecosystem when needed.
+- **Memory model**: A single arena per compilation unit owns all Token, AST_Node, IR_Value, IR_Instr, IR_Type, and IR_Block objects. No `free()` calls — teardown is `arena_free()`. HashMaps provide O(1) name lookup throughout.
+- **Own IR tree**: In-memory LLVM IR data structures with no external LLVM dependency. The `.ll` text bridge connects to the LLVM ecosystem when needed. Def-use chains on IR_Value enable O(n) DCE and correct GVN user redirection.
 - **Per-file limits**: ≤ 200 lines per file, ≤ 80 lines per function, K&R braces.
-- **Self-hosting**: Cmpl can compile its own source files (74/74 parse, 54/54 pass clang validation).
+- **Self-hosting**: Cmpl can compile its own source files (73/73 objects link; 54/54 source files generate valid LLVM IR accepted by clang).

@@ -22,51 +22,49 @@ or other LLVM-based tools.
 typedef enum {
     IR_VOID,
     IR_I1, IR_I8, IR_I16, IR_I32, IR_I64,
-    IR_F16, IR_F32, IR_F64,
-    IR_PTR, IR_ARRAY, IR_STRUCT, IR_VECTOR, IR_FUNC
+    IR_F32, IR_F64,
+    IR_PTR, IR_ARRAY, IR_STRUCT, IR_FUNC
 } IR_TypeKind;
 
 struct IR_Type {
     IR_TypeKind kind;
-    IR_Type*    inner;      // pointee type, array element type, return type
-    int         size;       // array/vector element count
-    int         addrspace;  // 0=host, 1=device global, 2=shared, 3=constant
-    String      name;       // struct name, if any
-    IR_Type*    fields;     // struct field types (linked list)
-    IR_Type*    params;     // function param types (linked list)
-    int         is_vararg;  // for variadic functions
-    IR_Type*    next;       // chain for struct fields / param list
+    IR_Type*    inner;       // pointee / array element / return type
+    int         size;        // array element count
+    int         addrspace;   // 0=host, 1=device global, 2=shared, 3=constant
+    String      name;        // struct tag
+    IR_Type*    members;     // struct fields / func params (linked via next)
+    IR_Type*    next;        // chain for members / named_types list
 };
 ```
 
-Common types are singletons reused across the module:
+Common types are singletons (one-time `calloc`, never freed):
 
 ```c
-IR_Type t_void = { IR_VOID };
-IR_Type t_i1   = { IR_I1 };
-IR_Type t_i8   = { IR_I8 };
-IR_Type t_i32  = { IR_I32 };
-IR_Type t_i64  = { IR_I64 };
-IR_Type t_f32  = { IR_F32 };
-IR_Type t_f64  = { IR_F64 };
+IR_Type* t_void, *t_i1, *t_i8, *t_i16, *t_i32, *t_i64;
+IR_Type* t_f32, *t_f64;
 ```
+
+Composite types (ptr, array, func) are **interned**: a 128-slot open-addressing
+cache keyed by `(kind, inner_ptr, extra)` ensures `ir_ptr_type(t_i8, 0)` always
+returns the same `IR_Type*`. `ir_type_eq()` reduces to pointer comparison for
+interned types.
 
 Address-space-qualified pointer types are created on demand:
 
 ```c
-IR_Type* t_p0_i32 = ir_ptr(t_i32, 0);  // i32* (host)
-IR_Type* t_p1_f32 = ir_ptr(t_f32, 1);  // float addrspace(1)* (device global)
-IR_Type* t_p2_f32 = ir_ptr(t_f32, 2);  // float addrspace(2)* (shared)
+IR_Type* t = ir_ptr_type(arena, t_i32, 0);  // i32* (host)
+IR_Type* t = ir_ptr_type(arena, t_f32, 1);  // float addrspace(1)* (device global)
 ```
 
 ### IR_Value
 
-Every SSA value (constants, parameters, instruction results, globals) is an `IR_Value`:
+Every SSA value (constants, parameters, instruction results, globals) is an
+`IR_Value` with **def-use chains**:
 
 ```c
 typedef enum {
-    IRV_CONST_INT, IRV_CONST_FLOAT, IRV_CONST_NULL, IRV_CONST_STRING,
-    IRV_PARAM, IRV_INSTR, IRV_GLOBAL, IRV_UNDEF, IRV_BLOCK_ADDR
+    VAL_CONST_INT, VAL_CONST_FLOAT, VAL_CONST_NULL, VAL_CONST_STRING,
+    VAL_PARAM, VAL_INSTR, VAL_GLOBAL, VAL_UNDEF
 } IR_ValueKind;
 
 struct IR_Value {
@@ -74,7 +72,24 @@ struct IR_Value {
     IR_Type*     type;
     String       name;       // %name, @name, or numeric
     int          id;         // auto-increment unique ID
-    IR_Value*    next;       // chain in function's value table
+    IR_Value*    next;       // chain in global list
+    union {
+        long       int_val;
+        double     float_val;
+        String     str_val;
+        IR_Value*  init_val;  // global initializer
+    } body;
+    int          linkage;    // for globals: 0=internal(static), 1=external
+    IR_Instr*    def_instr;  // instruction that defines this value (O(1) lookup)
+    IR_Instr**   uses;       // dynamic array of user instructions
+    int          n_uses;
+    int          max_uses;
+};
+```
+
+`def_instr` is set automatically by `make_instr()` and for phi nodes in mem2reg.
+`uses` arrays are built on-demand by `build_use_lists()` before DCE/GVN passes
+(grow from 4 slots, 2x factor, allocated from module arena).
     union {
         long   int_val;      // IRV_CONST_INT
         double float_val;    // IRV_CONST_FLOAT
@@ -194,14 +209,32 @@ struct IR_Func {
 
 ```c
 struct IR_Module {
-    IR_Func*    funcs;         // function list
+    IR_Func*    funcs;         // function list (O(1) append via last_func)
+    IR_Func*    last_func;
     IR_Value*   globals;       // global variables
     IR_Type*    named_types;   // named struct types
     int         addr_space;    // default address space: 0=host, 1=device
-    String      target_triple; // e.g. "x86_64-pc-linux-gnu" or "spirv-unknown-unknown"
-    String      data_layout;   // endianness, pointer size, alignment info
+    const char* target_triple; // e.g. "x86_64-unknown-linux-gnu"
+    const char* data_layout;
+    Arena*      arena;         // owns all IR objects in this module
 };
 ```
+
+### IR_Builder
+
+```c
+typedef struct {
+    IR_Module*  module;
+    IR_Func*    cur_func;
+    IR_Block*   cur_block;
+    int         next_vreg_id;
+    int         next_label_id;
+    Arena*      arena;         // allocator for all IR objects
+} IR_Builder;
+```
+
+All `IR_Value`, `IR_Instr`, `IR_Block`, and `IR_Type` objects are allocated from
+the module's arena. Tear-down is `arena_free(mod->arena)` — no individual frees.
 
 ## Type Conversion: C Type → IR_Type
 

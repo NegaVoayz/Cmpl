@@ -10,12 +10,11 @@ The parser is **hybrid** because C has two distinct syntactic domains:
 The glue is `parser/parse.c`:
 
 ```c
-AST_Node* parse_program(const char* code) {
-    Token* tokens = parse(code);           // 1. tokenize
-    LR1_Parser* lr = lr1_parser_new(tokens); // 2. create LR parser on token chain
-    AST_Node* root = ll_parse_program(lr); // 3. LL drives; LL calls LR for expressions
-    lr1_parser_free(lr);                   // 4. cleanup
-    return root;
+AST_Node* parse_program(const char* code, Arena* a) {
+    Token* tokens = parse(code, a);              // 1. tokenize (arena-allocated)
+    LR1_Parser* lr = lr1_parser_new(tokens, a); // 2. create LR parser (arena)
+    AST_Node* root = ll_parse_program(lr);       // 3. LL drives; LL calls LR for expr
+    return root;                                  // 4. no cleanup — arena frees all
 }
 ```
 

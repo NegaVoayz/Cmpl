@@ -104,9 +104,9 @@ while (action = action_table[stack[sp].state][tok->kind])
 ## Public API
 
 ```c
-LR1_Parser* lr1_parser_new(Token* first_tok);   // create parser, pointing at first token
-AST_Node*   lr1_parse_expr(LR1_Parser* p);      // parse one expression (advances tok)
-void        lr1_parser_free(LR1_Parser* p);      // free parser state (NOT the AST)
+LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a);  // arena-allocated parser
+AST_Node*   lr1_parse_expr(LR1_Parser* p);                // parse one expression (advances tok)
+// No lr1_parser_free — parser lives in arena, teardown via arena_free()
 ```
 
 **Important**: `lr1_parse_expr()` advances `p->tok` past the expression — the next token is
@@ -117,7 +117,7 @@ available for the LL parser to inspect (e.g., to decide between `;` and `,` in a
 | File | Purpose |
 |---|---|
 | `lr1.h` | LR1_State/LR1_Symbol enums, LR1_Parser struct, action/goto table declarations |
-| `lr1.c` | `lr1_parser_new`, `lr1_parse_expr` (main loop), `lr1_parser_free`, `goto_push` |
+| `lr1.c` | `lr1_parser_new(Arena*)`, `lr1_parse_expr` (main loop), `goto_push`, `goto_passthru` |
 | `lr1_table.c` | `lr1_table_init()` — orchestrates action + goto table population |
 | `lr1_table_acts.c` | Action table entries — maps (state, token) → shift/reduce/accept/error |
 | `lr1_table_goto.c` | Goto table entries — maps (state, nonterminal) → next state |
@@ -126,7 +126,7 @@ available for the LL parser to inspect (e.g., to decide between `;` and `,` in a
 | `lr1_reduce.c` | Main reduce function — pop frames, build AST nodes, goto_push |
 | `lr1_reduce_binary.c` | Binary operator reductions at each precedence level |
 | `lr1_reduce_postfix.c` | Postfix expression reductions: `[]`, `()`, `.`, `->`, `++`, `--` |
-| `lr1_reduce_passthrough.c` | Passthrough reductions: wrap/rewrap primary, postfix, unary, cast levels |
+| `lr1_reduce_passthrough.c` | 16 passthrough reductions — in-place state update via `goto_passthru()` |
 | `lr1_reduce_ctx.c` | Context reductions: assignments, ternary `?:`, pending cast wrapping |
 
 ## Related

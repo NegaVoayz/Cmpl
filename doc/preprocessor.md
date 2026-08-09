@@ -20,37 +20,43 @@ The `PPCtx` aggregates all preprocessor state:
 
 ```c
 typedef struct PPCtx {
-    MacroTable macros;                          // hash table of defined macros
+    MacroTable macros;                          // HashMap-backed macro table
     CondStack  cond;                            // #if/#else nesting stack
-    Buffer     out;                             // output buffer
-    char*      seen[MAX_INCLUDES];              // include guard (prevent double-include)
+    Buffer     out;                             // output buffer (realloc-based)
+    char*      seen[MAX_INCLUDES];              // include guard (arena-allocated)
     int        seen_count;
     char       base_dir[MAX_PATH];              // directory of the source file
     char       include_paths[MAX_INCLUDES][MAX_PATH];  // -I search paths
     int        n_include_paths;
+    Arena*     arena;                           // owns macro entries, directive strs, work bufs
 } PPCtx;
 ```
 
 ## Macro System
 
-Macros are stored in a hash table (128 buckets, linked-list chaining):
+Macros are stored in an **open-addressing HashMap** (FNV-1a hash, auto-resize at 70% load).
+This replaces the old fixed 128-bucket linked-list table — lookup is O(1) regardless of
+how many macros are defined (system headers typically add 500+).
 
 ```c
 typedef struct Macro {
-    char*        name;
-    char*        body;
+    char*        name;         // arena-allocated copy
+    char*        body;         // arena-allocated copy
     int          is_func;      // 1 = function-like: #define FOO(x) ...
     int          nparams;      // number of parameters
-    char**       params;       // parameter names
-    struct Macro* next;        // hash collision chain
+    char**       params;       // parameter names (arena-allocated)
 } Macro;
 ```
+
+All macro memory is arena-owned — `macro_free()` just clears the table; `macro_remove()`
+sets the value to NULL. No explicit `free()` calls needed.
 
 **Object-like**: `#define BUFSIZ 1024` — direct substitution.
 **Function-like**: `#define MAX(a,b) ((a)>(b)?(a):(b))` — argument expansion then substitution.
 
 Expansion uses **fixed-point iteration**: `expand_line()` repeatedly scans for macro invocations
-until no macro remains. This handles nested expansions like `#define A B` / `#define B 42`.
+until no macro remains. A **persistent scratch Buffer** (reused across iterations by resetting
+`scratch.len = 0`) avoids repeated `malloc`/`free` cycles. Work buffers are arena-allocated.
 
 ## Conditional Compilation
 
