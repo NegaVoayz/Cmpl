@@ -24,6 +24,66 @@ static IR_Type* struct_cache[MAX_STRUCT_CACHE];
 static int n_struct_cache = 0;
 static int cache_enabled = 0;
 
+/* ---------------------------------------------------------------
+ *  Composite type interning cache
+ *
+ *  Keyed by (kind, inner_ptr, extra) — open addressing, power-of-two.
+ *  Makes ir_ptr_type / ir_array_type return the same IR_Type* for
+ *  identical parameters, so ir_type_eq reduces to pointer comparison.
+ * --------------------------------------------------------------- */
+
+#define TYPE_CACHE_SIZE 128
+#define TYPE_CACHE_MASK (TYPE_CACHE_SIZE - 1)
+
+typedef struct {
+    IR_TypeKind kind;
+    IR_Type*    inner;
+    int         extra;     /* addrspace for PTR, size for ARRAY, 0 for FUNC */
+    IR_Type*    cached;
+} TypeSlot;
+
+static TypeSlot type_slots[TYPE_CACHE_SIZE];
+
+static unsigned type_cache_hash(IR_TypeKind kind, IR_Type* inner, int extra)
+{
+    unsigned long long h = (unsigned long long)kind;
+    h = h * 31 + (unsigned long long)(uintptr_t)inner;
+    h = h * 31 + (unsigned long long)extra;
+    return (unsigned)(h & TYPE_CACHE_MASK);
+}
+
+static IR_Type* type_cache_get(IR_TypeKind kind, IR_Type* inner, int extra)
+{
+    unsigned h = type_cache_hash(kind, inner, extra);
+
+    for (int i = 0; i < TYPE_CACHE_SIZE; i++) {
+        TypeSlot* s = &type_slots[h];
+        if (!s->cached) return NULL;
+        if (s->kind == kind && s->inner == inner && s->extra == extra)
+            return s->cached;
+        h = (h + 1) & TYPE_CACHE_MASK;
+    }
+    return NULL;
+}
+
+static void type_cache_put(IR_TypeKind kind, IR_Type* inner, int extra,
+                           IR_Type* t)
+{
+    unsigned h = type_cache_hash(kind, inner, extra);
+
+    for (int i = 0; i < TYPE_CACHE_SIZE; i++) {
+        TypeSlot* s = &type_slots[h];
+        if (!s->cached) {
+            s->kind = kind;
+            s->inner = inner;
+            s->extra = extra;
+            s->cached = t;
+            return;
+        }
+        h = (h + 1) & TYPE_CACHE_MASK;
+    }
+}
+
 /* IR_Type → AST Type mapping for struct/union types.
  * Used by AST_MEMBER handler to find field indices by name.
  * Kept as a separate table (not a field in IR_Type) to avoid
@@ -82,18 +142,28 @@ ir_type_new(Arena* a, IR_TypeKind kind)
 IR_Type*
 ir_ptr_type(Arena* a, IR_Type* inner, int addrspace)
 {
+    IR_Type* cached = type_cache_get(IR_PTR, inner, addrspace);
+
+    if (cached) return cached;
+
     IR_Type* t = ir_type_new(a, IR_PTR);
     t->inner = inner;
     t->addrspace = addrspace;
+    type_cache_put(IR_PTR, inner, addrspace, t);
     return t;
 }
 
 IR_Type*
 ir_array_type(Arena* a, IR_Type* elem, int size)
 {
+    IR_Type* cached = type_cache_get(IR_ARRAY, elem, size);
+
+    if (cached) return cached;
+
     IR_Type* t = ir_type_new(a, IR_ARRAY);
     t->inner = elem;
     t->size = size;
+    type_cache_put(IR_ARRAY, elem, size, t);
     return t;
 }
 

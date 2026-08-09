@@ -10,9 +10,7 @@
 #include "arena.h"
 
 /* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
-typedef struct SymEntry { String name; IR_Value* alloca; struct SymEntry* next; } SymEntry;
-typedef struct FuncSig { String name; IR_Type* ret_type; struct FuncSig* next; } FuncSig;
-typedef struct { IR_Builder* b; SymEntry* syms; FuncSig* sigs; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; } GenCtx;
+typedef struct { IR_Builder* b; HashMap syms; HashMap* sig_map; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; } GenCtx;
 
 /* from ir_gen.c and ir_gen_expr.c */
 extern IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);

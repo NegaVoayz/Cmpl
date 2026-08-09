@@ -1,3 +1,5 @@
+/* pp_macro.c -- macro hash table backed by open-addressing HashMap */
+
 #include "pp.h"
 
 #include <stdlib.h>
@@ -5,63 +7,51 @@
 
 #include "arena.h"
 
-/* djb2 hash */
-static unsigned int
-hash_str(const char* s)
+/* helper: build a String key from a C string */
+static String make_key(const char* name)
 {
-    unsigned int h = 5381;
-    int c;
-
-    while ((c = (unsigned char)*s++))
-        h = ((h << 5) + h) + c;
-    return h % MACRO_TABLE_SIZE;
+    String k;
+    k.data = name;
+    k.length = (int)strlen(name);
+    return k;
 }
 
 void
 macro_init(MacroTable* mt, Arena* a)
 {
-    memset(mt->buckets, 0, sizeof(mt->buckets));
-    mt->arena = a;
+    hashmap_init(&mt->map, a, 128);
 }
 
 Macro*
 macro_lookup(MacroTable* mt, const char* name)
 {
-    unsigned int h = hash_str(name);
-
-    for (Macro* m = mt->buckets[h]; m; m = m->next) {
-        if (strcmp(m->name, name) == 0) return m;
-    }
-    return NULL;
+    return hashmap_get(&mt->map, make_key(name));
 }
 
 void
 macro_add(MacroTable* mt, const char* name, const char* body,
           int is_func, int nparams, char** params)
 {
-    Arena* a = mt->arena;
-    unsigned int h = hash_str(name);
-    Macro* existing = mt->buckets[h];
+    String key = make_key(name);
+    Macro* existing = hashmap_get(&mt->map, key);
+    Arena* a = mt->map.arena;
 
-    while (existing) {
-        if (strcmp(existing->name, name) == 0) break;
-        existing = existing->next;
-    }
-
-    if (existing) {
-        /* reuse entry: old name/body/params stay in arena — just update fields */
-    } else {
+    if (!existing) {
         existing = arena_alloc(a, sizeof(Macro));
         int nlen = (int)strlen(name) + 1;
         existing->name = arena_alloc(a, nlen);
         memcpy(existing->name, name, nlen);
-        existing->next = mt->buckets[h];
-        mt->buckets[h] = existing;
+        /* use persistent arena-allocated name as HashMap key */
+        { String pk = { existing->name, nlen - 1 };
+          hashmap_put(&mt->map, pk, existing); }
     }
 
-    int blen = (int)strlen(body ? body : "") + 1;
-    existing->body = arena_alloc(a, blen);
-    memcpy(existing->body, body ? body : "", blen);
+    /* update body (old value stays in arena) */
+    {
+        int blen = (int)strlen(body ? body : "") + 1;
+        existing->body = arena_alloc(a, blen);
+        memcpy(existing->body, body ? body : "", blen);
+    }
     existing->is_func = is_func;
     existing->nparams = nparams;
     existing->params = params;
@@ -70,25 +60,20 @@ macro_add(MacroTable* mt, const char* name, const char* body,
 void
 macro_remove(MacroTable* mt, const char* name)
 {
-    unsigned int h = hash_str(name);
-    Macro* prev = NULL;
-    Macro* m = mt->buckets[h];
+    Macro* m = macro_lookup(mt, name);
 
-    while (m) {
-        if (strcmp(m->name, name) == 0) {
-            if (prev) prev->next = m->next;
-            else      mt->buckets[h] = m->next;
-            /* memory stays in arena — no explicit free needed */
-            return;
-        }
-        prev = m;
-        m = m->next;
+    if (m) {
+        /* overwrite with NULL using persistent key from the Macro */
+        String pk = { m->name, (int)strlen(m->name) };
+        hashmap_put(&mt->map, pk, NULL);
     }
 }
 
 void
 macro_free(MacroTable* mt)
 {
-    /* arena handles teardown — just clear the bucket table */
-    memset(mt->buckets, 0, sizeof(mt->buckets));
+    /* arena handles teardown — clear map entries */
+    mt->map.len = 0;
+    mt->map.cap = 0;
+    mt->map.entries = NULL;
 }

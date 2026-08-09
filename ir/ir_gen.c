@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "ast.h"
+#include "hash.h"
 
 /* ---------------------------------------------------------------
  *  Typedef table entry (for resolving TYPE_NAMED during IR gen)
@@ -19,33 +20,13 @@ typedef struct TypedefEntry {
 } TypedefEntry;
 
 /* ---------------------------------------------------------------
- *  Function signature entry (for return type lookup in calls)
- * --------------------------------------------------------------- */
-
-typedef struct FuncSig {
-    String            name;
-    IR_Type*          ret_type;
-    struct FuncSig*   next;
-} FuncSig;
-
-/* ---------------------------------------------------------------
- *  Symbol table entry
- * --------------------------------------------------------------- */
-
-typedef struct SymEntry {
-    String        name;
-    IR_Value*     alloca;
-    struct SymEntry* next;
-} SymEntry;
-
-/* ---------------------------------------------------------------
  *  Generation context (per function)
  * --------------------------------------------------------------- */
 
 typedef struct {
     IR_Builder*   b;
-    SymEntry*     syms;
-    FuncSig*      sigs;         /* function signature table for call ret types */
+    HashMap       syms;         /* local variables: name → IR_Value* (alloca) */
+    HashMap*      sig_map;      /* module-level: func name → IR_Type* (ret type) */
     IR_Block*     break_blk;    /* target for break */
     IR_Block*     cont_blk;     /* target for continue */
     IR_Type*      ret_type;     /* enclosing function return type */
@@ -59,12 +40,7 @@ typedef struct {
 
 IR_Value* sym_lookup(GenCtx* ctx, String name)
 {
-    for (SymEntry* e = ctx->syms; e; e = e->next) {
-        if (e->name.length == name.length &&
-            memcmp(e->name.data, name.data, name.length) == 0)
-            return e->alloca;
-    }
-    return NULL;
+    return hashmap_get(&ctx->syms, name);
 }
 
 IR_Value* global_lookup(IR_Module* mod, String name)
@@ -79,23 +55,14 @@ IR_Value* global_lookup(IR_Module* mod, String name)
     return NULL;
 }
 
-IR_Type* func_type_lookup(FuncSig* sigs, String name)
+IR_Type* func_type_lookup(HashMap* sig_map, String name)
 {
-    for (FuncSig* s = sigs; s; s = s->next) {
-        if (s->name.length == name.length &&
-            memcmp(s->name.data, name.data, name.length) == 0)
-            return s->ret_type;
-    }
-    return NULL;
+    return hashmap_get(sig_map, name);
 }
 
 void sym_add(GenCtx* ctx, String name, IR_Value* alloca)
 {
-    SymEntry* e = arena_alloc(ctx->b->arena, sizeof(SymEntry));
-    e->name = name;
-    e->alloca = alloca;
-    e->next = ctx->syms;
-    ctx->syms = e;
+    hashmap_put(&ctx->syms, name, alloca);
 }
 
 /* ---------------------------------------------------------------
@@ -181,26 +148,23 @@ typedef struct StructDefEntry {
     struct StructDefEntry* next;
 } StructDefEntry;
 
-static void resolve_struct_refs_type(Type* t, StructDefEntry* sdefs)
+static void resolve_struct_refs_type(Type* t, HashMap* struct_map)
 {
     if (!t) return;
     if ((t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) &&
         t->name.data && !t->params) {
-        for (StructDefEntry* se = sdefs; se; se = se->next) {
-            if (se->name.length == t->name.length &&
-                memcmp(se->name.data, t->name.data, t->name.length) == 0) {
-                t->params = se->fields;
-                if (se->is_union) t->kind = TYPE_UNION;
-                break;
-            }
+        StructDefEntry* se = hashmap_get(struct_map, t->name);
+        if (se) {
+            t->params = se->fields;
+            if (se->is_union) t->kind = TYPE_UNION;
         }
     }
-    resolve_struct_refs_type(t->inner, sdefs);
-    resolve_struct_refs_type(t->next, sdefs);
+    resolve_struct_refs_type(t->inner, struct_map);
+    resolve_struct_refs_type(t->next, struct_map);
     if (t->kind == TYPE_FUNC)
         for (AST_Node* p = t->params;
              p && p->type == AST_PARAM_DECL; p = p->next)
-            resolve_struct_refs_type(p->body.param_decl.param_type, sdefs);
+            resolve_struct_refs_type(p->body.param_decl.param_type, struct_map);
 }
 
 #define MAX_VISITED 128
@@ -293,12 +257,21 @@ extern void      gen_stmt(GenCtx* ctx, AST_Node* n);
  * --------------------------------------------------------------- */
 
 IR_Func*
-ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs)
+ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_map)
 {
     AST_Node*   fd = func_def;
     Arena*      a = mod->arena;
     IR_Builder* b = ir_builder_new(mod, a);
-    GenCtx      ctx = {b, NULL, sigs, NULL, NULL, NULL, mod, is_device};
+    GenCtx      ctx;
+
+    hashmap_init(&ctx.syms, a, 32);
+    ctx.b = b;
+    ctx.sig_map = sig_map;
+    ctx.break_blk = NULL;
+    ctx.cont_blk = NULL;
+    ctx.ret_type = NULL;
+    ctx.mod = mod;
+    ctx.is_device = is_device;
     IR_Func*    func = arena_alloc(a, sizeof(IR_Func));
 
     func->name = fd->body.func_def.name;
@@ -423,16 +396,15 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     mod->data_layout = "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024";
 
     /* pass 0: collect function signatures for call return type lookup */
-    FuncSig* sigs = NULL;
+    HashMap sig_map;
+
+    hashmap_init(&sig_map, a, 64);
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type != AST_FUNC_DEF) continue;
 
-        FuncSig* s = arena_alloc(a, sizeof(FuncSig));
-        s->name = decl->body.func_def.name;
-        s->ret_type = ir_type_from_ast(a, decl->body.func_def.ret_type);
-        if (!s->ret_type) s->ret_type = t_void;
-        s->next = sigs;
-        sigs = s;
+        IR_Type* rt = ir_type_from_ast(a, decl->body.func_def.ret_type);
+        hashmap_put(&sig_map, decl->body.func_def.name,
+                    rt ? rt : t_void);
     }
 
     /* pass 0.5: collect typedefs + enum constants, resolve throughout AST */
@@ -487,7 +459,9 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         /* resolve struct references: TYPE_STRUCT with name but no params
          * needs to find the AST_STRUCT_DEF and attach fields */
         {
-            StructDefEntry* sdefs = NULL;
+            HashMap struct_map;
+
+            hashmap_init(&struct_map, a, 32);
 
             for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
                 if (decl->type != AST_STRUCT_DEF && decl->type != AST_UNION_DEF) continue;
@@ -496,20 +470,20 @@ ir_gen_module_ex(AST_Node* root, int is_device)
                 se->name = decl->body.struct_def.name;
                 se->fields = decl->body.struct_def.fields;
                 se->is_union = (decl->type == AST_UNION_DEF);
-                se->next = sdefs; sdefs = se;
+                hashmap_put(&struct_map, se->name, se);
             }
 
             /* resolve TYPE_STRUCT with missing params */
             for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
                 if (decl->type == AST_VAR_DECL)
-                    resolve_struct_refs_type(decl->body.var_decl.var_type, sdefs);
+                    resolve_struct_refs_type(decl->body.var_decl.var_type, &struct_map);
                 else if (decl->type == AST_FUNC_DEF) {
-                    resolve_struct_refs_type(decl->body.func_def.ret_type, sdefs);
+                    resolve_struct_refs_type(decl->body.func_def.ret_type, &struct_map);
                     for (AST_Node* p = decl->body.func_def.params;
                          p && p->type == AST_PARAM_DECL; p = p->next)
-                        resolve_struct_refs_type(p->body.param_decl.param_type, sdefs);
+                        resolve_struct_refs_type(p->body.param_decl.param_type, &struct_map);
                 } else if (decl->type == AST_TYPEDEF)
-                    resolve_struct_refs_type(decl->body.typedef_decl.aliased_type, sdefs);
+                    resolve_struct_refs_type(decl->body.typedef_decl.aliased_type, &struct_map);
             }
         }
 
@@ -531,33 +505,33 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     ir_clear_struct_cache();
 
     /* first pass: collect global variables (both extern decls and definitions) */
-    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
-        if (decl->type != AST_VAR_DECL) continue;
+    {
+        HashMap global_map;
 
-        /* dedup by name */
-        {   int dup = 0;
-            for (IR_Value* g = mod->globals; g; g = g->next) {
-                if (g->name.length != decl->body.var_decl.name.length) continue;
-                if (memcmp(g->name.data, decl->body.var_decl.name.data,
-                           g->name.length) != 0) continue;
-                dup = 1;
+        hashmap_init(&global_map, a, 64);
+
+        for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+            if (decl->type != AST_VAR_DECL) continue;
+
+            /* dedup by name using HashMap (O(1) vs O(n) list scan) */
+            IR_Value* existing = hashmap_get(&global_map,
+                                             decl->body.var_decl.name);
+            if (existing) {
                 /* upgrade extern → definition if init available
                  * or tentative definition (linkage==0, no extern keyword) */
-                if (!g->body.init_val &&
+                if (!existing->body.init_val &&
                     (decl->body.var_decl.init || decl->body.var_decl.linkage == 0)) {
                     IR_Value* init = arena_alloc(a, sizeof(IR_Value));
-                    if (g->type->kind == IR_PTR) {
+                    if (existing->type->kind == IR_PTR) {
                         init->kind = VAL_CONST_NULL;
                     } else {
                         init->kind = VAL_CONST_INT;
                     }
-                    init->type = g->type;
-                    g->body.init_val = init;
+                    init->type = existing->type;
+                    existing->body.init_val = init;
                 }
-                break;
+                continue;
             }
-            if (dup) continue;
-        }
 
         IR_Value* gv = arena_alloc(a, sizeof(IR_Value));
         gv->kind = VAL_GLOBAL;
@@ -615,12 +589,14 @@ ir_gen_module_ex(AST_Node* root, int is_device)
 
         gv->next = mod->globals;
         mod->globals = gv;
+        hashmap_put(&global_map, gv->name, gv);
+    }
     }
 
     /* second pass: function definitions */
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type == AST_FUNC_DEF && decl->body.func_def.body)
-            ir_gen_function(mod, decl, is_device, sigs);
+            ir_gen_function(mod, decl, is_device, &sig_map);
     }
 
     return mod;

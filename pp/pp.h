@@ -2,6 +2,7 @@
 #define PP_H
 
 #include "arena.h"
+#include "hash.h"
 
 /* --- Public API --- */
 
@@ -39,10 +40,9 @@ typedef struct Macro {
     struct Macro* next;
 } Macro;
 
-/* Macro hash table */
+/* Macro hash table — backed by open-addressing HashMap (O(1) lookup) */
 typedef struct {
-    Macro* buckets[MACRO_TABLE_SIZE];
-    Arena* arena;                         /* owns all Macro entries */
+    HashMap   map;
 } MacroTable;
 
 void   macro_init(MacroTable* mt, Arena* a);

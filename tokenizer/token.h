@@ -1,6 +1,8 @@
 #ifndef PARSE_H
 #define PARSE_H
 
+#include "types.h"   /* String */
+
 typedef enum {
     // key
     TOK_IF, TOK_ELSE, TOK_WHILE, TOK_FOR, TOK_RETURN,
@@ -91,11 +93,6 @@ typedef struct {
     int line;
     int col;
 } SourceLoc;
-
-typedef struct {
-    const char* data;
-    int length;
-} String;
 
 typedef struct Token Token;
 

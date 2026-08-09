@@ -90,7 +90,7 @@ void        ir_dump_func(IR_Func* func, FILE* out);
 
 IR_Module*  ir_gen_program(AST_Node* root);
 IR_Module*  ir_gen_module_ex(AST_Node* root, int is_device);
-IR_Func*    ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs);
+IR_Func*    ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_map);
 
 /* --- CUDA two-module generation (ir_gen_cuda.c) --- */
 

@@ -10,14 +10,12 @@
 #include "arena.h"
 
 /* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
-typedef struct SymEntry { String name; IR_Value* alloca; struct SymEntry* next; } SymEntry;
-typedef struct FuncSig { String name; IR_Type* ret_type; struct FuncSig* next; } FuncSig;
-typedef struct { IR_Builder* b; SymEntry* syms; FuncSig* sigs; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; } GenCtx;
+typedef struct { IR_Builder* b; HashMap syms; HashMap* sig_map; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; } GenCtx;
 
 /* from ir_gen.c */
 extern IR_Value* sym_lookup(GenCtx* ctx, String name);
 extern IR_Value* global_lookup(IR_Module* mod, String name);
-extern IR_Type*  func_type_lookup(FuncSig* sigs, String name);
+extern IR_Type*  func_type_lookup(HashMap* sig_map, String name);
 
 /* ---------------------------------------------------------------
  *  CUDA builtin lookup (for device IR only)
@@ -312,7 +310,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next)
           arg_buf[n_args++] = gen_expr(ctx, a);
       IR_Type* ret_t = t_i32;
-      if (cn.length > 0) ret_t = func_type_lookup(ctx->sigs, cn);
+      if (cn.length > 0) ret_t = func_type_lookup(ctx->sig_map, cn);
       if (!ret_t) ret_t = t_i32;
       if (fn_ptr) {
           /* indirect call through function pointer */
