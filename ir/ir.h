@@ -162,6 +162,7 @@ struct IR_Func {
     IR_Value**   params;
     int          n_params;
     IR_Block*    blocks;
+    IR_Block*    last_block;
     IR_Linkage   linkage;
     IR_Func*     next;
 };
@@ -173,6 +174,7 @@ struct IR_Func {
 typedef struct IR_Module IR_Module;
 struct IR_Module {
     IR_Func*     funcs;
+    IR_Func*     last_func;
     IR_Value*    globals;
     IR_Type*     named_types;
     int          addr_space;     /* default address space */

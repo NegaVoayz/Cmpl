@@ -51,7 +51,7 @@ struct AST_Node {
         struct { AST_Node* init; } compound_lit;
 
         /* function call */
-        struct { AST_Node* callee; AST_Node* args; } call;
+        struct { AST_Node* callee; AST_Node* args; AST_Node* last_arg; } call;
 
         /* kernel launch <<<config>>>(args) */
         struct { AST_Node* callee; AST_Node* config; AST_Node* args; } kernel_launch;
@@ -69,7 +69,7 @@ struct AST_Node {
         struct { Type* type_expr; } sizeof_type;
 
         /* block { ... } */
-        struct { AST_Node* stmts; } block;
+        struct { AST_Node* stmts; AST_Node* last_stmt; } block;
 
         /* if / else */
         struct {
@@ -115,15 +115,16 @@ struct AST_Node {
             Type*     ret_type;
             String    name;
             AST_Node* params;
+            AST_Node* last_param;
             AST_Node* body;
             int       linkage;    /* 0=host, 1=device, 2=global, 3=host_device */
         } func_def;
 
         /* struct / union definition */
-        struct { String name; AST_Node* fields; } struct_def;
+        struct { String name; AST_Node* fields; AST_Node* last_field; } struct_def;
 
         /* enum definition */
-        struct { String name; AST_Node* enumerators; } enum_def;
+        struct { String name; AST_Node* enumerators; AST_Node* last_enum; } enum_def;
 
         /* enumerator */
         struct { String name; AST_Node* value; } enumerator;
@@ -135,7 +136,7 @@ struct AST_Node {
         struct { Type* param_type; String name; } param_decl;
 
         /* translation unit (root node) */
-        struct { AST_Node* decls; } program;
+        struct { AST_Node* decls; AST_Node* last_decl; } program;
     } body;
 };
 

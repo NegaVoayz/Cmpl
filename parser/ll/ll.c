@@ -140,7 +140,6 @@ AST_Node* ll_parse_decl_or_stmt(LR1_Parser* p)
 AST_Node* ll_parse_program(LR1_Parser* p)
 {
     AST_Node* root = ast_node_new(p->arena, AST_PROGRAM, 1, 1);
-    AST_Node** tail = &root->body.program.decls;
 
     while (p->tok->kind != TOK_EOF) {
         AST_Node* node = ll_parse_decl_or_stmt(p);
@@ -151,13 +150,11 @@ AST_Node* ll_parse_program(LR1_Parser* p)
         if (!node)
             continue;
 
-        *tail = node;
-
-        /* advance tail to end of chain */
-        while ((*tail)->next)
-            tail = &(*tail)->next;
-
-        tail = &(*tail)->next;
+        if (root->body.program.last_decl)
+            root->body.program.last_decl->next = node;
+        else
+            root->body.program.decls = node;
+        root->body.program.last_decl = node;
     }
 
     return root;

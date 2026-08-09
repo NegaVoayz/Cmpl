@@ -394,11 +394,11 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs
     }
 
     /* append to module */
-    {
-        IR_Func** tail = &mod->funcs;
-        while (*tail) tail = &(*tail)->next;
-        *tail = func;
-    }
+    if (mod->last_func)
+        mod->last_func->next = func;
+    else
+        mod->funcs = func;
+    mod->last_func = func;
 
     ir_builder_free(b);
     return func;

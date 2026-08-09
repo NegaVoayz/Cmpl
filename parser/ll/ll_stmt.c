@@ -68,7 +68,6 @@ static AST_Node* ll_parse_block(LR1_Parser* p)
     p->tok = p->tok->next;                /* skip '{' */
 
     AST_Node* n = ast_node_new(p->arena, AST_BLOCK, tok->loc.line, tok->loc.col);
-    AST_Node** tail = &n->body.block.stmts;
 
     while (p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
         AST_Node* stmt = ll_parse_decl_or_stmt(p);
@@ -76,12 +75,11 @@ static AST_Node* ll_parse_block(LR1_Parser* p)
         if (!stmt)
             break;
 
-        *tail = stmt;
-
-        while ((*tail)->next)
-            tail = &(*tail)->next;
-
-        tail = &(*tail)->next;
+        if (n->body.block.last_stmt)
+            n->body.block.last_stmt->next = stmt;
+        else
+            n->body.block.stmts = stmt;
+        n->body.block.last_stmt = stmt;
     }
 
     ll_expect(p, TOK_RBRACE);

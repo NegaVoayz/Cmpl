@@ -57,9 +57,11 @@ coerce_to_i1(IR_Builder* b, IR_Value* v)
 /* helper: link new blocks after existing ones */
 static void link_blocks(IR_Func* f, IR_Block* b)
 {
-    IR_Block** tail = &f->blocks;
-    while (*tail) tail = &(*tail)->next;
-    *tail = b;
+    if (f->last_block)
+        f->last_block->next = b;
+    else
+        f->blocks = b;
+    f->last_block = b;
 }
 
 /* ---------------------------------------------------------------
