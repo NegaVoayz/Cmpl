@@ -1,9 +1,86 @@
-/* ir_opt_dce.c -- dead code elimination (mark-sweep) */
+/* ir_opt_dce.c -- dead code elimination (mark-sweep) + use-list builder */
 
 #include "ir-opt.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+#include "arena.h"
+
+/* grow factor for use-list arrays */
+#define USE_GROW_FACTOR 2
+#define USE_INIT_CAP 4
+
+/* ---------------------------------------------------------------
+ *  Ensure a value's uses array has room for one more entry.
+ *  Allocates or grows from the given arena.
+ * --------------------------------------------------------------- */
+
+static void
+uses_reserve(IR_Value* v, Arena* a)
+{
+    if (v->n_uses < v->max_uses) return;
+
+    int new_cap = v->max_uses ? v->max_uses * USE_GROW_FACTOR : USE_INIT_CAP;
+    IR_Instr** new_uses = arena_alloc(a, new_cap * sizeof(IR_Instr*));
+
+    for (int i = 0; i < v->n_uses; i++)
+        new_uses[i] = v->uses[i];
+
+    v->uses = new_uses;
+    v->max_uses = new_cap;
+}
+
+/* ---------------------------------------------------------------
+ *  Build use-def chains for one function.
+ *
+ *  Walks all instructions and, for each operand, adds this
+ *  instruction to the operand's uses list.
+ * --------------------------------------------------------------- */
+
+void
+build_use_lists(IR_Func* fn, Arena* a)
+{
+    for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
+        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+
+            /* clear old use lists (rebuilding from scratch) */
+            if (inst->result) {
+                inst->result->uses = NULL;
+                inst->result->n_uses = 0;
+                inst->result->max_uses = 0;
+            }
+
+            /* operands 0..2 */
+            for (int o = 0; o < 3; o++) {
+                IR_Value* v = inst->operands[o];
+                if (!v || v->kind != VAL_INSTR) continue;
+                uses_reserve(v, a);
+                v->uses[v->n_uses++] = inst;
+            }
+
+            /* call args */
+            if (inst->call_args) {
+                for (int a_idx = 0; a_idx < inst->n_call_args; a_idx++) {
+                    IR_Value* v = inst->call_args[a_idx];
+                    if (!v || v->kind != VAL_INSTR) continue;
+                    uses_reserve(v, a);
+                    v->uses[v->n_uses++] = inst;
+                }
+            }
+
+            /* phi incoming values */
+            if (inst->in_vals) {
+                for (int p = 0; p < inst->n_incoming; p++) {
+                    IR_Value* v = inst->in_vals[p];
+                    if (!v || v->kind != VAL_INSTR) continue;
+                    uses_reserve(v, a);
+                    v->uses[v->n_uses++] = inst;
+                }
+            }
+        }
+    }
+}
 
 /* ---------------------------------------------------------------
  *  Check if an instruction has side effects (must be kept)
@@ -24,15 +101,15 @@ has_side_effects(IR_Instr* inst)
 }
 
 /* ---------------------------------------------------------------
- *  Mark an instruction as live, recursively mark its operands
+ *  Mark an instruction as live, recursively mark its operands.
+ *  Uses def_instr for O(1) operand → defining-instruction lookup.
  * --------------------------------------------------------------- */
 
 static void
-mark_live(IR_Instr* inst, int* marked, int n_total, IR_Instr** all, int n_all)
+mark_live(IR_Instr* inst, int* marked, IR_Instr** all, int n_all)
 {
     if (!inst) return;
 
-    /* find index of this instruction */
     int idx = -1;
     for (int i = 0; i < n_all; i++)
         if (all[i] == inst) { idx = i; break; }
@@ -40,39 +117,26 @@ mark_live(IR_Instr* inst, int* marked, int n_total, IR_Instr** all, int n_all)
 
     marked[idx] = 1;
 
-    /* mark operands (other instructions this depends on) */
+    /* mark operand-defining instructions (O(1) via def_instr) */
     for (int o = 0; o < 3; o++) {
         IR_Value* v = inst->operands[o];
-        if (v && v->kind == VAL_INSTR) {
-            /* find the instruction that produces this value */
-            for (int i = 0; i < n_all; i++) {
-                if (all[i]->result == v)
-                    mark_live(all[i], marked, n_total, all, n_all);
-            }
-        }
+        if (v && v->def_instr)
+            mark_live(v->def_instr, marked, all, n_all);
     }
 
-    /* mark call args */
-    if (inst->opcode == IROP_CALL) {
-        for (int a = 0; a < inst->n_call_args; a++) {
-            IR_Value* v = inst->call_args[a];
-            if (v && v->kind == VAL_INSTR) {
-                for (int i = 0; i < n_all; i++)
-                    if (all[i]->result == v)
-                        mark_live(all[i], marked, n_total, all, n_all);
-            }
-        }
+    /* call args */
+    for (int a = 0; a < inst->n_call_args; a++) {
+        IR_Value* v = inst->call_args[a];
+        if (v && v->def_instr)
+            mark_live(v->def_instr, marked, all, n_all);
     }
 
-    /* mark phi incoming values */
+    /* phi incoming values */
     if (inst->opcode == IROP_PHI) {
         for (int p = 0; p < inst->n_incoming; p++) {
             IR_Value* v = inst->in_vals[p];
-            if (v && v->kind == VAL_INSTR) {
-                for (int i = 0; i < n_all; i++)
-                    if (all[i]->result == v)
-                        mark_live(all[i], marked, n_total, all, n_all);
-            }
+            if (v && v->def_instr)
+                mark_live(v->def_instr, marked, all, n_all);
         }
     }
 }
@@ -82,7 +146,7 @@ mark_live(IR_Instr* inst, int* marked, int n_total, IR_Instr** all, int n_all)
  * --------------------------------------------------------------- */
 
 static int
-dce_func(IR_Func* fn)
+dce_func(IR_Func* fn, Arena* a)
 {
     /* first pass: count instructions so we can allocate exactly */
     int n = 0;
@@ -91,19 +155,22 @@ dce_func(IR_Func* fn)
             n++;
     if (!n) return 0;
 
+    /* build use lists before marking */
+    build_use_lists(fn, a);
+
     /* collect into dynamic array */
-    IR_Instr** all = calloc(n, sizeof(IR_Instr*));
+    IR_Instr** all = arena_alloc(a, n * sizeof(IR_Instr*));
     int idx = 0;
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
         for (IR_Instr* inst = blk->first; inst; inst = inst->next)
             all[idx++] = inst;
 
-    int* marked = calloc(n, sizeof(int));
+    int* marked = arena_alloc(a, n * sizeof(int));
 
     /* start from side-effecting instructions */
     for (int i = 0; i < n; i++)
         if (has_side_effects(all[i]))
-            mark_live(all[i], marked, n, all, n);
+            mark_live(all[i], marked, all, n);
 
     int changed = 0;
 
@@ -112,17 +179,16 @@ dce_func(IR_Func* fn)
         IR_Instr** prev = &blk->first;
 
         while (*prev) {
-            int idx = -1;
+            int idx2 = -1;
             for (int i = 0; i < n; i++)
-                if (all[i] == *prev) { idx = i; break; }
+                if (all[i] == *prev) { idx2 = i; break; }
 
-            if (idx >= 0 && !marked[idx]) {
+            if (idx2 >= 0 && !marked[idx2]) {
                 /* skip this instruction */
                 IR_Instr* dead = *prev;
                 *prev = dead->next;
                 if (blk->last == dead)
                     blk->last = (*prev) ? *prev : NULL;
-                /* don't free -- pointers might dangle */
                 changed = 1;
             } else {
                 prev = &(*prev)->next;
@@ -130,8 +196,6 @@ dce_func(IR_Func* fn)
         }
     }
 
-    free(marked);
-    free(all);
     return changed;
 }
 
@@ -145,6 +209,6 @@ opt_dce(IR_Module* mod)
     int changed = 0;
     for (IR_Func* fn = mod->funcs; fn; fn = fn->next)
         if (fn->blocks)
-            changed |= dce_func(fn);
+            changed |= dce_func(fn, mod->arena);
     return changed;
 }

@@ -43,4 +43,11 @@ int opt_simplify_cfg(IR_Module* mod);
 int opt_gvn(IR_Module* mod);
 int opt_inline_dev(IR_Module* mod);
 
+/* ---------------------------------------------------------------
+ *  Use-list builder — populates IR_Value.uses / def_instr
+ *  before passes that need def-use chains (DCE, GVN).
+ * --------------------------------------------------------------- */
+
+void build_use_lists(IR_Func* fn, Arena* a);
+
 #endif /* IR_OPT_H */

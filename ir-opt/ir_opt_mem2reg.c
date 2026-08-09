@@ -62,6 +62,7 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
         phi->result = calloc(1, sizeof(IR_Value));
         phi->result->kind = VAL_INSTR;
         phi->result->type = phi->type;
+        phi->result->def_instr = phi;
 
         phi->n_incoming = bi[idf[k]].n_preds;
         phi->in_vals = calloc(phi->n_incoming, sizeof(IR_Value*));

@@ -11,6 +11,7 @@
 
 /* forward */
 typedef struct IR_Block IR_Block;
+typedef struct IR_Instr IR_Instr;
 
 /* ---------------------------------------------------------------
  *  IR type kinds -- maps to LLVM type primitives
@@ -71,6 +72,10 @@ struct IR_Value {
         IR_Value*  init_val;  /* global initializer */
     } body;
     int          linkage;    /* for globals: 0=internal(static), 1=external */
+    IR_Instr*    def_instr;   /* instruction that defines this value (or NULL) */
+    IR_Instr**   uses;        /* dynamic: instructions that use this value */
+    int          n_uses;
+    int          max_uses;
 };
 
 /* ---------------------------------------------------------------

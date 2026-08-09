@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arena.h"
+
 #define MAX_VN 64
 
 /* ---------------------------------------------------------------
@@ -90,13 +92,43 @@ can_cse(IR_Instr* inst)
 }
 
 /* ---------------------------------------------------------------
+ *  Redirect all users of old_val to use new_val.
+ * --------------------------------------------------------------- */
+
+static void
+redirect_users(IR_Value* old_val, IR_Value* new_val)
+{
+    for (int u = 0; u < old_val->n_uses; u++) {
+        IR_Instr* user = old_val->uses[u];
+
+        /* check operands 0..2 */
+        for (int o = 0; o < 3; o++)
+            if (user->operands[o] == old_val)
+                user->operands[o] = new_val;
+
+        /* check call args */
+        for (int a = 0; a < user->n_call_args; a++)
+            if (user->call_args[a] == old_val)
+                user->call_args[a] = new_val;
+
+        /* check phi incoming values */
+        for (int p = 0; p < user->n_incoming; p++)
+            if (user->in_vals && user->in_vals[p] == old_val)
+                user->in_vals[p] = new_val;
+    }
+}
+
+/* ---------------------------------------------------------------
  *  GVN in one function
  * --------------------------------------------------------------- */
 
 static int
-gvn_func(IR_Func* fn)
+gvn_func(IR_Func* fn, Arena* a)
 {
     int changed = 0;
+
+    /* build use lists so we can redirect users */
+    build_use_lists(fn, a);
 
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
         VNEntry table[MAX_VN];
@@ -116,10 +148,8 @@ gvn_func(IR_Func* fn)
             int found = 0;
             for (int i = 0; i < n; i++) {
                 if (vn_match(&table[i], inst)) {
-                    /* replace result with first occurrence's result */
-                    inst->result->type = table[i].result->type;
-                    inst->result->body = table[i].result->body;
-                    inst->result->id   = table[i].result->id;
+                    /* redirect all users to canonical result */
+                    redirect_users(inst->result, table[i].result);
                     found = 1; changed = 1;
                     break;
                 }
@@ -141,6 +171,6 @@ opt_gvn(IR_Module* mod)
     int changed = 0;
     for (IR_Func* fn = mod->funcs; fn; fn = fn->next)
         if (fn->blocks)
-            changed |= gvn_func(fn);
+            changed |= gvn_func(fn, mod->arena);
     return changed;
 }

@@ -77,6 +77,7 @@ make_instr(IR_Builder* b, IR_Opcode op, IR_Type* ty)
     inst->opcode = op;
     inst->type = ty;
     inst->result = make_vreg(b, ty);
+    inst->result->def_instr = inst;
     return inst;
 }
 
