@@ -95,11 +95,11 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
 
                 if (n_ptr > 0) {
                     /* rebuild pointer chain → FUNC.inner */
-                    ret_type = type_new(TYPE_PTR);
+                    ret_type = type_new(p->arena, TYPE_PTR);
                     Type* tail = ret_type;
 
                     for (int i = 1; i < n_ptr; i++) {
-                        tail->inner = type_new(TYPE_PTR);
+                        tail->inner = type_new(p->arena, TYPE_PTR);
                         tail = tail->inner;
                     }
                     tail->inner = scan->inner;
@@ -108,7 +108,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                 }
 
             if (p->tok->kind == TOK_LBRACE) {
-                AST_Node* fn = ast_node_new(AST_FUNC_DEF,
+                AST_Node* fn = ast_node_new(p->arena, AST_FUNC_DEF,
                                             start->loc.line, start->loc.col);
                 fn->body.func_def.ret_type = ret_type;
                 fn->body.func_def.name = dname;
@@ -120,7 +120,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             }
 
             ll_expect(p, TOK_SEMI);
-            AST_Node* fd = ast_node_new(AST_FUNC_DEF,
+            AST_Node* fd = ast_node_new(p->arena, AST_FUNC_DEF,
                                         start->loc.line, start->loc.col);
             fd->body.func_def.ret_type = ret_type;
             fd->body.func_def.name = dname;
@@ -133,7 +133,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
         }
 
         /* Variable declaration */
-        AST_Node* vd = ast_node_new(AST_VAR_DECL,
+        AST_Node* vd = ast_node_new(p->arena, AST_VAR_DECL,
                                     start->loc.line, start->loc.col);
         vd->body.var_decl.var_type = full;
         vd->body.var_decl.name = dname;
@@ -159,7 +159,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
         }
 
         if (is_typedef) {
-            AST_Node* td = ast_node_new(AST_TYPEDEF,
+            AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
                                         start->loc.line, start->loc.col);
             td->body.typedef_decl.aliased_type = full;
             td->body.typedef_decl.name = dname;
@@ -209,7 +209,7 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
             while (last->next) last = last->next;
 
             if (last->type == AST_VAR_DECL) {
-                AST_Node* td = ast_node_new(AST_TYPEDEF,
+                AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
                                             last->loc.line, last->loc.col);
                 td->body.typedef_decl.aliased_type = last->body.var_decl.var_type;
                 td->body.typedef_decl.name = last->body.var_decl.name;

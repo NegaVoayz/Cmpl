@@ -97,7 +97,7 @@ static AST_Node* ll_parse_kernel_launch(LR1_Parser* p, AST_Node* callee)
         p->tok = p->tok->next;
     }
 
-    AST_Node* n = ast_node_new(AST_KERNEL_LAUNCH,
+    AST_Node* n = ast_node_new(p->arena, AST_KERNEL_LAUNCH,
                                callee->loc.line, callee->loc.col);
 
     n->body.kernel_launch.callee = callee;
@@ -139,7 +139,7 @@ AST_Node* ll_parse_decl_or_stmt(LR1_Parser* p)
 
 AST_Node* ll_parse_program(LR1_Parser* p)
 {
-    AST_Node* root = ast_node_new(AST_PROGRAM, 1, 1);
+    AST_Node* root = ast_node_new(p->arena, AST_PROGRAM, 1, 1);
     AST_Node** tail = &root->body.program.decls;
 
     while (p->tok->kind != TOK_EOF) {

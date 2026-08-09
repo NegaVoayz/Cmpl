@@ -14,7 +14,7 @@ static LR_Action reduce_binary(LR1_Parser* p, int lhs_sym)
     AST_Node* left  = p->stack[p->sp - 2].node;
     Token*    op    = p->stack[p->sp - 1].token;
     AST_Node* right = p->stack[p->sp].node;
-    AST_Node* n = ast_node_new(AST_BINARY, op->loc.line, op->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_BINARY, op->loc.line, op->loc.col);
 
     n->body.binary.left = left;
     n->body.binary.right = right;
@@ -46,7 +46,7 @@ LR_Action reduce_ternary(LR1_Parser* p)
     AST_Node* cond  = p->stack[p->sp - 4].node;
     AST_Node* then_expr = p->stack[p->sp - 2].node;
     AST_Node* else_expr = p->stack[p->sp].node;
-    AST_Node* n = ast_node_new(AST_TERNARY, cond->loc.line, cond->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_TERNARY, cond->loc.line, cond->loc.col);
 
     n->body.ternary.cond = cond;
     n->body.ternary.then_expr = then_expr;

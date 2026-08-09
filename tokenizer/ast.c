@@ -1,10 +1,11 @@
 #include "ast.h"
 
+#include "arena.h"
 #include <stdlib.h>
 
-AST_Node* ast_node_new(AST_Type type, int line, int col)
+AST_Node* ast_node_new(Arena* a, AST_Type type, int line, int col)
 {
-    AST_Node* node = calloc(1, sizeof(AST_Node));
+    AST_Node* node = arena_alloc(a, sizeof(AST_Node));
 
     node->type = type;
     node->loc.line = line;
@@ -13,9 +14,9 @@ AST_Node* ast_node_new(AST_Type type, int line, int col)
     return node;
 }
 
-Type* type_new(TypeKind kind)
+Type* type_new(Arena* a, TypeKind kind)
 {
-    Type* t = calloc(1, sizeof(Type));
+    Type* t = arena_alloc(a, sizeof(Type));
 
     t->kind = kind;
 

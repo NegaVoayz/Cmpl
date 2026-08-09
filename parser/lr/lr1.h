@@ -8,6 +8,8 @@
 #include "token.h"
 #include "ast.h"
 
+typedef struct Arena Arena;
+
 /* ---------------------------------------------------------------
  *  Parser states
  *
@@ -133,6 +135,7 @@ struct LR1_Parser {
     int        stop_at_comma;           /* treat comma as expression terminator */
     int        pending_cast;            /* cast prefix was detected; wrap result */
     SourceLoc  cast_loc;               /* location of the cast for AST_CAST node */
+    Arena*     arena;                  /* arena for AST node allocations */
 };
 
 /* ---------------------------------------------------------------
@@ -148,9 +151,8 @@ void lr1_table_init(void);
  *  Public API
  * --------------------------------------------------------------- */
 
-LR1_Parser* lr1_parser_new(Token* first_tok);
+LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a);
 AST_Node*   lr1_parse_expr(LR1_Parser* p);
-void        lr1_parser_free(LR1_Parser* p);
 
 /* stack helper used by reduce functions */
 void goto_push(LR1_Parser* p, AST_Node* node, int lhs_sym);

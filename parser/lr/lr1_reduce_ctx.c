@@ -46,13 +46,13 @@ LR_Action reduce_unary_rhs(LR1_Parser* p)
     p->sp -= 2;
 
     if (op == TOK_SIZEOF) {
-        AST_Node* n = ast_node_new(AST_SIZEOF_EXPR, op_tok->loc.line, op_tok->loc.col);
+        AST_Node* n = ast_node_new(p->arena, AST_SIZEOF_EXPR, op_tok->loc.line, op_tok->loc.col);
         n->body.sizeof_expr.expr = operand;
         goto_push(p, n, SYM_UNARY);
         return LR_REDUCE;
     }
 
-    AST_Node* n = ast_node_new(AST_UNARY, op_tok->loc.line, op_tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_UNARY, op_tok->loc.line, op_tok->loc.col);
     n->body.unary.operand = operand;
     n->body.unary.op = op;
     goto_push(p, n, SYM_UNARY);

@@ -74,7 +74,7 @@ Type* ll_parse_type_specs(LR1_Parser* p)
             continue;
         }
 
-        Type* t = type_new(kw_to_typekind(p->tok->kind));
+        Type* t = type_new(p->arena, kw_to_typekind(p->tok->kind));
 
         if (!head)
             head = tail = t;
@@ -88,7 +88,7 @@ Type* ll_parse_type_specs(LR1_Parser* p)
 
     /* User-defined type: typedef name like `Buffer`, `PPCtx`, etc. */
     if (!head && p->tok->kind == TOK_IDENT) {
-        Type* t = type_new(TYPE_NAMED);
+        Type* t = type_new(p->arena, TYPE_NAMED);
 
         t->name = p->tok->body.ident;
         p->tok = p->tok->next;
@@ -102,7 +102,7 @@ Type* ll_parse_type_specs(LR1_Parser* p)
 
         p->tok = p->tok->next;
 
-        Type* t = type_new(tk);
+        Type* t = type_new(p->arena, tk);
 
         if (p->tok->kind == TOK_IDENT) {
             t->name = p->tok->body.ident;
@@ -122,7 +122,7 @@ Type* ll_parse_type_specs(LR1_Parser* p)
     if (!head && p->tok->kind == TOK_ENUM) {
         p->tok = p->tok->next;
 
-        Type* t = type_new(TYPE_ENUM);
+        Type* t = type_new(p->arena, TYPE_ENUM);
 
         if (p->tok->kind == TOK_IDENT) {
             t->name = p->tok->body.ident;

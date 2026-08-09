@@ -6,6 +6,7 @@
 #include "cuda.h"
 #include "vulkan.h"
 #include "llvm_cg.h"
+#include "arena.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,7 +89,8 @@ main(int argc, char** argv)
     }
 
     printf("--- Parsing ---\n");
-    AST_Node* root = parse_program(code);
+    Arena* ast_arena = arena_new();
+    AST_Node* root = parse_program(code, ast_arena);
 
     if (!root) {
         printf("Parse error!\n");

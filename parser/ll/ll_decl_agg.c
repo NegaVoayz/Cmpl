@@ -30,7 +30,7 @@ AST_Node* ll_parse_struct_fields(LR1_Parser* p)
             String name = {NULL, 0};
             Type* full = ll_parse_declarator(p, base, &name, 0);
 
-            AST_Node* field = ast_node_new(AST_VAR_DECL,
+            AST_Node* field = ast_node_new(p->arena, AST_VAR_DECL,
                                            p->tok->loc.line, p->tok->loc.col);
 
             field->body.var_decl.var_type = full;
@@ -62,7 +62,7 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
 
     p->tok = p->tok->next;                /* skip 'enum' */
 
-    AST_Node* n = ast_node_new(AST_ENUM_DEF, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_ENUM_DEF, tok->loc.line, tok->loc.col);
     String tag = {NULL, 0};
 
     if (p->tok->kind == TOK_IDENT) {
@@ -92,7 +92,7 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
 
         p->tok = p->tok->next;            /* skip name */
 
-        AST_Node* en = ast_node_new(AST_ENUMERATOR, etok->loc.line, etok->loc.col);
+        AST_Node* en = ast_node_new(p->arena, AST_ENUMERATOR, etok->loc.line, etok->loc.col);
 
         en->body.enumerator.name = etok->body.ident;
         en->body.enumerator.value = NULL;
@@ -115,7 +115,7 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
 
     /* check for declarators after enum body, e.g. enum { A, B } x; */
     if (p->tok->kind == TOK_IDENT || p->tok->kind == TOK_STAR) {
-        Type* etype = type_new(TYPE_ENUM);
+        Type* etype = type_new(p->arena, TYPE_ENUM);
 
         etype->name = tag;
 

@@ -10,7 +10,7 @@ LR_Action reduce_index(LR1_Parser* p)
 {
     AST_Node* array = p->stack[p->sp - 2].node;
     AST_Node* idx   = p->stack[p->sp].node;
-    AST_Node* n = ast_node_new(AST_INDEX, array->loc.line, array->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_INDEX, array->loc.line, array->loc.col);
 
     n->body.subscript.array = array;
     n->body.subscript.index = idx;
@@ -23,7 +23,7 @@ LR_Action reduce_index(LR1_Parser* p)
 LR_Action reduce_call_empty(LR1_Parser* p)
 {
     AST_Node* callee = p->stack[p->sp - 2].node;
-    AST_Node* n = ast_node_new(AST_CALL, callee->loc.line, callee->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_CALL, callee->loc.line, callee->loc.col);
 
     n->body.call.callee = callee;
     n->body.call.args = NULL;
@@ -36,7 +36,7 @@ LR_Action reduce_call_args(LR1_Parser* p)
 {
     AST_Node* callee = p->stack[p->sp - 3].node;
     AST_Node* args   = p->stack[p->sp - 1].node;
-    AST_Node* n = ast_node_new(AST_CALL, callee->loc.line, callee->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_CALL, callee->loc.line, callee->loc.col);
 
     n->body.call.callee = callee;
     n->body.call.args = args;
@@ -50,7 +50,7 @@ LR_Action reduce_member_access(LR1_Parser* p)
     AST_Node* record = p->stack[p->sp - 2].node;
     Token*    op_tok = p->stack[p->sp - 1].token;
     Token*    id_tok = p->stack[p->sp].token;
-    AST_Node* n = ast_node_new(AST_MEMBER, record->loc.line, record->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_MEMBER, record->loc.line, record->loc.col);
 
     n->body.member.record = record;
     n->body.member.member = id_tok->body.ident;
@@ -63,7 +63,7 @@ LR_Action reduce_member_access(LR1_Parser* p)
 LR_Action reduce_postfix_inc(LR1_Parser* p)
 {
     AST_Node* operand = p->stack[p->sp - 1].node;
-    AST_Node* n = ast_node_new(AST_POSTFIX, operand->loc.line, operand->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_POSTFIX, operand->loc.line, operand->loc.col);
 
     n->body.postfix.operand = operand;
     n->body.postfix.op = TOK_PLUSPLUS;
@@ -75,7 +75,7 @@ LR_Action reduce_postfix_inc(LR1_Parser* p)
 LR_Action reduce_postfix_dec(LR1_Parser* p)
 {
     AST_Node* operand = p->stack[p->sp - 1].node;
-    AST_Node* n = ast_node_new(AST_POSTFIX, operand->loc.line, operand->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_POSTFIX, operand->loc.line, operand->loc.col);
 
     n->body.postfix.operand = operand;
     n->body.postfix.op = TOK_MINUSMINUS;
@@ -92,7 +92,7 @@ LR_Action reduce_prefix_inc(LR1_Parser* p)
 {
     Token*    op_tok  = p->stack[p->sp - 1].token;
     AST_Node* operand = p->stack[p->sp].node;
-    AST_Node* n = ast_node_new(AST_UNARY, op_tok->loc.line, op_tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_UNARY, op_tok->loc.line, op_tok->loc.col);
 
     n->body.unary.operand = operand;
     n->body.unary.op = TOK_PLUSPLUS;
@@ -105,7 +105,7 @@ LR_Action reduce_prefix_dec(LR1_Parser* p)
 {
     Token*    op_tok  = p->stack[p->sp - 1].token;
     AST_Node* operand = p->stack[p->sp].node;
-    AST_Node* n = ast_node_new(AST_UNARY, op_tok->loc.line, op_tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_UNARY, op_tok->loc.line, op_tok->loc.col);
 
     n->body.unary.operand = operand;
     n->body.unary.op = TOK_MINUSMINUS;
@@ -118,7 +118,7 @@ LR_Action reduce_sizeof_expr(LR1_Parser* p)
 {
     AST_Node* expr = p->stack[p->sp].node;
     Token*    tok  = p->stack[p->sp - 1].token;
-    AST_Node* n = ast_node_new(AST_SIZEOF_EXPR, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_SIZEOF_EXPR, tok->loc.line, tok->loc.col);
 
     n->body.sizeof_expr.expr = expr;
     p->sp -= 2;

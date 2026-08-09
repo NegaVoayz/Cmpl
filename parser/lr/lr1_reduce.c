@@ -47,7 +47,7 @@ LR_Action reduce_primary_lit(LR1_Parser* p)
     default:             return LR_ERROR;
     }
 
-    AST_Node* n = ast_node_new(kind, t->loc.line, t->loc.col);
+    AST_Node* n = ast_node_new(p->arena, kind, t->loc.line, t->loc.col);
 
     switch (t->kind) {
     case TOK_INT_LIT:  case TOK_LONG_LIT:
@@ -69,7 +69,7 @@ LR_Action reduce_primary_lit(LR1_Parser* p)
 LR_Action reduce_primary_ident(LR1_Parser* p)
 {
     Token* t = p->stack[p->sp].token;
-    AST_Node* n = ast_node_new(AST_IDENT, t->loc.line, t->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_IDENT, t->loc.line, t->loc.col);
 
     n->body.ident.name = t->body.ident;
     p->sp--;
@@ -107,7 +107,7 @@ LR_Action reduce_call_close(LR1_Parser* p)
     }
 
     AST_Node* callee = p->stack[lparen_idx - 1].node;
-    AST_Node* n = ast_node_new(AST_CALL, callee->loc.line, callee->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_CALL, callee->loc.line, callee->loc.col);
     n->body.call.callee = callee;
     n->body.call.args = args;
     p->sp = lparen_idx - 2;

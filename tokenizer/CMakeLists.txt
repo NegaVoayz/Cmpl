@@ -6,3 +6,4 @@ add_library(tokenizer STATIC
 )
 
 target_include_directories(tokenizer PUBLIC .)
+target_link_libraries(tokenizer PUBLIC base)

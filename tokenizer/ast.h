@@ -40,10 +40,12 @@ struct Type {
 /* full node definition */
 #include "ast_node.h"
 
+typedef struct Arena Arena;
+
 /* node allocation */
-AST_Node* ast_node_new(AST_Type type, int line, int col);
+AST_Node* ast_node_new(Arena* a, AST_Type type, int line, int col);
 
 /* type allocation */
-Type* type_new(TypeKind kind);
+Type* type_new(Arena* a, TypeKind kind);
 
 #endif /* AST_H */

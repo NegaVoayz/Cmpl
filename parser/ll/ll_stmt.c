@@ -32,7 +32,7 @@ static AST_Node* ll_parse_goto(LR1_Parser* p)
 
     p->tok = p->tok->next;                /* skip 'goto' */
 
-    AST_Node* n = ast_node_new(AST_GOTO, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_GOTO, tok->loc.line, tok->loc.col);
 
     n->body.jump.label = p->tok->body.ident;
     p->tok = p->tok->next;
@@ -49,7 +49,7 @@ static AST_Node* ll_parse_label(LR1_Parser* p)
     p->tok = p->tok->next;
     ll_expect(p, TOK_COLON);
 
-    AST_Node* n = ast_node_new(AST_LABEL, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_LABEL, tok->loc.line, tok->loc.col);
 
     n->body.label.name = name;
     n->body.label.stmt = ll_parse_stmt(p);
@@ -67,7 +67,7 @@ static AST_Node* ll_parse_block(LR1_Parser* p)
 
     p->tok = p->tok->next;                /* skip '{' */
 
-    AST_Node* n = ast_node_new(AST_BLOCK, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_BLOCK, tok->loc.line, tok->loc.col);
     AST_Node** tail = &n->body.block.stmts;
 
     while (p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
@@ -99,7 +99,7 @@ static AST_Node* ll_parse_expr_stmt(LR1_Parser* p)
 
     if (!expr) return NULL;
 
-    AST_Node* n = ast_node_new(AST_EXPR_STMT, expr->loc.line, expr->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_EXPR_STMT, expr->loc.line, expr->loc.col);
 
     n->body.expr_stmt.expr = expr;
     ll_expect(p, TOK_SEMI);

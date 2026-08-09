@@ -7,21 +7,15 @@
 
 #include "parse.h"
 
-AST_Node* parse_program(const char* code)
+AST_Node* parse_program(const char* code, Arena* a)
 {
-    Token* tokens = parse(code);
+    Token* tokens = parse(code, a);
 
     if (!tokens || tokens->kind == TOK_ERROR)
         return NULL;
 
-    LR1_Parser* p = lr1_parser_new(tokens);
+    LR1_Parser* p = lr1_parser_new(tokens, a);
     AST_Node*   root = ll_parse_program(p);
-
-    lr1_parser_free(p);
-
-    /* NOTE: token list is leaked intentionally. AST String fields
-     * (identifiers, string literals) are non-owning pointers into
-     * token data which references the source text. */
 
     return root;
 }

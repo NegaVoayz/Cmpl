@@ -2,6 +2,7 @@
 #define LEXER_H
 
 #include "token.h"
+#include "arena.h"
 
 /* Internal lexer state shared across split files */
 typedef struct {
@@ -11,10 +12,11 @@ typedef struct {
     int col;
     Token* head;
     Token* tail;
+    Arena* arena;
 } Lexer;
 
 /* Token creation and list management */
-Token* token_new(TokenKind kind, int line, int col);
+Token* token_new(Lexer* lex, TokenKind kind, int line, int col);
 void   lexer_append(Lexer* lex, Token* tok);
 
 /* Cursor operations */

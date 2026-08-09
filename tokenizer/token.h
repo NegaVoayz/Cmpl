@@ -114,8 +114,8 @@ struct Token {
     } body;
 };
 
-// the caller is responsible for cleaning up.
-// return a link list of Token
-Token* parse(const char* code);
+typedef struct Arena Arena;
+
+Token* parse(const char* code, Arena* a);
 
 #endif /* PARSE_H */

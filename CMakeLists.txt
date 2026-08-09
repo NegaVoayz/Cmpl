@@ -4,6 +4,7 @@ project(cmpl C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+add_subdirectory(base)
 add_subdirectory(tokenizer)
 add_subdirectory(pp)
 add_subdirectory(parser)
@@ -15,7 +16,7 @@ add_subdirectory(ir-opt)
 add_subdirectory(llvm-codegen)
 
 add_executable(cmpl main.c dump_ast.c)
-target_link_libraries(cmpl tokenizer pp parser cuda ast_opt ir vulkan ir-opt llvm-codegen)
+target_link_libraries(cmpl base tokenizer pp parser cuda ast_opt ir vulkan ir-opt llvm-codegen)
 
 add_executable(cmpl-pp main_pp.c)
-target_link_libraries(cmpl-pp tokenizer pp parser cuda)
+target_link_libraries(cmpl-pp base tokenizer pp parser cuda)

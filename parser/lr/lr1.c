@@ -1,6 +1,7 @@
 /* lr1.c -- LR(1) expression parser main loop */
 
 #include "lr1.h"
+#include "arena.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -90,14 +91,15 @@ static int is_have_expr_state(LR1_State s)
            s == S_UNARY_RHS || s == S_ASSIGN_RHS || s == S_TERNARY_RHS;
 }
 
-LR1_Parser* lr1_parser_new(Token* first_tok)
+LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a)
 {
-    LR1_Parser* p = calloc(1, sizeof(LR1_Parser));
+    LR1_Parser* p = arena_alloc(a, sizeof(LR1_Parser));
 
     p->tok = first_tok;
     p->sp = 0;
     p->error = 0;
     p->pending_cast = 0;
+    p->arena = a;
     p->stack[0].state = S_ENTRY;
     p->stack[0].token = NULL;
     p->stack[0].node = NULL;
@@ -105,11 +107,6 @@ LR1_Parser* lr1_parser_new(Token* first_tok)
     lr1_table_init();
 
     return p;
-}
-
-void lr1_parser_free(LR1_Parser* p)
-{
-    free(p);
 }
 
 void goto_push(LR1_Parser* p, AST_Node* node, int lhs_sym)
@@ -147,7 +144,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
         if (p->stop_at_comma && next == TOK_COMMA) {
             AST_Node* result = p->stack[p->sp].node;
             if (p->pending_cast && result) {
-                AST_Node* cast = ast_node_new(AST_CAST,
+                AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                               p->cast_loc.line, p->cast_loc.col);
                 cast->body.cast.type_expr = NULL;
                 cast->body.cast.cast_expr = result;
@@ -185,7 +182,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
 
                     /* pop S_SIZEOF stack frame, push sizeof_type node */
                     Token* tok = p->stack[p->sp].token;
-                    AST_Node* n = ast_node_new(AST_SIZEOF_TYPE,
+                    AST_Node* n = ast_node_new(p->arena, AST_SIZEOF_TYPE,
                                                 tok->loc.line, tok->loc.col);
                     p->sp--;
                     goto_push(p, n, SYM_UNARY);
@@ -211,7 +208,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                         if (p->tok->kind == TOK_RBRACE)
                             p->tok = p->tok->next;
 
-                        AST_Node* n = ast_node_new(AST_COMPOUND_LIT,
+                        AST_Node* n = ast_node_new(p->arena, AST_COMPOUND_LIT,
                                                     start->loc.line, start->loc.col);
                         n->body.compound_lit.init = NULL;
                         goto_push(p, n, SYM_PRIMARY);
@@ -233,7 +230,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
             AST_Node* result = p->stack[p->sp].node;
 
             if (p->pending_cast && result) {
-                AST_Node* cast = ast_node_new(AST_CAST,
+                AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                               p->cast_loc.line, p->cast_loc.col);
 
                 cast->body.cast.type_expr = NULL;
@@ -254,7 +251,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                 AST_Node* inner = p->stack[p->sp].node;
 
                 if (inner) {
-                    AST_Node* cast = ast_node_new(AST_CAST,
+                    AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                                   p->cast_loc.line, p->cast_loc.col);
 
                     cast->body.cast.type_expr = NULL;

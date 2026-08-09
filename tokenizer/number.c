@@ -54,7 +54,7 @@ read_number(Lexer* lex)
     }
 
     buf[len] = '\0';
-    Token* tok = token_new(kind, line, col);
+    Token* tok = token_new(lex,kind, line, col);
 
     if (is_float) {
         tok->body.float_val = strtod(buf, NULL);
@@ -98,16 +98,16 @@ read_char_or_string(Lexer* lex, char quote)
             val = peek(lex); advance(lex);
         }
         if (peek(lex) != '\'') {
-            return token_new(TOK_ERROR, line, col);
+            return token_new(lex,TOK_ERROR, line, col);
         }
         advance(lex);
-        Token* tok = token_new(TOK_CHAR_LIT, line, col);
+        Token* tok = token_new(lex,TOK_CHAR_LIT, line, col);
         tok->body.char_val = val;
         return tok;
     }
 
     /* string literal */
-    char* buf = malloc(256);
+    char* buf = arena_alloc(lex->arena, 256);
     int   len = 0;
 
     while (peek(lex) != '"' && peek(lex) != '\0' && peek(lex) != '\n') {
@@ -129,15 +129,13 @@ read_char_or_string(Lexer* lex, char quote)
         advance(lex);
     }
 
-    if (peek(lex) != '"') {
-        free(buf);
-        return token_new(TOK_ERROR, line, col);
-    }
+    if (peek(lex) != '"')
+        return token_new(lex, TOK_ERROR, line, col);
+
     advance(lex);
 
     buf[len] = '\0';
-    buf = realloc(buf, len + 1);
-    Token* tok = token_new(TOK_STRING_LIT, line, col);
+    Token* tok = token_new(lex, TOK_STRING_LIT, line, col);
     tok->body.str_val.data = buf;
     tok->body.str_val.length = len;
     return tok;

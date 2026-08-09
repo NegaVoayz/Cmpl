@@ -1,5 +1,6 @@
 #include "token.h"
 #include "pp.h"
+#include "arena.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,13 +123,15 @@ main(int argc, char** argv)
         return 1;
     }
 
+    Arena* arena = arena_new();
     char* code = preprocess(argv[1]);
 
     if (!code) {
+        arena_free(arena);
         return 1;
     }
 
-    Token* tokens = parse(code);
+    Token* tokens = parse(code, arena);
     int    count = 0;
 
     for (Token* t = tokens; t; t = t->next) {
@@ -164,7 +167,7 @@ main(int argc, char** argv)
     }
 
     printf("\nTotal: %d tokens\n", count);
-    free_tokens(tokens);
+    arena_free(arena);
     free(code);
     return 0;
 }

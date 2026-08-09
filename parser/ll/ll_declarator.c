@@ -74,7 +74,7 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
         if (p->tok->kind == TOK_LBRACKET) {
             p->tok = p->tok->next;
 
-            Type* arr = type_new(TYPE_ARRAY);
+            Type* arr = type_new(p->arena, TYPE_ARRAY);
 
             arr->arr_size = 0;
 
@@ -95,7 +95,7 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
         } else if (p->tok->kind == TOK_LPAREN) {
             p->tok = p->tok->next;
 
-            Type* func = type_new(TYPE_FUNC);
+            Type* func = type_new(p->arena, TYPE_FUNC);
 
             func->params = ll_parse_params(p);
             func->inner = result;
@@ -110,7 +110,7 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
 
     /* 4. Wrap pointer layers (outermost star first) */
     while (ptr_count-- > 0) {
-        Type* ptr = type_new(TYPE_PTR);
+        Type* ptr = type_new(p->arena, TYPE_PTR);
 
         ptr->inner = result;
         result = ptr;
@@ -160,7 +160,7 @@ static AST_Node* ll_parse_params(LR1_Parser* p)
         String name = {NULL, 0};
         Type* full = ll_parse_declarator(p, base, &name, 0);
 
-        AST_Node* param = ast_node_new(AST_PARAM_DECL,
+        AST_Node* param = ast_node_new(p->arena, AST_PARAM_DECL,
                                        p->tok->loc.line, p->tok->loc.col);
 
         param->body.param_decl.param_type = full;

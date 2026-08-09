@@ -5,9 +5,9 @@
 #include <string.h>
 
 Token*
-token_new(TokenKind kind, int line, int col)
+token_new(Lexer* lex, TokenKind kind, int line, int col)
 {
-    Token* tok = calloc(1, sizeof(Token));
+    Token* tok = arena_alloc(lex->arena, sizeof(Token));
 
     tok->kind = kind;
     tok->loc.line = line;
@@ -84,9 +84,9 @@ skip_ws_and_comments(Lexer* lex)
 
 /* Merge adjacent string literals ("a" "b" -> "ab").
  * C11 5.1.1.2 Translation phase 6: adjacent string literal tokens
- * are concatenated. */
+ * are concatenated.  Uses arena for merged string data. */
 static void
-merge_adjacent_strings(Token* head)
+merge_adjacent_strings(Token* head, Arena* a)
 {
     Token* prev = head;
 
@@ -99,24 +99,20 @@ merge_adjacent_strings(Token* head)
         Token* cur = prev->next;
 
         while (cur && cur->kind == TOK_STRING_LIT) {
-            /* merge prev and cur */
+            /* merge prev and cur: arena-allocate the joined string */
             int new_len = prev->body.str_val.length + cur->body.str_val.length;
-            char* new_data = malloc(new_len + 1);
+            char* new_data = arena_alloc(a, new_len + 1);
 
             memcpy(new_data, prev->body.str_val.data, prev->body.str_val.length);
             memcpy(new_data + prev->body.str_val.length,
                    cur->body.str_val.data, cur->body.str_val.length);
             new_data[new_len] = '\0';
 
-            /* free old data (caller-owned copy) */
-            free((void*)prev->body.str_val.data);
             prev->body.str_val.data = new_data;
             prev->body.str_val.length = new_len;
 
-            /* remove cur from list */
+            /* remove cur from list (token nodes are arena-allocated, no free) */
             prev->next = cur->next;
-            free((void*)cur->body.str_val.data);
-            free(cur);
             cur = prev->next;
         }
 
@@ -127,7 +123,7 @@ merge_adjacent_strings(Token* head)
 /* --- public API --- */
 
 Token*
-parse(const char* code)
+parse(const char* code, Arena* a)
 {
     Lexer lex;
 
@@ -137,6 +133,7 @@ parse(const char* code)
     lex.col = 1;
     lex.head = NULL;
     lex.tail = NULL;
+    lex.arena = a;
 
     while (1) {
         skip_ws_and_comments(&lex);
@@ -144,7 +141,7 @@ parse(const char* code)
         char c = peek(&lex);
 
         if (c == '\0') {
-            lexer_append(&lex, token_new(TOK_EOF, lex.line, lex.col));
+            lexer_append(&lex, token_new(&lex, TOK_EOF, lex.line, lex.col));
             break;
         }
 
@@ -171,6 +168,6 @@ parse(const char* code)
         }
     }
 
-    merge_adjacent_strings(lex.head);
+    merge_adjacent_strings(lex.head, a);
     return lex.head;
 }

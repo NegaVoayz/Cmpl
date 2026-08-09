@@ -18,7 +18,7 @@ AST_Node* ll_parse_return(LR1_Parser* p)
 
     p->tok = p->tok->next;                /* skip 'return' */
 
-    AST_Node* n = ast_node_new(AST_RETURN, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_RETURN, tok->loc.line, tok->loc.col);
 
     if (p->tok->kind != TOK_SEMI)
         n->body.ret.expr = ll_parse_expr(p);
@@ -40,7 +40,7 @@ AST_Node* ll_parse_break(LR1_Parser* p)
 
     p->tok = p->tok->next;                /* skip 'break' */
 
-    AST_Node* n = ast_node_new(AST_BREAK, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_BREAK, tok->loc.line, tok->loc.col);
 
     ll_expect(p, TOK_SEMI);
 
@@ -53,7 +53,7 @@ AST_Node* ll_parse_continue(LR1_Parser* p)
 
     p->tok = p->tok->next;                /* skip 'continue' */
 
-    AST_Node* n = ast_node_new(AST_CONTINUE, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_CONTINUE, tok->loc.line, tok->loc.col);
 
     ll_expect(p, TOK_SEMI);
 
@@ -71,7 +71,7 @@ AST_Node* ll_parse_switch(LR1_Parser* p)
     p->tok = p->tok->next;                /* skip 'switch' */
     ll_expect(p, TOK_LPAREN);
 
-    AST_Node* n = ast_node_new(AST_SWITCH, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_SWITCH, tok->loc.line, tok->loc.col);
 
     p->allow_unmatched_rparen = 1;
     n->body.switch_stmt.condition = ll_parse_expr(p);
@@ -86,7 +86,7 @@ AST_Node* ll_parse_case(LR1_Parser* p)
 
     p->tok = p->tok->next;                /* skip 'case' */
 
-    AST_Node* n = ast_node_new(AST_CASE, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_CASE, tok->loc.line, tok->loc.col);
 
     n->body.case_stmt.value = ll_parse_expr(p);
     ll_expect(p, TOK_COLON);
@@ -101,7 +101,7 @@ AST_Node* ll_parse_default(LR1_Parser* p)
 
     p->tok = p->tok->next;                /* skip 'default' */
 
-    AST_Node* n = ast_node_new(AST_DEFAULT, tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena, AST_DEFAULT, tok->loc.line, tok->loc.col);
 
     ll_expect(p, TOK_COLON);
     n->body.case_stmt.stmt = ll_parse_stmt(p);

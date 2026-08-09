@@ -26,7 +26,7 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
     if (p->tok->kind == TOK_LBRACE) {
         p->tok = p->tok->next;
 
-        def_node = ast_node_new(is_struct ? AST_STRUCT_DEF : AST_UNION_DEF,
+        def_node = ast_node_new(p->arena, is_struct ? AST_STRUCT_DEF : AST_UNION_DEF,
                                 stok->loc.line, stok->loc.col);
         def_node->body.struct_def.name = tag;
         def_node->body.struct_def.fields = ll_parse_struct_fields(p);
@@ -40,7 +40,7 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
         if (def_node)
             return def_node;
 
-        AST_Node* fwd = ast_node_new(is_struct ? AST_STRUCT_DEF : AST_UNION_DEF,
+        AST_Node* fwd = ast_node_new(p->arena, is_struct ? AST_STRUCT_DEF : AST_UNION_DEF,
                                      stok->loc.line, stok->loc.col);
         fwd->body.struct_def.name = tag;
         fwd->body.struct_def.fields = NULL;
@@ -49,7 +49,7 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
     }
 
     /* Variable declarations with struct/union type */
-    Type* stype = type_new(is_struct ? TYPE_STRUCT : TYPE_UNION);
+    Type* stype = type_new(p->arena, is_struct ? TYPE_STRUCT : TYPE_UNION);
     stype->name = tag;
     /* if we parsed a body, attach fields to the type for IR gen */
     if (def_node)
@@ -78,10 +78,10 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
                 Type* ret_type;
 
                 if (n_ptr > 0) {
-                    ret_type = type_new(TYPE_PTR);
+                    ret_type = type_new(p->arena, TYPE_PTR);
                     Type* tail = ret_type;
                     for (int i = 1; i < n_ptr; i++) {
-                        tail->inner = type_new(TYPE_PTR);
+                        tail->inner = type_new(p->arena, TYPE_PTR);
                         tail = tail->inner;
                     }
                     tail->inner = scan->inner;
@@ -89,7 +89,7 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
                     ret_type = scan->inner;
                 }
 
-                AST_Node* fn = ast_node_new(AST_FUNC_DEF,
+                AST_Node* fn = ast_node_new(p->arena, AST_FUNC_DEF,
                                             stok->loc.line, stok->loc.col);
                 fn->body.func_def.ret_type = ret_type;
                 fn->body.func_def.name = dname;
@@ -101,7 +101,7 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
             }
         }
 
-        AST_Node* vd = ast_node_new(AST_VAR_DECL,
+        AST_Node* vd = ast_node_new(p->arena, AST_VAR_DECL,
                                     stok->loc.line, stok->loc.col);
         vd->body.var_decl.var_type = full;
         vd->body.var_decl.name = dname;
