@@ -116,10 +116,18 @@ available for the LL parser to inspect (e.g., to decide between `;` and `,` in a
 
 | File | Purpose |
 |---|---|
+| `lr1.h` | LR1_State/LR1_Symbol enums, LR1_Parser struct, action/goto table declarations |
 | `lr1.c` | `lr1_parser_new`, `lr1_parse_expr` (main loop), `lr1_parser_free`, `goto_push` |
-| `lr1_table.c` | `lr1_table_init()` — populates action + goto tables |
+| `lr1_table.c` | `lr1_table_init()` — orchestrates action + goto table population |
+| `lr1_table_acts.c` | Action table entries — maps (state, token) → shift/reduce/accept/error |
+| `lr1_table_goto.c` | Goto table entries — maps (state, nonterminal) → next state |
+| `lr1_table_reds.c` | Reduction table — maps states to production rules |
 | `lr1_shift.c` | Shift action functions — consume token, push state |
-| `lr1_reduce.c` | Reduce action functions — pop frames, build AST nodes |
+| `lr1_reduce.c` | Main reduce function — pop frames, build AST nodes, goto_push |
+| `lr1_reduce_binary.c` | Binary operator reductions at each precedence level |
+| `lr1_reduce_postfix.c` | Postfix expression reductions: `[]`, `()`, `.`, `->`, `++`, `--` |
+| `lr1_reduce_passthrough.c` | Passthrough reductions: wrap/rewrap primary, postfix, unary, cast levels |
+| `lr1_reduce_ctx.c` | Context reductions: assignments, ternary `?:`, pending cast wrapping |
 
 ## Related
 

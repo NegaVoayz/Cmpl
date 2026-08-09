@@ -224,8 +224,14 @@ if (cond_val == 0) {
 |---|---|
 | `optimize.h` | `optimize()` entry, `opt_fold()`, `opt_propagate()`, `opt_dead()`, `is_int_literal_kind()` |
 | `optimize.c` | Fixed-point orchestrator: fold → propagate → fold → dead, repeat |
-| `opt_fold.c` | Constant folding: binary ops, unary ops, int and float, side-effect checks |
-| `opt_propagate.c` | Constant propagation: scan var_decls, invalidate on assign/inc/dec/addrof, replace idents |
+| `ast_walk.h` | Shared AST depth-first walker: `ast_walk()` with pre/post callbacks |
+| `ast_walk.c` | AST walker implementation |
+| `opt_fold.c` | Constant folding driver and public API |
+| `opt_fold_walk.c` | Recursive AST walk for fold: dispatches by node type |
+| `opt_fold_try.c` | Attempt fold on a single binary/unary node; side-effect checks |
+| `opt_propagate.c` | Constant propagation entry point |
+| `opt_propagate_scan.c` | Phase 1a/1b: scan for var-decls with literal inits, invalidate on assign/inc/addr-of |
+| `opt_propagate_replace.c` | Phase 2: replace IDENT nodes with literal values |
 | `opt_dead.c` | Dead code: truncate after terminator, if(0)/if(1) simplification, while(0) removal |
 
 ## Relationship to IR Optimizer

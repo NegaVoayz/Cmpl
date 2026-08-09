@@ -93,6 +93,7 @@ Module: `cuda/`
 | `cuda_qual.c` | Parse CUDA qualifiers during declaration parsing |
 | `cuda_split.c` | Walk program AST, separate host and device declarations |
 | `cuda_launch.c` | Analyze kernel launch sites, extract config dimensions |
+| `cuda.h` | Public types: CudaSplit, KernelLaunch, linkage/addrspace constants |
 
 ### Algorithm
 
@@ -272,23 +273,33 @@ cmpl/
 │   └── cuda.h
 ├── ir/                 # LLVM IR tree (own data structures)
 │   ├── ir_type.c       # C Type → LLVM IR_Type conversion
-│   ├── ir_expr.c       # expression AST → IR instructions
-│   ├── ir_stmt.c       # statement AST → IR basic blocks
-│   ├── ir_func.c       # function AST → IR_Func
-│   ├── ir_module.c     # program AST → IR_Module
-│   ├── ir_dump.c       # IR_Module → LLVM .ll text
-│   └── ir.h            # IR data structures (IR_Type, IR_Value, IR_Instr, ...)
+│   ├── ir_builder.c    # IR_Builder lifecycle, block mgmt, alloca/load/store
+│   ├── ir_builder_ops.c # Arithmetic, bitwise, control flow, GEP, cast builders
+│   ├── ir_gen.c        # Program/module/function IR generation + symbol tables
+│   ├── ir_gen_expr.c   # expression AST → IR instructions
+│   ├── ir_gen_stmt.c   # statement AST → IR basic blocks
+│   ├── ir_gen_cuda.c   # CUDA two-module IR generation (host + device split)
+│   ├── ir_dump.c       # IR_Module → LLVM .ll text (type + value printers)
+│   ├── ir_dump_instr.c # instruction text printer (all IROP_* cases)
+│   ├── ir_dump_func.c  # function/block dumper, vreg renumbering
+│   ├── ir_dump_str.c   # string constant table collection and emission
+│   ├── ir.h            # IR data structures (IR_Type, IR_Value, IR_Instr, ...)
+│   └── ir_api.h        # Public API declarations
 ├── vulkan/             # Vulkan mock + SPIR-V backend
 │   ├── vk_mock.c       # host IR: insert cmpl_vk_launch() calls
-│   ├── vk_spirv.c      # device IR → SPIR-V binary
-│   ├── vk_spirv_dump.c # device IR → .ll text dump (for -S)
-│   ├── vk_layout.c     # descriptor set & push constant layout from kernel signature
+│   ├── vk_spirv.c      # SPIR-V core: opcodes, word emit, id mgmt, module header
+│   ├── vk_spirv_collect.c # SPIR-V pre-pass: collect types/values/funcs from IR
+│   ├── vk_spirv_emit.c # SPIR-V type, constant & instruction emission
+│   ├── vk_spirv_func.c # SPIR-V function & entry point emission
 │   └── vulkan.h
 ├── ir-opt/             # IR-level optimization passes
-│   ├── ir_opt_mem2reg.c # alloca → SSA phi promotion
+│   ├── ir_opt.c        # Pass runner: fixed-point orchestrator (ir_optimize)
+│   ├── ir_opt_mem2reg.c   # alloca → SSA phi promotion
+│   ├── ir_opt_mem2reg_cfg.c # CFG analysis for mem2reg (dominance frontiers)
 │   ├── ir_opt_dce.c     # dead instruction elimination
 │   ├── ir_opt_const.c   # constant folding at IR level
 │   ├── ir_opt_simplify.c # CFG simplification, block merging
+│   ├── ir_opt_gvn.c    # global value numbering (CSE)
 │   ├── ir_opt_inline.c  # device function inlining
 │   └── ir-opt.h
 ├── rt/                 # Companion C runtime (ships with compiled programs)

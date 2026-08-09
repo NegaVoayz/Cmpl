@@ -68,7 +68,7 @@ Dispatches by type-start token and optional keywords:
 unsigned long long int  →  TYPE_UNSIGNED → TYPE_LONG → TYPE_LONG → TYPE_INT
 ```
 
-`ll_parse_declarator()` reads the declarator suffix and wraps the type:
+`ll_parse_declarator()` (in `ll_declarator.c`) reads the declarator suffix and wraps the type:
 ```c
 Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name);
 // Input:  int *x[10]
@@ -95,12 +95,16 @@ AST_Node* ll_parse_expr(LR1_Parser* p) {
 
 | File | Purpose |
 |---|---|
+| `ll.h` | LL parser API: all public function declarations |
 | `ll.c` | `ll_parse_program()` — drives top-level loop; `ll_parse_expr()` — kernel launch wrapping |
-| `ll_stmt.c` | Block, expression-statement, return, and the stmt dispatcher |
-| `ll_stmt_ctrl.c` | if/else, while, do-while, for, switch/case/default, goto/label, break/continue |
+| `ll_stmt.c` | Block, expression-statement, and the stmt dispatcher |
+| `ll_stmt_ctrl.c` | if/else, while, do-while, for |
+| `ll_stmt_ctrl_jump.c` | return, break, continue, switch/case/default, goto, label |
 | `ll_decl.c` | `ll_parse_decl()` — var/func/typedef; `ll_parse_decl_or_stmt()` dispatcher |
-| `ll_decl_agg.c` | struct/union/enum definition parsing, enumerator lists |
-| `ll_type.c` | `ll_parse_type_specs()` — type chains; `ll_parse_declarator()` — suffix wrapping; `is_type_start()` |
+| `ll_decl_agg.c` | enum definition parsing, enumerator lists |
+| `ll_decl_struct.c` | struct/union definition and declaration parsing |
+| `ll_declarator.c` | C declarator parsing (spiral rule): `*x`, `x[10]`, `f(int)`, etc. |
+| `ll_type.c` | `ll_parse_type_specs()` — type chains; `is_type_start()` |
 
 ## Related
 

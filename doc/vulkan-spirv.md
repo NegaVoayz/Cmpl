@@ -265,11 +265,10 @@ because SPIR-V's structured control flow doesn't have phi:
 
 ### Device IR Dump (for `-S` flag)
 
-When `-S` is passed, the device IR is also dumped as `.ll` text before SPIR-V conversion.
-This is done by `vk_spirv_dump.c` which calls the same `ir_dump()` function used for
-host IR output.
+When `-S` is passed, the device IR is also dumped as `.ll` text before SPIR-V conversion
+using the same `ir_dump_module()` function from `ir/` used for host IR output.
 
-## Descriptor Set & Pipeline Layout (`vk_layout.c`)
+## Descriptor Set & Pipeline Layout
 
 Before mock generation, the kernel signature is analyzed to produce a descriptor set layout:
 
@@ -300,11 +299,12 @@ This layout information is:
 
 | File | Purpose |
 |---|---|
-| `vulkan.h` | Shared types: KernelParam, KernelLayout, SPIRV_Writer |
+| `vulkan.h` | Shared types: SPV_Writer, IdMap, KernelLayout, API declarations |
 | `vk_mock.c` | Host IR pass: replace kernel placeholder calls with cmpl_vk_launch() |
-| `vk_spirv.c` | Device IR → SPIR-V binary emission |
-| `vk_spirv_dump.c` | Device IR → .ll text dump (for -S flag) |
-| `vk_layout.c` | Kernel signature → descriptor set layout analysis |
+| `vk_spirv.c` | SPIR-V core: opcode constants, word emission, ID management, module header |
+| `vk_spirv_collect.c` | SPIR-V pre-pass: collect types, values, and functions from IR module |
+| `vk_spirv_emit.c` | SPIR-V instruction emission: type, constant, and IR→SPIR-V op mapping |
+| `vk_spirv_func.c` | SPIR-V function & entry point emission |
 
 ### Runtime Library (in `rt/`)
 

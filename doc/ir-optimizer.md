@@ -298,7 +298,9 @@ void opt_addrspace_canon(OptCtx* ctx, IR_Module* mod)
 | File | Purpose |
 |---|---|
 | `ir-opt.h` | OptCtx, OptPass type, ir_optimize() declaration |
-| `ir_opt_mem2reg.c` | Alloca → SSA phi promotion, dominance tree construction |
+| `ir_opt.c` | Pass runner: orchestrates passes to fixed point (max 8 iterations) |
+| `ir_opt_mem2reg.c` | Alloca → SSA phi promotion |
+| `ir_opt_mem2reg_cfg.c` | CFG analysis for mem2reg: dominance frontiers, block ordering |
 | `ir_opt_dce.c` | Mark-sweep dead instruction + dead block elimination |
 | `ir_opt_const.c` | IR-level constant folding for all binary + compare + select ops |
 | `ir_opt_simplify.c` | CFG simplification: block merge, unreachable removal, jump threading |
