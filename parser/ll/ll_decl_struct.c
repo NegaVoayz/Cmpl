@@ -51,6 +51,9 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
     /* Variable declarations with struct/union type */
     Type* stype = type_new(is_struct ? TYPE_STRUCT : TYPE_UNION);
     stype->name = tag;
+    /* if we parsed a body, attach fields to the type for IR gen */
+    if (def_node)
+        stype->params = def_node->body.struct_def.fields;
 
     AST_Node* var_head = NULL;
     AST_Node** var_tail = &var_head;

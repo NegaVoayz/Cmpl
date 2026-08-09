@@ -7,6 +7,11 @@
 /* from ir_dump_str.c */
 extern int  dump_str_index(String s);
 
+/* shared anonymous struct name table */
+#define DUMP_ANON_MAX 64
+IR_Type* dump_anon_types[DUMP_ANON_MAX];
+int dump_anon_count = 0;
+
 /* ---------------------------------------------------------------
  *  Type printer
  * --------------------------------------------------------------- */
@@ -54,9 +59,36 @@ void dump_type(FILE* out, IR_Type* ty)
         break;
 
     case IR_STRUCT:
-        if (ty->name.data)
+        if (ty->name.data) {
             fprintf(out, "%%struct.%.*s", ty->name.length, ty->name.data);
-        else
+        } else if (ty->members) {
+            /* dedup anonymous struct by member layout */
+            int idx = -1;
+            for (int i = 0; i < dump_anon_count; i++) {
+                IR_Type* a = dump_anon_types[i];
+                if (a == ty) { idx = i; break; }
+                /* compare by member count + type kinds */
+                IR_Type *ma = a->members, *mt = ty->members;
+                int same = 1;
+                while (ma && mt) {
+                    if (ma->kind != mt->kind) { same = 0; break; }
+                    if (ma->kind == IR_PTR && mt->kind == IR_PTR) {
+                        /* pointers: compare inner types */
+                        if (!ir_type_eq(ma->inner, mt->inner)) { same = 0; break; }
+                    }
+                    ma = ma->next; mt = mt->next;
+                }
+                if (same && !ma && !mt) { idx = i; break; }
+            }
+            if (idx < 0 && dump_anon_count < DUMP_ANON_MAX) {
+                idx = dump_anon_count;
+                dump_anon_types[dump_anon_count++] = ty;
+            }
+            if (idx >= 0)
+                fprintf(out, "%%struct.anon.%d", idx);
+            else
+                fprintf(out, "{}");
+        } else
             fprintf(out, "{}");
         break;
 

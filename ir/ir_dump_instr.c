@@ -172,19 +172,23 @@ void dump_instr(FILE* out, IR_Instr* inst)
         fprintf(out, ", ptr ");
         dump_value(out, inst->operands[0]);
 
-        /* LLVM 19 opaque-ptr: scalar types can only have one index.
-         * For aggregates (array/struct), two indices are needed —
-         * the first selects the array, the second selects the element.
-         * For scalars (i8, i32, ptr), a second index is invalid.
-         * If idx0 is constant 0 and idx1 is present on a scalar,
-         * emit only idx1. */
-        int is_aggregate = (elem &&
-            (elem->kind == IR_ARRAY || elem->kind == IR_STRUCT));
         int idx0_is_zero = (inst->operands[1] &&
                             inst->operands[1]->kind == VAL_CONST_INT &&
                             inst->operands[1]->body.int_val == 0);
+        int idx1_is_variable = (inst->operands[2] &&
+                                inst->operands[2]->kind != VAL_CONST_INT);
 
-        if (idx0_is_zero && inst->operands[2] && !is_aggregate) {
+        /* For struct type with pattern [0, variable]: treat as array
+         * access and emit only the variable index. LLVM requires
+         * struct field indices to be constant. */
+        if (idx0_is_zero && idx1_is_variable &&
+            elem && elem->kind == IR_STRUCT) {
+            fprintf(out, ", ");
+            dump_type(out, inst->operands[2]->type);
+            fprintf(out, " ");
+            dump_value(out, inst->operands[2]);
+        } else if (idx0_is_zero && inst->operands[2] &&
+                   (!elem || (elem->kind != IR_ARRAY && elem->kind != IR_STRUCT))) {
             /* scalar: skip zero idx0, emit idx1 directly */
             fprintf(out, ", ");
             dump_type(out, inst->operands[2]->type);

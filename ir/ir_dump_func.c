@@ -12,6 +12,8 @@ extern void dump_instr(FILE* out, IR_Instr* inst);
 extern void dump_str_reset(void);
 extern void dump_str_globals(FILE* out);
 extern void dump_str_collect_module(IR_Module* mod);
+extern IR_Type* dump_anon_types[];
+extern int dump_anon_count;
 
 /* ---------------------------------------------------------------
  *  Block printer
@@ -37,34 +39,17 @@ dump_func(FILE* out, IR_Func* func)
      * LLVM counts EVERY instruction position (including void ones).
      * Each instruction position consumes one ID.
      * Non-void results get the current counter value.
-     * Uses a seen-set to avoid assigning the same ID to two different
-     * value objects that might appear in different blocks. */
+     * Each make_vreg creates unique objects, so no dedup needed. */
     if (func->blocks) {
         int next_id = func->n_params;
-        /* track which value pointers have been seen to avoid collision */
-        #define MAX_SEEN 1024
-        IR_Value* seen[MAX_SEEN];
-        int n_seen = 0;
 
         for (IR_Block* blk = func->blocks; blk; blk = blk->next) {
             for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
-                if (inst->result && inst->result->kind == VAL_INSTR) {
-                    /* check if this value object was already assigned an ID */
-                    int already = 0;
-                    for (int si = 0; si < n_seen; si++) {
-                        if (seen[si] == inst->result) {
-                            already = 1; break;
-                        }
-                    }
-                    if (!already && n_seen < MAX_SEEN) {
-                        seen[n_seen++] = inst->result;
-                        inst->result->id = next_id;
-                    }
-                }
+                if (inst->result && inst->result->kind == VAL_INSTR)
+                    inst->result->id = next_id;
                 next_id++;
             }
         }
-        #undef MAX_SEEN
     }
 
     /* define / declare */
@@ -108,6 +93,112 @@ dump_func(FILE* out, IR_Func* func)
 }
 
 /* ---------------------------------------------------------------
+ *  Struct type definition collector & emitter
+ *  Also builds a lookup table so dump_type can resolve unnamed
+ *  structs to their canonical named equivalent.
+ * --------------------------------------------------------------- */
+
+#define MAX_STRUCT_TYPES 64
+static IR_Type* struct_seen[MAX_STRUCT_TYPES];
+static int n_struct_seen = 0;
+
+/* compare two struct member lists for equality */
+static int members_eq(IR_Type* a, IR_Type* b)
+{
+    while (a && b) {
+        if (!ir_type_eq(a, b)) return 0;
+        a = a->next; b = b->next;
+    }
+    return (a == NULL && b == NULL);
+}
+
+static void collect_struct_types_rec(IR_Type* t)
+{
+    if (!t) return;
+    if (t->kind != IR_STRUCT) {
+        if (t->kind == IR_PTR || t->kind == IR_ARRAY)
+            collect_struct_types_rec(t->inner);
+        else if (t->kind == IR_FUNC) {
+            collect_struct_types_rec(t->inner);
+            for (IR_Type* p = t->members; p; p = p->next)
+                collect_struct_types_rec(p);
+        }
+        return;
+    }
+    if (!t->members || n_struct_seen >= MAX_STRUCT_TYPES) return;
+
+    /* dedup: named structs by pointer; anonymous by member layout */
+    if (t->name.data) {
+        for (int i = 0; i < n_struct_seen; i++)
+            if (struct_seen[i] == t) return;
+    } else {
+        for (int i = 0; i < n_struct_seen; i++)
+            if (members_eq(struct_seen[i]->members, t->members)) return;
+    }
+
+    struct_seen[n_struct_seen++] = t;
+
+    /* register in dump_anon table so dump_type finds it */
+    if (!t->name.data && dump_anon_count < 64) {
+        for (int i = 0; i < dump_anon_count; i++)
+            if (dump_anon_types[i] == t) return;
+        dump_anon_types[dump_anon_count++] = t;
+    }
+}
+
+static void emit_struct_types(FILE* out, IR_Module* mod)
+{
+    n_struct_seen = 0;
+
+    /* collect from globals */
+    for (IR_Value* gv = mod->globals; gv; gv = gv->next)
+        collect_struct_types_rec(gv->type);
+
+    /* collect from function signatures and alloca types */
+    for (IR_Func* fn = mod->funcs; fn; fn = fn->next) {
+        collect_struct_types_rec(fn->ret_type);
+        for (int i = 0; i < fn->n_params; i++)
+            collect_struct_types_rec(fn->params[i]->type);
+        for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
+            for (IR_Instr* inst = blk->first; inst; inst = inst->next)
+                collect_struct_types_rec(inst->type);
+        }
+    }
+
+    /* emit named structs from collected set */
+    for (int i = 0; i < n_struct_seen; i++) {
+        IR_Type* t = struct_seen[i];
+        if (!t->name.data || !t->members) continue;
+
+        fprintf(out, "%%struct.%.*s = type { ", t->name.length, t->name.data);
+        int first = 1;
+        for (IR_Type* m = t->members; m; m = m->next) {
+            if (!first) fprintf(out, ", ");
+            first = 0;
+            dump_type(out, m);
+        }
+        fprintf(out, " }\n");
+    }
+
+    /* emit anonymous structs discovered during dump_type calls */
+    for (int i = 0; i < dump_anon_count; i++) {
+        IR_Type* t = dump_anon_types[i];
+
+        fprintf(out, "%%struct.anon.%d = type { ", i);
+        int first = 1;
+        for (IR_Type* m = t->members; m; m = m->next) {
+            if (!first) fprintf(out, ", ");
+            first = 0;
+            dump_type(out, m);
+        }
+        fprintf(out, " }\n");
+    }
+    if (n_struct_seen + dump_anon_count > 0) fprintf(out, "\n");
+}
+
+#undef MAX_STRUCT_TYPES
+
+/* ---------------------------------------------------------------
  *  Module printer
  * --------------------------------------------------------------- */
 
@@ -121,6 +212,9 @@ ir_dump_module(IR_Module* mod, FILE* out)
     dump_str_collect_module(mod);
 
     /* target triple + data layout — skip to avoid clang -Woverride-module */
+
+    /* struct type definitions (must come before globals and functions) */
+    emit_struct_types(out, mod);
 
     /* string constant globals */
     dump_str_globals(out);

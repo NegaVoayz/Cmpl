@@ -9,6 +9,16 @@
 #include "ast.h"
 
 /* ---------------------------------------------------------------
+ *  Typedef table entry (for resolving TYPE_NAMED during IR gen)
+ * --------------------------------------------------------------- */
+
+typedef struct TypedefEntry {
+    String               name;
+    Type*                aliased_type;
+    struct TypedefEntry* next;
+} TypedefEntry;
+
+/* ---------------------------------------------------------------
  *  Function signature entry (for return type lookup in calls)
  * --------------------------------------------------------------- */
 
@@ -87,6 +97,189 @@ void sym_add(GenCtx* ctx, String name, IR_Value* alloca)
     e->next = ctx->syms;
     ctx->syms = e;
 }
+
+/* ---------------------------------------------------------------
+ *  Typedef & enum table: lookup, type tree resolution
+ * --------------------------------------------------------------- */
+
+static Type* typedef_lookup(TypedefEntry* table, String name)
+{
+    for (TypedefEntry* te = table; te; te = te->next)
+        if (te->name.length == name.length &&
+            memcmp(te->name.data, name.data, name.length) == 0)
+            return te->aliased_type;
+    return NULL;
+}
+
+static void resolve_type_tree(Type* t, TypedefEntry* table)
+{
+    if (!t) return;
+    if (t->kind == TYPE_NAMED && !t->inner) {
+        Type* resolved = typedef_lookup(table, t->name);
+        if (resolved) t->inner = resolved;
+    }
+    resolve_type_tree(t->inner, table);
+    resolve_type_tree(t->next, table);
+    for (AST_Node* p = t->params;
+         p && p->type == AST_PARAM_DECL; p = p->next)
+        resolve_type_tree(p->body.param_decl.param_type, table);
+}
+
+static void resolve_expr_types(AST_Node* e, TypedefEntry* table);
+static void resolve_array_sizes(Type* t, TypedefEntry* enum_vals);
+
+static void resolve_expr_types(AST_Node* e, TypedefEntry* table)
+{
+    if (!e) return;
+    switch (e->type) {
+    case AST_CAST:
+        resolve_type_tree(e->body.cast.type_expr, table);
+        resolve_expr_types(e->body.cast.cast_expr, table); break;
+    case AST_SIZEOF_TYPE:
+        resolve_type_tree(e->body.sizeof_type.type_expr, table); break;
+    case AST_BINARY:
+        resolve_expr_types(e->body.binary.left, table);
+        resolve_expr_types(e->body.binary.right, table); break;
+    case AST_UNARY:
+        resolve_expr_types(e->body.unary.operand, table); break;
+    case AST_POSTFIX:
+        resolve_expr_types(e->body.postfix.operand, table); break;
+    case AST_TERNARY:
+        resolve_expr_types(e->body.ternary.cond, table);
+        resolve_expr_types(e->body.ternary.then_expr, table);
+        resolve_expr_types(e->body.ternary.else_expr, table); break;
+    case AST_CALL:
+        resolve_expr_types(e->body.call.callee, table);
+        for (AST_Node* a = e->body.call.args;
+             a && a->type != AST_CALL; a = a->next)
+            resolve_expr_types(a, table);
+        break;
+    case AST_INDEX:
+        resolve_expr_types(e->body.subscript.array, table);
+        resolve_expr_types(e->body.subscript.index, table); break;
+    default: break;
+    }
+}
+
+static void resolve_array_sizes(Type* t, TypedefEntry* enum_vals)
+{
+    if (!t) return;
+    resolve_array_sizes(t->inner, enum_vals);
+    resolve_array_sizes(t->next, enum_vals);
+    if (t->kind == TYPE_ARRAY && t->arr_size == 0 &&
+        t->size_name.data && enum_vals) {
+        Type* found = typedef_lookup(enum_vals, t->size_name);
+        if (found) t->arr_size = (int)(intptr_t)found;
+    }
+}
+
+/* struct definition entry for resolving TYPE_STRUCT references */
+typedef struct StructDefEntry {
+    String               name;
+    AST_Node*            fields;
+    int                  is_union;
+    struct StructDefEntry* next;
+} StructDefEntry;
+
+static void resolve_struct_refs_type(Type* t, StructDefEntry* sdefs)
+{
+    if (!t) return;
+    if ((t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) &&
+        t->name.data && !t->params) {
+        for (StructDefEntry* se = sdefs; se; se = se->next) {
+            if (se->name.length == t->name.length &&
+                memcmp(se->name.data, t->name.data, t->name.length) == 0) {
+                t->params = se->fields;
+                if (se->is_union) t->kind = TYPE_UNION;
+                break;
+            }
+        }
+    }
+    resolve_struct_refs_type(t->inner, sdefs);
+    resolve_struct_refs_type(t->next, sdefs);
+    if (t->kind == TYPE_FUNC)
+        for (AST_Node* p = t->params;
+             p && p->type == AST_PARAM_DECL; p = p->next)
+            resolve_struct_refs_type(p->body.param_decl.param_type, sdefs);
+}
+
+#define MAX_VISITED 128
+static int was_visited(AST_Node** v, int n, AST_Node* node)
+{
+    for (int i = 0; i < n; i++) if (v[i] == node) return 1;
+    return 0;
+}
+
+static void resolve_ast_node(AST_Node* n, TypedefEntry* table);
+
+/* statement node types: nodes that can appear in a block stmt chain */
+static int is_stmt_type(AST_Type t)
+{
+    return t == AST_BLOCK || t == AST_IF || t == AST_WHILE ||
+           t == AST_DO_WHILE || t == AST_FOR || t == AST_RETURN ||
+           t == AST_BREAK || t == AST_CONTINUE || t == AST_SWITCH ||
+           t == AST_CASE || t == AST_DEFAULT || t == AST_GOTO ||
+           t == AST_LABEL || t == AST_EXPR_STMT || t == AST_VAR_DECL;
+}
+
+static void resolve_stmt_chain(AST_Node* first, TypedefEntry* table,
+                               AST_Node** visited, int* n_visited)
+{
+    for (AST_Node* s = first;
+         s && is_stmt_type(s->type) && *n_visited < MAX_VISITED;
+         s = s->next) {
+        if (was_visited(visited, *n_visited, s)) return;
+        visited[(*n_visited)++] = s;
+        resolve_ast_node(s, table);
+    }
+}
+
+static void resolve_ast_node(AST_Node* n, TypedefEntry* table)
+{
+    if (!n) return;
+    switch (n->type) {
+    case AST_VAR_DECL:
+        resolve_type_tree(n->body.var_decl.var_type, table);
+        if (n->body.var_decl.init)
+            resolve_expr_types(n->body.var_decl.init, table);
+        break;
+    case AST_FUNC_DEF:
+        resolve_type_tree(n->body.func_def.ret_type, table);
+        for (AST_Node* p = n->body.func_def.params;
+             p && p->type == AST_PARAM_DECL; p = p->next)
+            resolve_type_tree(p->body.param_decl.param_type, table);
+        /* body resolution not needed for self-hosting —
+         * top-level types are resolved, IR gen handles local types */
+        break;
+    case AST_BLOCK:
+    { AST_Node* vb[MAX_VISITED]; int nv = 0;
+      resolve_stmt_chain(n->body.block.stmts, table, vb, &nv); break; }
+    case AST_IF:
+        resolve_expr_types(n->body.if_stmt.condition, table);
+        resolve_ast_node(n->body.if_stmt.then_branch, table);
+        resolve_ast_node(n->body.if_stmt.else_branch, table); break;
+    case AST_WHILE: case AST_DO_WHILE:
+        resolve_expr_types(n->body.loop.condition, table);
+        resolve_ast_node(n->body.loop.body, table); break;
+    case AST_FOR:
+        resolve_ast_node(n->body.for_stmt.init, table);
+        resolve_expr_types(n->body.for_stmt.condition, table);
+        resolve_expr_types(n->body.for_stmt.update, table);
+        resolve_ast_node(n->body.for_stmt.body, table); break;
+    case AST_RETURN:
+        resolve_expr_types(n->body.ret.expr, table); break;
+    case AST_EXPR_STMT:
+        resolve_expr_types(n->body.expr_stmt.expr, table); break;
+    case AST_SWITCH:
+        resolve_expr_types(n->body.switch_stmt.condition, table);
+        resolve_ast_node(n->body.switch_stmt.body, table); break;
+    case AST_CASE: case AST_DEFAULT:
+        resolve_expr_types(n->body.case_stmt.value, table);
+        resolve_ast_node(n->body.case_stmt.stmt, table); break;
+    default: break;
+    }
+}
+#undef MAX_VISITED
 
 /* ---------------------------------------------------------------
  *  Forward declarations from other sub-files
@@ -239,6 +432,101 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         s->next = sigs;
         sigs = s;
     }
+
+    /* pass 0.5: collect typedefs + enum constants, resolve throughout AST */
+    {
+        TypedefEntry *typedefs = NULL, *enum_vals = NULL;
+
+        /* collect typedefs */
+        for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+            if (decl->type != AST_TYPEDEF) continue;
+            TypedefEntry* te = calloc(1, sizeof(TypedefEntry));
+            te->name = decl->body.typedef_decl.name;
+            te->aliased_type = decl->body.typedef_decl.aliased_type;
+            te->next = typedefs; typedefs = te;
+        }
+
+        /* update opaque typedefs from struct/union definitions */
+        for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+            if (decl->type != AST_STRUCT_DEF && decl->type != AST_UNION_DEF) continue;
+            if (!decl->body.struct_def.name.data || !decl->body.struct_def.fields) continue;
+            for (TypedefEntry* te = typedefs; te; te = te->next) {
+                if (!te->aliased_type) continue;
+                if (te->aliased_type->kind != TYPE_STRUCT &&
+                    te->aliased_type->kind != TYPE_UNION) continue;
+                if (te->aliased_type->name.length != decl->body.struct_def.name.length) continue;
+                if (memcmp(te->aliased_type->name.data, decl->body.struct_def.name.data,
+                           te->aliased_type->name.length) != 0) continue;
+                te->aliased_type->params = decl->body.struct_def.fields; break;
+            }
+        }
+
+        /* build enum constant table */
+        for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+            if (decl->type != AST_ENUM_DEF) continue;
+            int val = 0;
+            for (AST_Node* en = decl->body.enum_def.enumerators;
+                 en && en->type == AST_ENUMERATOR; en = en->next) {
+                if (en->body.enumerator.value &&
+                    en->body.enumerator.value->type == AST_INT_LIT)
+                    val = (int)en->body.enumerator.value->body.literal.int_val;
+                TypedefEntry* ev = calloc(1, sizeof(TypedefEntry));
+                ev->name = en->body.enumerator.name;
+                ev->aliased_type = (Type*)(intptr_t)val;
+                ev->next = enum_vals; enum_vals = ev;
+                val++;
+            }
+        }
+
+        /* resolve typedefs in all decl type trees */
+        for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
+            resolve_ast_node(decl, typedefs);
+
+        /* resolve struct references: TYPE_STRUCT with name but no params
+         * needs to find the AST_STRUCT_DEF and attach fields */
+        {
+            StructDefEntry* sdefs = NULL;
+
+            for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+                if (decl->type != AST_STRUCT_DEF && decl->type != AST_UNION_DEF) continue;
+                if (!decl->body.struct_def.name.data) continue;
+                StructDefEntry* se = calloc(1, sizeof(StructDefEntry));
+                se->name = decl->body.struct_def.name;
+                se->fields = decl->body.struct_def.fields;
+                se->is_union = (decl->type == AST_UNION_DEF);
+                se->next = sdefs; sdefs = se;
+            }
+
+            /* resolve TYPE_STRUCT with missing params */
+            for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+                if (decl->type == AST_VAR_DECL)
+                    resolve_struct_refs_type(decl->body.var_decl.var_type, sdefs);
+                else if (decl->type == AST_FUNC_DEF) {
+                    resolve_struct_refs_type(decl->body.func_def.ret_type, sdefs);
+                    for (AST_Node* p = decl->body.func_def.params;
+                         p && p->type == AST_PARAM_DECL; p = p->next)
+                        resolve_struct_refs_type(p->body.param_decl.param_type, sdefs);
+                } else if (decl->type == AST_TYPEDEF)
+                    resolve_struct_refs_type(decl->body.typedef_decl.aliased_type, sdefs);
+            }
+        }
+
+        /* resolve array sizes from enum constants */
+        for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+            if (decl->type == AST_VAR_DECL)
+                resolve_array_sizes(decl->body.var_decl.var_type, enum_vals);
+            else if (decl->type == AST_FUNC_DEF) {
+                resolve_array_sizes(decl->body.func_def.ret_type, enum_vals);
+                for (AST_Node* p = decl->body.func_def.params;
+                     p && p->type == AST_PARAM_DECL; p = p->next)
+                    resolve_array_sizes(p->body.param_decl.param_type, enum_vals);
+            }
+        }
+    }
+
+    /* enable struct type dedup cache — typedefs are now resolved,
+     * so subsequent ir_type_from_ast() calls get consistent IR_Type* */
+    ir_clear_struct_cache();
 
     /* first pass: collect global variables (both extern decls and definitions) */
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {

@@ -16,6 +16,32 @@ IR_Type *t_f32, *t_f64;
 
 static int singletons_inited = 0;
 
+/* named struct type cache — deduplicates IR_Type objects for the same struct.
+ * Disabled during pass 0 (pre-typedef-resolution) to avoid caching incomplete types. */
+#define MAX_STRUCT_CACHE 32
+static IR_Type* struct_cache[MAX_STRUCT_CACHE];
+static int n_struct_cache = 0;
+static int cache_enabled = 0;
+
+/* IR_Type → AST Type mapping for struct/union types.
+ * Used by AST_MEMBER handler to find field indices by name.
+ * Kept as a separate table (not a field in IR_Type) to avoid
+ * bootstrapping issues when the compiler compiles itself. */
+#define MAX_AST_MAP 64
+static IR_Type* ast_map_keys[MAX_AST_MAP];
+static Type*    ast_map_vals[MAX_AST_MAP];
+static int      n_ast_map = 0;
+
+static void register_struct_ast(IR_Type* ir, Type* ast)
+{
+    if (n_ast_map >= MAX_AST_MAP) return;
+    for (int i = 0; i < n_ast_map; i++)
+        if (ast_map_keys[i] == ir) return;
+    ast_map_keys[n_ast_map] = ir;
+    ast_map_vals[n_ast_map] = ast;
+    n_ast_map++;
+}
+
 static IR_Type*
 make_singleton(IR_TypeKind kind)
 {
@@ -79,6 +105,19 @@ ir_func_type(IR_Type* ret, IR_Type* params)
     return t;
 }
 
+/* clone a type for use in a linked list (params/members chain).
+ * shallow copy shares inner/members/name; only next is independent.
+ * prevents corrupting singletons like t_i32 when two members
+ * have the same type. */
+static IR_Type* clone_type_for_chain(IR_Type* src)
+{
+    if (!src) return NULL;
+    IR_Type* cp = calloc(1, sizeof(IR_Type));
+    memcpy(cp, src, sizeof(IR_Type));
+    cp->next = NULL;
+    return cp;
+}
+
 /* ---------------------------------------------------------------
  *  AST-to-IR type conversion
  * --------------------------------------------------------------- */
@@ -115,15 +154,40 @@ ast_to_ir_type(Type* ast)
 
         for (AST_Node* p = ast->params; p; p = p->next) {
             IR_Type* pt = ast_to_ir_type(p->body.param_decl.param_type);
-            *tail = pt;
-            tail = &pt->next;
+            *tail = clone_type_for_chain(pt);
+            tail = &(*tail)->next;
         }
         return ir_func_type(ret, params);
     }
 
     case TYPE_STRUCT:
     case TYPE_UNION:
-    { IR_Type* t = ir_type_new(IR_STRUCT); t->name = ast->name; return t; }
+    { /* dedup named structs: same Type* for the same tag name.
+       * Anonymous structs (no tag) are NOT cached — they get named
+       * at emission time by the module dumper. */
+      if (cache_enabled && ast->name.data) {
+          for (int i = 0; i < n_struct_cache; i++) {
+              IR_Type* sc = struct_cache[i];
+              if (sc->name.length == ast->name.length &&
+                  memcmp(sc->name.data, ast->name.data, ast->name.length) == 0)
+                  return sc;
+          }
+      }
+      IR_Type* t = ir_type_new(IR_STRUCT);
+      t->name = ast->name;
+      if (ast->params) {
+          IR_Type** tail = &t->members;
+          for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL; f = f->next) {
+              IR_Type* ft = ast_to_ir_type(f->body.var_decl.var_type);
+              if (!ft || ft->kind == IR_VOID) ft = t_i8;
+              *tail = clone_type_for_chain(ft);
+              tail = &(*tail)->next;
+          }
+      }
+      if (cache_enabled && t->name.data && n_struct_cache < MAX_STRUCT_CACHE)
+          struct_cache[n_struct_cache++] = t;
+      register_struct_ast(t, ast);
+      return t; }
     case TYPE_NAMED:
         if (ast->inner) return ast_to_ir_type(ast->inner);
         return t_i32;
@@ -137,6 +201,12 @@ ir_type_from_ast(Type* ast_type)
 {
     init_singletons();
     return ast_to_ir_type(ast_type);
+}
+
+void
+ir_clear_struct_cache(void)
+{
+    cache_enabled = 1;
 }
 
 /* ---------------------------------------------------------------
@@ -209,4 +279,38 @@ ir_type_name(IR_Type* t)
     case IR_FUNC:  return "func";
     default:       return "?";
     }
+}
+
+/* ---------------------------------------------------------------
+ *  Struct AST lookup — for field-name → index resolution
+ * --------------------------------------------------------------- */
+
+Type*
+ir_struct_ast_lookup(IR_Type* t)
+{
+    if (!t || t->kind != IR_STRUCT) return NULL;
+
+    /* named structs: double-check via tag name */
+    for (int i = 0; i < n_ast_map; i++)
+        if (ast_map_keys[i] == t)
+            return ast_map_vals[i];
+    return NULL;
+}
+
+int
+ir_struct_field_index(Type* ast_struct, String field_name)
+{
+    if (!ast_struct || (ast_struct->kind != TYPE_STRUCT &&
+                         ast_struct->kind != TYPE_UNION))
+        return -1;
+
+    int idx = 0;
+    for (AST_Node* f = ast_struct->params;
+         f && f->type == AST_VAR_DECL; f = f->next, idx++) {
+        if (f->body.var_decl.name.length == field_name.length &&
+            memcmp(f->body.var_decl.name.data,
+                   field_name.data, field_name.length) == 0)
+            return idx;
+    }
+    return -1;  /* not found */
 }

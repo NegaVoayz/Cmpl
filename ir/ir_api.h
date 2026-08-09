@@ -27,9 +27,12 @@ IR_Type*    ir_ptr_type(IR_Type* inner, int addrspace);
 IR_Type*    ir_array_type(IR_Type* elem, int size);
 IR_Type*    ir_func_type(IR_Type* ret, IR_Type* params);
 IR_Type*    ir_type_from_ast(Type* ast_type);
+void        ir_clear_struct_cache(void);
 int         ir_type_size(IR_Type* t);
 int         ir_type_eq(IR_Type* a, IR_Type* b);
 const char* ir_type_name(IR_Type* t);
+Type*       ir_struct_ast_lookup(IR_Type* t);
+int         ir_struct_field_index(Type* ast_struct, String field_name);
 
 /* --- Builder API (ir_builder.c) --- */
 

@@ -203,7 +203,71 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       return gen_binary_op(ctx, n->body.binary.op, l, r); }
 
     case AST_UNARY:
-    { IR_Value* op = gen_expr(ctx, n->body.unary.operand);
+    { /* address-of (&x): return the address pointer directly, no load */
+      if (n->body.unary.op == TOK_AMP) {
+          AST_Node* opnd = n->body.unary.operand;
+
+          if (opnd->type == AST_IDENT) {
+              IR_Value* ptr = sym_lookup(ctx, opnd->body.ident.name);
+              if (ptr) return ptr;
+              ptr = global_lookup(ctx->mod, opnd->body.ident.name);
+              if (ptr) return ptr;
+          }
+
+          /* &arr[i] → return GEP pointer, don't load */
+          if (opnd->type == AST_INDEX) {
+              IR_Value* arr = gen_expr(ctx,
+                  opnd->body.subscript.array);
+              IR_Value* idx = gen_expr(ctx,
+                  opnd->body.subscript.index);
+              return ir_build_gep(b, arr,
+                  ir_const_int(b, t_i32, 0), idx);
+          }
+
+          /* &ptr->field → return GEP pointer, don't load */
+          if (opnd->type == AST_MEMBER) {
+              TokenKind mop = opnd->body.member.op;
+              String mname = opnd->body.member.member;
+              IR_Value* struct_ptr = NULL;
+              IR_Type* struct_ty = NULL;
+
+              if (mop == TOK_ARROW) {
+                  struct_ptr = gen_expr(ctx,
+                      opnd->body.member.record);
+                  if (struct_ptr && struct_ptr->type &&
+                      struct_ptr->type->kind == IR_PTR)
+                      struct_ty = struct_ptr->type->inner;
+              } else {
+                  if (opnd->body.member.record->type == AST_IDENT) {
+                      struct_ptr = sym_lookup(ctx,
+                          opnd->body.member.record->body.ident.name);
+                      if (!struct_ptr)
+                          struct_ptr = global_lookup(ctx->mod,
+                              opnd->body.member.record->body.ident.name);
+                      if (struct_ptr && struct_ptr->type &&
+                          struct_ptr->type->kind == IR_PTR)
+                          struct_ty = struct_ptr->type->inner;
+                  }
+              }
+
+              if (struct_ty && struct_ty->kind == IR_STRUCT) {
+                  Type* ast = ir_struct_ast_lookup(struct_ty);
+                  int fi = ast ? ir_struct_field_index(ast, mname) : -1;
+                  if (fi >= 0) {
+                      return ir_build_gep(b, struct_ptr,
+                          ir_const_int(b, t_i32, 0),
+                          ir_const_int(b, t_i32, fi));
+                  }
+              }
+          }
+      }
+
+      IR_Value* op = gen_expr(ctx, n->body.unary.operand);
+      if (n->body.unary.op == TOK_AMP) {
+          /* non-lvalue operand: gen_expr gave us a value;
+           * address-of rvalue is invalid C, return the value as-is */
+          return op;
+      }
       if (n->body.unary.op == TOK_MINUS) {
           IR_Type* ty = op->type ? op->type : t_i32;
           if (ty->kind == IR_F32 || ty->kind == IR_F64) {
@@ -324,15 +388,103 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       return ir_build_load(b, gep); }
 
     case AST_MEMBER:
+    {
+        /* CUDA builtin check (device IR only) */
         if (ctx->is_device && n->body.member.record->type == AST_IDENT) {
-            String *rn = &n->body.member.record->body.ident.name, *mb = &n->body.member.member;
+            String *rn = &n->body.member.record->body.ident.name,
+                   *mb = &n->body.member.member;
             for (int i = 0; i < 12; i++)
                 if (match_str(cuda_builtins[i].name, rn) &&
                     match_str(cuda_builtins[i].member, mb))
                     { IR_Value* d = ir_const_int(b, t_i32, cuda_builtins[i].dim);
-                      return ir_build_call(b, cuda_builtins[i].fn, t_i32, (IR_Value*[]){d}, 1); }
+                      return ir_build_call(b, cuda_builtins[i].fn, t_i32,
+                                           (IR_Value*[]){d}, 1); }
         }
-        { IR_Value* v = calloc(1, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+
+        TokenKind op = n->body.member.op;
+        String mem_name = n->body.member.member;
+        IR_Value* struct_ptr = NULL;
+        IR_Type* struct_ty = NULL;
+        Type* ast_struct = NULL;
+
+        if (op == TOK_ARROW) {
+            /* -> : record is a pointer to struct/union */
+            IR_Value* record_val = gen_expr(ctx, n->body.member.record);
+            if (!record_val || !record_val->type ||
+                record_val->type->kind != IR_PTR) {
+                IR_Value* v = calloc(1, sizeof(IR_Value));
+                v->kind = VAL_UNDEF; v->type = t_i32; return v;
+            }
+            struct_ty = record_val->type->inner;
+            struct_ptr = record_val;
+        } else {
+            /* . : record is a struct/union lvalue or rvalue */
+            if (n->body.member.record->type == AST_IDENT) {
+                /* lvalue: use the alloca pointer directly for GEP */
+                struct_ptr = sym_lookup(ctx,
+                    n->body.member.record->body.ident.name);
+                if (!struct_ptr)
+                    struct_ptr = global_lookup(ctx->mod,
+                        n->body.member.record->body.ident.name);
+                if (struct_ptr) {
+                    struct_ty = struct_ptr->type;
+                    if (struct_ty && struct_ty->kind == IR_PTR)
+                        struct_ty = struct_ty->inner;
+                }
+            }
+
+            if (!struct_ptr) {
+                /* rvalue: eval, store to temp alloca, GEP from there */
+                IR_Value* record_val = gen_expr(ctx,
+                    n->body.member.record);
+                if (!record_val || !record_val->type ||
+                    record_val->type->kind != IR_STRUCT) {
+                    IR_Value* v = calloc(1, sizeof(IR_Value));
+                    v->kind = VAL_UNDEF; v->type = t_i32; return v;
+                }
+                struct_ty = record_val->type;
+                struct_ptr = ir_build_alloca(b, struct_ty);
+                ir_build_store(b, record_val, struct_ptr);
+            }
+        }
+
+        if (!struct_ty || struct_ty->kind != IR_STRUCT) {
+            IR_Value* v = calloc(1, sizeof(IR_Value));
+            v->kind = VAL_UNDEF; v->type = t_i32; return v;
+        }
+
+        ast_struct = ir_struct_ast_lookup(struct_ty);
+
+        int field_idx = -1;
+        if (ast_struct)
+            field_idx = ir_struct_field_index(ast_struct, mem_name);
+
+        if (field_idx < 0) {
+            IR_Value* v = calloc(1, sizeof(IR_Value));
+            v->kind = VAL_UNDEF; v->type = t_i32; return v;
+        }
+
+        /* compute field type */
+        IR_Type* field_ty = t_i32;
+        { int fi = 0;
+          for (IR_Type* m = struct_ty->members; m; m = m->next, fi++)
+              if (fi == field_idx) { field_ty = m; break; } }
+
+        if (ast_struct && ast_struct->kind == TYPE_UNION) {
+            /* union: all fields at offset 0 — bitcast pointer, then load */
+            IR_Value* cast_ptr = ir_build_bitcast(b, struct_ptr,
+                ir_ptr_type(field_ty, struct_ptr->type ?
+                    struct_ptr->type->addrspace : 0));
+            return ir_build_load(b, cast_ptr);
+        }
+
+        /* struct: GEP to field, then load */
+        IR_Value* gep = ir_build_gep(b, struct_ptr,
+            ir_const_int(b, t_i32, 0),
+            ir_const_int(b, t_i32, field_idx));
+        gep->type = ir_ptr_type(field_ty, 0);
+        return ir_build_load(b, gep);
+    }
 
     case AST_SIZEOF_TYPE:
     { IR_Type* t = ir_type_from_ast(n->body.sizeof_type.type_expr);

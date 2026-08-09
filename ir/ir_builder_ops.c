@@ -155,6 +155,12 @@ ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
     if (!ptr_ty || !ptr_ty->inner || ptr_ty->inner->kind == IR_VOID)
         ptr_ty = ir_ptr_type(t_i8, 0);
 
+    /* coerce index operands to integer type (LLVM requires integer indices) */
+    if (idx0 && idx0->type && idx0->type->kind == IR_PTR)
+        idx0 = ir_build_bitcast(b, idx0, t_i64);
+    if (idx1 && idx1->type && idx1->type->kind == IR_PTR)
+        idx1 = ir_build_bitcast(b, idx1, t_i64);
+
     IR_Instr* inst = make_instr(b, IROP_GEP, ptr_ty);
     inst->operands[0] = ptr;
     inst->operands[1] = idx0;
