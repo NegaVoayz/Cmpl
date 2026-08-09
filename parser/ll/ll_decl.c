@@ -138,6 +138,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
         vd->body.var_decl.var_type = full;
         vd->body.var_decl.name = dname;
         vd->body.var_decl.addr_space = addr_space;
+        vd->body.var_decl.linkage = linkage;
         vd->body.var_decl.init = NULL;
 
         if (p->tok->kind == TOK_EQ) {
@@ -190,6 +191,8 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
     while (p->tok->kind == TOK_TYPEDEF || p->tok->kind == TOK_STATIC ||
            p->tok->kind == TOK_EXTERN  || p->tok->kind == TOK_REGISTER) {
         if (p->tok->kind == TOK_TYPEDEF) is_typedef = 1;
+        if (p->tok->kind == TOK_STATIC) linkage = 4;   /* LINK_STATIC */
+        if (p->tok->kind == TOK_EXTERN) linkage = 5;   /* LINK_EXTERN */
         p->tok = p->tok->next;
     }
 

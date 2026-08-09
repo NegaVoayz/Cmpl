@@ -108,7 +108,7 @@ struct AST_Node {
         struct { AST_Node* expr; } expr_stmt;
 
         /* variable declaration */
-        struct { Type* var_type; String name; AST_Node* init; int addr_space; } var_decl;
+        struct { Type* var_type; String name; AST_Node* init; int addr_space; int linkage; } var_decl;
 
         /* function definition */
         struct {

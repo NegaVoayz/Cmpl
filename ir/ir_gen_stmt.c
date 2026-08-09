@@ -191,11 +191,20 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
     case AST_VAR_DECL:
     { IR_Type* vt = ir_type_from_ast(n->body.var_decl.var_type);
       if (!vt || vt->kind == IR_VOID) vt = t_i8;
+      /* evaluate init before creating alloca — init type may reveal
+       * that an unresolved typedef is actually a fn ptr */
+      IR_Value* init = NULL;
+      if (n->body.var_decl.init)
+          init = gen_expr(ctx, n->body.var_decl.init);
+      if (init && vt == t_i32 &&
+          n->body.var_decl.var_type &&
+          n->body.var_decl.var_type->kind == TYPE_NAMED &&
+          !n->body.var_decl.var_type->inner &&
+          init->type && init->type->kind == IR_PTR)
+          vt = ir_ptr_type(t_i8, 0);
       IR_Value* al = ir_build_alloca(b, vt);
       sym_add(ctx, n->body.var_decl.name, al);
-      if (n->body.var_decl.init) {
-          IR_Value* init = gen_expr(ctx, n->body.var_decl.init);
-          if (init) ir_build_store(b, init, al); }
+      if (init) ir_build_store(b, init, al);
       break; }
     case AST_SWITCH: gen_stmt(ctx, n->body.switch_stmt.body); break;
     case AST_CASE: case AST_DEFAULT: gen_stmt(ctx, n->body.case_stmt.stmt); break;

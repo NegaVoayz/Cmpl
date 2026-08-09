@@ -67,18 +67,19 @@ dump_func(FILE* out, IR_Func* func)
         #undef MAX_SEEN
     }
 
-    /* linkage / define */
+    /* define / declare */
+    if (func->blocks)
+        fprintf(out, "define ");
+    else
+        fprintf(out, "declare ");
+
+    /* linkage qualifier (after define/declare) */
     switch (func->linkage) {
     case LINK_INTERNAL: fprintf(out, "internal "); break;
     case LINK_DEVICE:   fprintf(out, "spir_func "); break;
     case LINK_KERNEL:   fprintf(out, "spir_kernel "); break;
     default: break;
     }
-
-    if (func->blocks)
-        fprintf(out, "define ");
-    else
-        fprintf(out, "declare ");
 
     /* return type */
     dump_type(out, func->ret_type);
@@ -128,10 +129,19 @@ ir_dump_module(IR_Module* mod, FILE* out)
     for (IR_Value* gv = mod->globals; gv; gv = gv->next) {
         if (gv->body.init_val) {
             /* definition */
-            fprintf(out, "@%.*s = global ", gv->name.length, gv->name.data);
+            fprintf(out, "@%.*s = ", gv->name.length, gv->name.data);
+            if (gv->linkage == 0) fprintf(out, "internal ");  /* static */
+            fprintf(out, "global ");
             dump_type(out, gv->type);
             fprintf(out, " ");
-            dump_value(out, gv->body.init_val);
+            /* use zeroinitializer for array/struct types with zero init */
+            if (gv->type && (gv->type->kind == IR_ARRAY || gv->type->kind == IR_STRUCT) &&
+                gv->body.init_val->kind == VAL_CONST_INT &&
+                gv->body.init_val->body.int_val == 0) {
+                fprintf(out, "zeroinitializer");
+            } else {
+                dump_value(out, gv->body.init_val);
+            }
             fprintf(out, "\n");
         } else {
             /* extern declaration */

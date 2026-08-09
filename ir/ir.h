@@ -69,6 +69,7 @@ struct IR_Value {
         String     str_val;
         IR_Value*  init_val;  /* global initializer */
     } body;
+    int          linkage;    /* for globals: 0=internal(static), 1=external */
 };
 
 /* ---------------------------------------------------------------

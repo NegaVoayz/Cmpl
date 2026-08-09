@@ -117,8 +117,9 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs
 
     /* map AST linkage to IR_Linkage */
     switch (fd->body.func_def.linkage) {
-    case 2: func->linkage = LINK_KERNEL;  break;  /* LINK_GLOBAL */
-    case 1: func->linkage = LINK_DEVICE;  break;  /* LINK_DEVICE */
+    case 2: func->linkage = LINK_KERNEL;   break;  /* LINK_GLOBAL */
+    case 1: func->linkage = LINK_DEVICE;   break;  /* LINK_DEVICE */
+    case 4: func->linkage = LINK_INTERNAL; break;  /* static */
     default: func->linkage = LINK_EXTERNAL; break; /* host */
     }
 
@@ -148,6 +149,14 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, FuncSig* sigs
         int i = 0;
         for (AST_Node* p = fd->body.func_def.params; p; p = p->next, i++) {
             IR_Type* pty = ir_type_from_ast(p->body.param_decl.param_type);
+            /* if resolved type is i32 but AST type is a named typedef
+             * (e.g. unresolved typedef for function pointer or struct),
+             * default to ptr — typedefs aren't resolved at parse time. */
+            if (pty && pty->kind == IR_I32) {
+                Type* ast = p->body.param_decl.param_type;
+                if (ast && ast->kind == TYPE_NAMED)
+                    pty = ir_ptr_type(t_i8, 0);
+            }
             func->params[i]->type = pty ? pty : t_i32;
 
             IR_Value* alloca = ir_build_alloca(b, func->params[i]->type);
@@ -242,8 +251,10 @@ ir_gen_module_ex(AST_Node* root, int is_device)
                 if (memcmp(g->name.data, decl->body.var_decl.name.data,
                            g->name.length) != 0) continue;
                 dup = 1;
-                /* upgrade extern → definition if init now available */
-                if (!g->body.init_val && decl->body.var_decl.init) {
+                /* upgrade extern → definition if init available
+                 * or tentative definition (linkage==0, no extern keyword) */
+                if (!g->body.init_val &&
+                    (decl->body.var_decl.init || decl->body.var_decl.linkage == 0)) {
                     IR_Value* init = calloc(1, sizeof(IR_Value));
                     if (g->type->kind == IR_PTR) {
                         init->kind = VAL_CONST_NULL;
@@ -263,8 +274,32 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         gv->name = decl->body.var_decl.name;
         gv->type = ir_type_from_ast(decl->body.var_decl.var_type);
 
+        /* fix up: if the IR type is an array-of-i32 but the AST element
+         * type is a named typedef (likely fn ptr), use ptr elements */
+        if (gv->type && gv->type->kind == IR_ARRAY) {
+            Type* ast = decl->body.var_decl.var_type;
+            Type* inner = ast;
+            int depth = 0;
+            while (inner && inner->kind == TYPE_ARRAY) {
+                depth++;
+                inner = inner->inner;
+            }
+            if (inner && inner->kind == TYPE_NAMED && !inner->inner) {
+                /* typedef not resolved — assume pointer-sized element,
+                 * rebuild the array type chain with ptr as leaf */
+                IR_Type* leaf = ir_ptr_type(t_i8, 0);
+                IR_Type* arr = leaf;
+                for (int d = 0; d < depth; d++)
+                    arr = ir_array_type(arr, 0);
+                gv->type = arr;
+            }
+        }
+
         if (!gv->type || gv->type->kind == IR_VOID)
             gv->type = t_i8;
+
+        /* set linkage for global: 0=internal(static), 1=external */
+        gv->linkage = (decl->body.var_decl.linkage == 4) ? 0 : 1;
 
         if (decl->body.var_decl.init) {
             IR_Value* init = calloc(1, sizeof(IR_Value));
@@ -275,8 +310,18 @@ ir_gen_module_ex(AST_Node* root, int is_device)
             }
             init->type = gv->type;
             gv->body.init_val = init;
+        } else if (decl->body.var_decl.linkage != 5) {
+            /* not extern: tentative definition or static → zero-initialize */
+            IR_Value* init = calloc(1, sizeof(IR_Value));
+            if (gv->type->kind == IR_PTR) {
+                init->kind = VAL_CONST_NULL;
+            } else {
+                init->kind = VAL_CONST_INT;
+            }
+            init->type = gv->type;
+            gv->body.init_val = init;
         }
-        /* else: init_val stays NULL → emitted as external */
+        /* else: extern decl → init_val stays NULL → emitted as external */
 
         gv->next = mod->globals;
         mod->globals = gv;

@@ -236,9 +236,13 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     case AST_CALL:
     { int n_args = 0; IR_Value* arg_buf[16]; String cn = {0,0};
       IR_Value* fn_ptr = NULL;
-      if (n->body.call.callee->type == AST_IDENT)
+      if (n->body.call.callee->type == AST_IDENT) {
           cn = n->body.call.callee->body.ident.name;
-      else
+          /* if name resolves to a local (e.g. function pointer param),
+           * use indirect call; otherwise direct call by name */
+          IR_Value* local = sym_lookup(ctx, cn);
+          if (local) fn_ptr = ir_build_load(b, local);
+      } else
           fn_ptr = gen_expr(ctx, n->body.call.callee);
       for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next)
           arg_buf[n_args++] = gen_expr(ctx, a);
@@ -307,7 +311,17 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     case AST_INDEX:
     { IR_Value* arr = gen_expr(ctx, n->body.subscript.array);
       IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
-      return ir_build_load(b, ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx)); }
+      /* detect if base is a pointer to an array (outer dim of 2D array).
+       * In that case, GEP + decay but don't load — let outer index load. */
+      int base_is_array = (arr && arr->type && arr->type->kind == IR_PTR &&
+                           arr->type->inner &&
+                           arr->type->inner->kind == IR_ARRAY);
+      IR_Value* gep = ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
+      if (base_is_array) {
+          return ir_build_gep(b, gep, ir_const_int(b, t_i32, 0),
+                              ir_const_int(b, t_i32, 0));
+      }
+      return ir_build_load(b, gep); }
 
     case AST_MEMBER:
         if (ctx->is_device && n->body.member.record->type == AST_IDENT) {
