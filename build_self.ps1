@@ -2,11 +2,9 @@ $ErrorActionPreference = "Continue"
 $env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
 Set-Location "D:\MyCodes\C\Cmpl"
 
-# Rebuild cmpl.exe with all fixes
-Write-Host "=== Rebuilding cmpl.exe ==="
-Push-Location build
-cmake --build . --target cmpl 2>&1 | Select-Object -Last 5
-Pop-Location
+# Use build2 which has a working cache (build/ was corrupted)
+$CMPL = ".\build2\cmpl.exe"
+Write-Host "Using: $CMPL"
 
 # All source files that need to be compiled
 $sources = @(
@@ -54,7 +52,7 @@ foreach ($src in $sources) {
     $objFiles += $objFile
 
     Write-Host "  $src -> $llFile"
-    $result = & ./build/cmpl.exe -emit-llvm -I./include -o $llFile $src 2>&1
+    $result = & $CMPL -emit-llvm -I./include -I./base -I. -o $llFile $src 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "    FAIL (cmpl): $src"
         Write-Host $result
@@ -73,7 +71,7 @@ foreach ($src in $sources) {
 
 # Also compile crt_shim.c
 Write-Host "  crt_shim.c"
-& ./build/cmpl.exe -emit-llvm -I./include -o build/self/crt_shim.ll build/self_new/crt_shim.c 2>&1 | Out-Null
+& $CMPL -emit-llvm -I./include -I./base -I. -o build/self/crt_shim.ll build/self_new/crt_shim.c 2>&1 | Out-Null
 & clang -c -o build/self/crt_shim.o build/self/crt_shim.ll 2>&1 | Out-Null
 $objFiles += "build/self/crt_shim.o"
 
@@ -95,7 +93,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "SUCCESS: cmpl_self.exe built!"
     Write-Host ""
     Write-Host "=== Step 3: Test cmpl_self.exe ==="
-    & ./build/self/cmpl_self.exe -emit-llvm -I./include -o build/self/test_self.ll test/test.c 2>&1
+    & ./build/self/cmpl_self.exe -emit-llvm -I./include -I./base -I. -o build/self/test_self.ll test/test.c 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host "SELF-COMPILATION WORKS!"
     } else {

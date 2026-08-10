@@ -42,18 +42,22 @@ collect_blocks(IR_Func* fn, BlkInfo* bi, int cap)
  * tree. Uses a marker array to avoid depending on block index ordering. */
 static int meet(BlkInfo* bi, int a, int b, int* mark, int stamp)
 {
+    int steps = 0;
     /* walk up from a, stamping each node on the path.
      * stop at root where idom points to itself (bi[0].idom == 0). */
-    while (a != -1) {
+    while (a != -1 && steps < 10000) {
         mark[a] = stamp;
         if (bi[a].idom == a) break;  /* reached root */
         a = bi[a].idom;
+        steps++;
     }
     /* walk up from b, return first stamped node */
-    while (b != -1) {
+    steps = 0;
+    while (b != -1 && steps < 10000) {
         if (mark[b] == stamp) return b;
         if (bi[b].idom == b) break;  /* reached root */
         b = bi[b].idom;
+        steps++;
     }
     return 0;
 }
