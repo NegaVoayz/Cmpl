@@ -45,7 +45,7 @@ dump_func(FILE* out, IR_Func* func)
 
         for (IR_Block* blk = func->blocks; blk; blk = blk->next) {
             for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
-                if (inst->result && inst->result->kind == VAL_INSTR)
+                if (inst->result)
                     inst->result->id = next_id;
                 next_id++;
             }

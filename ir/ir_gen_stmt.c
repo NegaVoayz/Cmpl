@@ -77,6 +77,7 @@ static void gen_stmt_if(GenCtx* ctx, AST_Node* n)
     link_blocks(b->cur_func, tb);
     if (eb) { tb->next = eb; eb->next = mb; }
     else tb->next = mb;
+    b->cur_func->last_block = mb;
 
     ir_build_cond_br(b, cond, tb, eb ? eb : mb);
     ir_builder_set_block(b, tb);
@@ -98,6 +99,7 @@ static void gen_stmt_while(GenCtx* ctx, AST_Node* n)
     IR_Block *mb = ir_builder_new_block(b, "while.end");
 
     link_blocks(b->cur_func, cb); cb->next = bb; bb->next = mb;
+    b->cur_func->last_block = mb;
     ir_build_br(b, cb);
     ir_builder_set_block(b, cb);
     ir_build_cond_br(b, coerce_to_i1(b, gen_expr(ctx, n->body.loop.condition)), bb, mb);
@@ -120,6 +122,7 @@ static void gen_stmt_for(GenCtx* ctx, AST_Node* n)
     IR_Block *ub = ir_builder_new_block(b, "for.update"), *mb = ir_builder_new_block(b, "for.end");
 
     link_blocks(b->cur_func, cb); cb->next = bb; bb->next = ub; ub->next = mb;
+    b->cur_func->last_block = mb;
     ir_build_br(b, cb);
     ir_builder_set_block(b, cb);
     { IR_Value* c = coerce_to_i1(b, gen_expr(ctx, n->body.for_stmt.condition));

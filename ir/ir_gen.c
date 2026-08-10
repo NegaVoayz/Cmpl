@@ -309,6 +309,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     /* create entry block first */
     IR_Block* entry = ir_builder_new_block(b, "entry");
     func->blocks = entry;
+    func->last_block = entry;
     ir_builder_set_block(b, entry);
 
     /* emit allocas and stores for params */

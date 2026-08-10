@@ -38,9 +38,29 @@ collect_blocks(IR_Func* fn, BlkInfo* bi, int cap)
  *  Dominators (iterative algorithm)
  * --------------------------------------------------------------- */
 
+/* meet(a, b): find lowest common ancestor of a and b in the dominator
+ * tree. Uses a marker array to avoid depending on block index ordering. */
+static int meet(BlkInfo* bi, int a, int b, int* mark, int stamp)
+{
+    /* walk up from a, stamping each node on the path */
+    while (a != -1) {
+        mark[a] = stamp;
+        a = bi[a].idom;
+    }
+    /* walk up from b, return first stamped node */
+    while (b != -1) {
+        if (mark[b] == stamp) return b;
+        b = bi[b].idom;
+    }
+    return 0;
+}
+
 void
 compute_doms(BlkInfo* bi, int n)
 {
+    int mark[MAX_BLK] = {0};
+    int stamp = 1;
+
     bi[0].idom = 0;
     for (int i = 1; i < n; i++) bi[i].idom = -1;
 
@@ -50,19 +70,19 @@ compute_doms(BlkInfo* bi, int n)
         for (int i = 1; i < n; i++) {
             if (!bi[i].n_preds) continue;
 
+            /* find first predecessor with known idom */
             int nd = -1;
             for (int p = 0; p < bi[i].n_preds; p++)
                 if (bi[bi[i].preds[p]].idom != -1)
                     { nd = bi[i].preds[p]; break; }
+            if (nd == -1) continue;
 
+            /* intersect with remaining predecessors */
             for (int p = 0; p < bi[i].n_preds; p++) {
-                int a = nd, b = bi[i].preds[p];
+                int b = bi[i].preds[p];
                 if (bi[b].idom == -1) continue;
-                while (a != b) {
-                    while (a > b) a = bi[a].idom;
-                    while (b > a) b = bi[b].idom;
-                }
-                nd = a;
+                nd = meet(bi, nd, b, mark, stamp);
+                stamp++;
             }
             if (nd != bi[i].idom) { bi[i].idom = nd; changed = 1; }
         }
@@ -82,10 +102,11 @@ compute_df(BlkInfo* bi, int n)
     for (int i = 0; i < n; i++) bi[i].n_df = 0;
 
     for (int b = 0; b < n; b++) {
-        if (bi[b].n_preds < 2) continue;  /* only join points matter */
+        /* unreachable blocks have idom==-1; skip them */
+        if (bi[b].n_preds < 2 || bi[b].idom == -1) continue;
         for (int pi = 0; pi < bi[b].n_preds; pi++) {
             int runner = bi[b].preds[pi];
-            while (runner != bi[b].idom) {
+            while (runner != bi[b].idom && runner != -1) {
                 if (bi[runner].n_df < 32)
                     bi[runner].df[bi[runner].n_df++] = b;
                 runner = bi[runner].idom;
