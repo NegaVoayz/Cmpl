@@ -73,32 +73,38 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
             lhs->type && lhs->type->kind != IR_PTR &&
             rhs->type && rhs->type->kind == IR_PTR) {
             IR_Value* ri = ir_build_bitcast(b, rhs, lhs->type);
-            return ir_build_sub(b, lhs, ri);
+            return (op == TOK_PLUS) ? ir_build_add(b, lhs, ri)
+                                    : ir_build_sub(b, lhs, ri);
         }
     }
 
     /* fixup: for comparisons, ptr vs int-0 → use null */
-    if (op == TOK_EQEQ || op == TOK_BANGEQ || op == TOK_LT ||
-        op == TOK_GT || op == TOK_LTEQ || op == TOK_GTEQ) {
-        if (lhs && rhs && lhs->type && lhs->type->kind == IR_PTR &&
-            rhs->kind == VAL_CONST_INT && rhs->body.int_val == 0) {
-            IR_Value* nv = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-            nv->kind = VAL_CONST_NULL; nv->type = lhs->type; rhs = nv;
+    {
+        int is_cmp = (op == TOK_EQEQ || op == TOK_BANGEQ || op == TOK_LT ||
+                      op == TOK_GT || op == TOK_LTEQ || op == TOK_GTEQ);
+
+        if (is_cmp) {
+            if (lhs && rhs && lhs->type && lhs->type->kind == IR_PTR &&
+                rhs->kind == VAL_CONST_INT && rhs->body.int_val == 0) {
+                IR_Value* nv = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+                nv->kind = VAL_CONST_NULL; nv->type = lhs->type; rhs = nv;
+            }
+            if (lhs && rhs && rhs->type && rhs->type->kind == IR_PTR &&
+                lhs->kind == VAL_CONST_INT && lhs->body.int_val == 0) {
+                IR_Value* nv = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+                nv->kind = VAL_CONST_NULL; nv->type = rhs->type; lhs = nv;
+            }
+            /* ptr vs non-zero int: convert int to ptr via inttoptr */
+            if (lhs && rhs && lhs->type && lhs->type->kind == IR_PTR &&
+                rhs->kind == VAL_CONST_INT && rhs->body.int_val != 0) {
+                rhs = ir_build_bitcast(b, rhs, lhs->type);
+            }
+            if (lhs && rhs && rhs->type && rhs->type->kind == IR_PTR &&
+                lhs->kind == VAL_CONST_INT && lhs->body.int_val != 0) {
+                lhs = ir_build_bitcast(b, lhs, rhs->type);
+            }
         }
-        if (lhs && rhs && rhs->type && rhs->type->kind == IR_PTR &&
-            lhs->kind == VAL_CONST_INT && lhs->body.int_val == 0) {
-            IR_Value* nv = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-            nv->kind = VAL_CONST_NULL; nv->type = rhs->type; lhs = nv;
-        }
-        /* ptr vs non-zero int: convert int to ptr via inttoptr */
-        if (lhs && rhs && lhs->type && lhs->type->kind == IR_PTR &&
-            rhs->kind == VAL_CONST_INT && rhs->body.int_val != 0) {
-            rhs = ir_build_bitcast(b, rhs, lhs->type);
-        }
-        if (lhs && rhs && rhs->type && rhs->type->kind == IR_PTR &&
-            lhs->kind == VAL_CONST_INT && lhs->body.int_val != 0) {
-            lhs = ir_build_bitcast(b, lhs, rhs->type);
-        }
+
         /* type mismatch: coerce VAL_UNDEF to match the other operand's type */
         if (lhs && rhs && lhs->kind == VAL_UNDEF && rhs->kind != VAL_UNDEF &&
             rhs->type && lhs->type && lhs->type->kind != rhs->type->kind) {
@@ -108,17 +114,22 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
             lhs->type && rhs->type && rhs->type->kind != lhs->type->kind) {
             rhs->type = lhs->type;
         }
-        /* general type mismatch: coerce both operands to compatible types */
+
+        /* general type mismatch: coerce both operands to compatible types.
+         * for non-comparison ops, restrict to integer widening only. */
         if (lhs && rhs && lhs->type && rhs->type &&
             lhs->type->kind != rhs->type->kind) {
             int lp = (lhs->type->kind == IR_PTR);
             int rp = (rhs->type->kind == IR_PTR);
-            if (lp && !rp)
+
+            if (lp && rp) {
+                /* ptr vs ptr — only for comparisons */;
+            } else if (lp && !rp && is_cmp)
                 rhs = ir_build_bitcast(b, rhs, lhs->type);
-            else if (!lp && rp)
+            else if (!lp && rp && is_cmp)
                 lhs = ir_build_bitcast(b, lhs, rhs->type);
             else if (!lp && !rp) {
-                /* both are integers of different sizes */
+                /* both are integers of different sizes — widen smaller */
                 if (ir_type_size(lhs->type) < ir_type_size(rhs->type))
                     lhs = ir_build_zext(b, lhs, rhs->type);
                 else
@@ -291,7 +302,36 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
           }
       }
 	      if (n->body.unary.op == TOK_STAR) {
-	          /* dereference: *ptr → load from the pointer to get pointee */
+	          /* dereference: *ptr → load from the pointer to get pointee.
+	           * if the operand is a cast to a non-pointer type
+	           * (e.g. *(unsigned char)p from "(unsigned char)*p"),
+	           * swap the order: dereference first, then cast. */
+	          AST_Node* operand = n->body.unary.operand;
+
+	          if (operand && operand->type == AST_CAST &&
+	              operand->body.cast.type_expr &&
+	              operand->body.cast.type_expr->kind != TYPE_PTR) {
+	              /* evaluate the inner pointer, dereference, then cast */
+	              IR_Value* ptr_val = gen_expr(ctx,
+	                  operand->body.cast.cast_expr);
+	              IR_Value* deref = ir_build_load(b, ptr_val);
+	              IR_Type* target = ir_type_from_ast(b->arena,
+	                  operand->body.cast.type_expr);
+	              if (target && deref->type &&
+	                  !ir_type_eq(deref->type, target)) {
+	                  if (deref->type->kind == IR_PTR ||
+	                      target->kind == IR_PTR)
+	                      return ir_build_bitcast(b, deref, target);
+	                  if (ir_type_size(deref->type) <
+	                      ir_type_size(target))
+	                      return ir_build_zext(b, deref, target);
+	                  if (ir_type_size(deref->type) >
+	                      ir_type_size(target))
+	                      return ir_build_trunc(b, deref, target);
+	                  return ir_build_bitcast(b, deref, target);
+	              }
+	              return deref;
+	          }
 	          return ir_build_load(b, op);
 	      }
       return op; }
@@ -366,7 +406,24 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       }
       return ir_build_select(b, c, t, e); }
 
-    case AST_CAST: return gen_expr(ctx, n->body.cast.cast_expr);
+    case AST_CAST:
+    { IR_Value* cv = gen_expr(ctx, n->body.cast.cast_expr);
+      if (!cv) return NULL;
+      IR_Type* target = ir_type_from_ast(b->arena, n->body.cast.type_expr);
+      if (!target || !cv->type) return cv;
+      /* already matching types — nothing to do */
+      if (ir_type_eq(cv->type, target)) return cv;
+      /* int ↔ ptr: use bitcast */
+      if (cv->type->kind == IR_PTR || target->kind == IR_PTR)
+          return ir_build_bitcast(b, cv, target);
+      /* int widening: zext (unsigned) or sext (signed) */
+      if (ir_type_size(cv->type) < ir_type_size(target))
+          return ir_build_zext(b, cv, target);
+      /* int narrowing: trunc */
+      if (ir_type_size(cv->type) > ir_type_size(target))
+          return ir_build_trunc(b, cv, target);
+      /* same-size int conversion, or struct→struct: bitcast */
+      return ir_build_bitcast(b, cv, target); }
     case AST_COMPOUND_LIT:
         { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
           v->kind = VAL_UNDEF; v->type = t_i32; return v; }

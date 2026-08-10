@@ -198,6 +198,7 @@ typedef struct {
     IR_Module*   module;
     IR_Func*     cur_func;
     IR_Block*    cur_block;
+    IR_Block*    entry_block;  /* function entry block for alloca placement */
     int          next_vreg_id;
     int          next_label_id;
     Arena*       arena;        /* allocator for all IR objects */

@@ -134,6 +134,7 @@ struct LR1_Parser {
     int        allow_unmatched_rparen;  /* for for-loop update expr terminated by ')' */
     int        stop_at_comma;           /* treat comma as expression terminator */
     int        pending_cast;            /* cast prefix was detected; wrap result */
+    Type*      cast_type;              /* parsed cast target type */
     SourceLoc  cast_loc;               /* location of the cast for AST_CAST node */
     Arena*     arena;                  /* arena for AST node allocations */
 };

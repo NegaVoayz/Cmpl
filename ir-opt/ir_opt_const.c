@@ -12,7 +12,7 @@
 static IR_Value*
 fold_binary(IR_Opcode op, IR_Value* lhs, IR_Value* rhs, IR_Type* ty)
 {
-    if (!lhs || !rhs) return NULL;
+    if (!lhs || !rhs || !ty) return NULL;
     if (lhs->kind != VAL_CONST_INT || rhs->kind != VAL_CONST_INT)
         return NULL;
 
@@ -106,16 +106,22 @@ fold_func(IR_Func* fn)
             {
                 IR_Value* v0 = inst->operands[0];
                 IR_Value* v1 = inst->operands[1];
+                if (!v0 || !v1) break;
 
-                /* try identity first */
+                /* try identity first (returns existing operand, no alloc) */
                 IR_Value* s = simplify(inst->opcode, v0, v1);
-                if (!s) s = fold_binary(inst->opcode, v0, v1, inst->type);
+                int from_fold = 0;
+                if (!s) { s = fold_binary(inst->opcode, v0, v1, inst->type);
+                          from_fold = 1; }
                 if (!s) break;
 
                 /* replace instruction result with folded constant */
+                if (!inst->result) break;
                 inst->result->kind = s->kind;
                 inst->result->body = s->body;
-                free(s);
+                /* fold_binary allocates with calloc — must free.
+                 * simplify returns an existing operand — never free. */
+                if (from_fold) free(s);
                 changed = 1;
                 break;
             }

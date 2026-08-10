@@ -212,8 +212,8 @@ static void resolve_ast_node(AST_Node* n, TypedefEntry* table)
         for (AST_Node* p = n->body.func_def.params;
              p && p->type == AST_PARAM_DECL; p = p->next)
             resolve_type_tree(p->body.param_decl.param_type, table);
-        /* body resolution not needed for self-hosting —
-         * top-level types are resolved, IR gen handles local types */
+        if (n->body.func_def.body)
+            resolve_ast_node(n->body.func_def.body, table);
         break;
     case AST_BLOCK:
     { AST_Node* vb[MAX_VISITED]; int nv = 0;
@@ -310,6 +310,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     IR_Block* entry = ir_builder_new_block(b, "entry");
     func->blocks = entry;
     func->last_block = entry;
+    b->entry_block = entry;
     ir_builder_set_block(b, entry);
 
     /* emit allocas and stores for params */
@@ -395,18 +396,6 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     mod->target_triple = is_device ? "spir64-unknown-unknown"
                                    : "x86_64-unknown-linux-gnu";
     mod->data_layout = "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024";
-
-    /* pass 0: collect function signatures for call return type lookup */
-    HashMap sig_map;
-
-    hashmap_init(&sig_map, a, 64);
-    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
-        if (decl->type != AST_FUNC_DEF) continue;
-
-        IR_Type* rt = ir_type_from_ast(a, decl->body.func_def.ret_type);
-        hashmap_put(&sig_map, decl->body.func_def.name,
-                    rt ? rt : t_void);
-    }
 
     /* pass 0.5: collect typedefs + enum constants, resolve throughout AST */
     {
@@ -504,6 +493,19 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     /* enable struct type dedup cache — typedefs are now resolved,
      * so subsequent ir_type_from_ast() calls get consistent IR_Type* */
     ir_clear_struct_cache();
+
+    /* collect function signatures for call return type lookup.
+     * MUST run after typedef resolution so struct return types resolve. */
+    HashMap sig_map;
+
+    hashmap_init(&sig_map, a, 64);
+    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+        if (decl->type != AST_FUNC_DEF) continue;
+
+        IR_Type* rt = ir_type_from_ast(a, decl->body.func_def.ret_type);
+        hashmap_put(&sig_map, decl->body.func_def.name,
+                    rt ? rt : t_void);
+    }
 
     /* first pass: collect global variables (both extern decls and definitions) */
     {

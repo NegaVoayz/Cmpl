@@ -23,6 +23,7 @@ ir_builder_new(IR_Module* mod, Arena* a)
     b->module = mod;
     b->next_vreg_id = 0;
     b->next_label_id = 0;
+    b->entry_block = NULL;
     b->arena = a;
     return b;
 }
@@ -136,7 +137,43 @@ IR_Value*
 ir_build_alloca(IR_Builder* b, IR_Type* ty)
 {
     IR_Instr* inst = make_instr(b, IROP_ALLOCA, ir_ptr_type(b->arena, ty, 0));
-    append_instr(b, inst);
+
+    /* LLVM convention: allocas must live in the entry block so they
+     * dominate all uses.  If we are generating code inside a branch or
+     * loop body, redirect the alloca to the entry block, inserting it
+     * just before the terminator (if one exists). */
+    if (b->entry_block && b->cur_block != b->entry_block) {
+        IR_Block* entry = b->entry_block;
+        IR_Instr* term = entry->last;
+
+        /* find the last non-terminator instruction in the entry block */
+        if (term && (term->opcode == IROP_BR || term->opcode == IROP_COND_BR ||
+                     term->opcode == IROP_RET || term->opcode == IROP_UNREACHABLE)) {
+            IR_Instr* prev = NULL;
+
+            for (IR_Instr* i = entry->first; i && i != term; i = i->next)
+                prev = i;
+            if (prev) {
+                prev->next = inst;
+                inst->next = term;
+            } else {
+                inst->next = entry->first;
+                entry->first = inst;
+            }
+        } else {
+            /* no terminator yet — just append normally */
+            if (!entry->first) {
+                entry->first = inst;
+                entry->last = inst;
+            } else {
+                entry->last->next = inst;
+                entry->last = inst;
+            }
+        }
+    } else {
+        append_instr(b, inst);
+    }
+
     return inst->result;
 }
 

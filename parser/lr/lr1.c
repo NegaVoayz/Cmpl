@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* from parser/ll/ll_type.c -- parse type specifiers for cast detection */
+extern Type* ll_parse_type_specs(LR1_Parser* p);
+
 extern LR_Action lr1_error(LR1_Parser* p);
 
 static int is_type_keyword(TokenKind k)
@@ -76,9 +79,12 @@ static int is_cast_start(Token* tok)
 /* states at or below cast-expr level -- where a pending cast should wrap */
 static int is_cast_level(int s)
 {
-    return s == HS_PRIMARY  || s == HS_POSTFIX || s == HS_UNARY ||
+    /* HS_PRIMARY / S_BINRHS_PRIMARY are deliberately excluded —
+     * otherwise casts wrap too early, producing *(type)expr
+     * instead of (type)*expr for expressions like (unsigned char)*p. */
+    return s == HS_POSTFIX || s == HS_UNARY ||
            s == HS_CAST_EXPR ||
-           s == S_BINRHS_PRIMARY || s == S_BINRHS_POSTFIX ||
+           s == S_BINRHS_POSTFIX ||
            s == S_BINRHS_UNARY;
 }
 
@@ -142,6 +148,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
     p->stack[0].token = NULL;
     p->stack[0].node = NULL;
     p->pending_cast = 0;
+    p->cast_type = NULL;
 
     while (1) {
         TokenKind next = p->tok->kind;
@@ -155,7 +162,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
             if (p->pending_cast && result) {
                 AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                               p->cast_loc.line, p->cast_loc.col);
-                cast->body.cast.type_expr = NULL;
+                cast->body.cast.type_expr = p->cast_type;
                 cast->body.cast.cast_expr = result;
                 p->pending_cast = 0;
                 return cast;
@@ -198,8 +205,8 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                     continue;
                 } else {
                     p->tok = peek;
-                    while (p->tok->kind != TOK_RPAREN && p->tok->kind != TOK_EOF)
-                        p->tok = p->tok->next;
+                    Type* ct = ll_parse_type_specs(p);
+
                     if (p->tok->kind == TOK_RPAREN)
                         p->tok = p->tok->next;
 
@@ -226,6 +233,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
 
                     /* mark pending cast so lr1_parse_expr wraps the result */
                     p->pending_cast = 1;
+                    p->cast_type = ct;
                     p->cast_loc = peek->loc;
                     continue;
                 }
@@ -242,7 +250,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                 AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                               p->cast_loc.line, p->cast_loc.col);
 
-                cast->body.cast.type_expr = NULL;
+                cast->body.cast.type_expr = p->cast_type;
                 cast->body.cast.cast_expr = result;
                 p->pending_cast = 0;
                 return cast;
@@ -263,7 +271,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                     AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                                   p->cast_loc.line, p->cast_loc.col);
 
-                    cast->body.cast.type_expr = NULL;
+                    cast->body.cast.type_expr = p->cast_type;
                     cast->body.cast.cast_expr = inner;
                     p->stack[p->sp].node = cast;
                 }
