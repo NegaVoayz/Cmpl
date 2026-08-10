@@ -222,6 +222,30 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                         p->tok = p->tok->next;
                     }
 
+                    /* consume array declarator: (int[]), (int[N]),
+                     * (IR_Value*[]), etc.  Wrap ct with TYPE_ARRAY
+                     * so compound literals like (IR_Value*[]){d} work. */
+                    while (p->tok->kind == TOK_LBRACKET) {
+                        p->tok = p->tok->next;
+
+                        Type* arr = type_new(p->arena, TYPE_ARRAY);
+                        arr->arr_size = 0;
+
+                        if (p->tok->kind == TOK_INT_LIT) {
+                            arr->arr_size = (int)p->tok->body.int_val;
+                            p->tok = p->tok->next;
+                        } else if (p->tok->kind == TOK_IDENT) {
+                            arr->size_name = p->tok->body.ident;
+                            p->tok = p->tok->next;
+                        }
+
+                        if (p->tok->kind == TOK_RBRACKET)
+                            p->tok = p->tok->next;
+
+                        arr->inner = ct;
+                        ct = arr;
+                    }
+
                     if (p->tok->kind == TOK_RPAREN)
                         p->tok = p->tok->next;
 

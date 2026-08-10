@@ -323,7 +323,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
              * default to ptr — typedefs aren't resolved at parse time. */
             if (pty && pty->kind == IR_I32) {
                 Type* ast = p->body.param_decl.param_type;
-                if (ast && ast->kind == TYPE_NAMED)
+                if (ast && ast->kind == TYPE_NAMED && !ast->inner)
                     pty = ir_ptr_type(a, t_i8, 0);
             }
             func->params[i]->type = pty ? pty : t_i32;

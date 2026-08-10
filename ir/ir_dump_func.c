@@ -293,8 +293,12 @@ ir_dump_module(IR_Module* mod, FILE* out)
 
                     fprintf(out, "declare ");
                     dump_type(out, inst->type);
-                    fprintf(out, " @%.*s()\n\n",
-                            inst->callee.length, inst->callee.data);
+                    fprintf(out, " @%.*s(", inst->callee.length, inst->callee.data);
+                    for (int ai = 0; ai < inst->n_call_args; ai++) {
+                        if (ai > 0) fprintf(out, ", ");
+                        dump_type(out, inst->call_args[ai]->type);
+                    }
+                    fprintf(out, ")\n\n");
                 }
             }
         }
