@@ -207,6 +207,21 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                     p->tok = peek;
                     Type* ct = ll_parse_type_specs(p);
 
+                    /* consume pointer declarator in cast: (int*), (void**), etc.
+                     * ll_parse_type_specs only eats type keywords, so we must
+                     * also consume stars and qualifiers and wrap ct with
+                     * TYPE_PTR layers so the cast resolves to the pointer type. */
+                    while (p->tok->kind == TOK_STAR ||
+                           p->tok->kind == TOK_CONST ||
+                           p->tok->kind == TOK_VOLATILE) {
+                        if (p->tok->kind == TOK_STAR) {
+                            Type* ptr = type_new(p->arena, TYPE_PTR);
+                            ptr->inner = ct;
+                            ct = ptr;
+                        }
+                        p->tok = p->tok->next;
+                    }
+
                     if (p->tok->kind == TOK_RPAREN)
                         p->tok = p->tok->next;
 

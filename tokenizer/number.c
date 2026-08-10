@@ -48,9 +48,30 @@ read_number(Lexer* lex)
             kind = TOK_FLOAT_LIT; advance(lex);
         }
     } else {
-        if (peek(lex) == 'l' || peek(lex) == 'L') {
-            kind = TOK_LONG_LIT; advance(lex);
+        /* handle integer suffixes: U, L, UL, LU, LL, ULL, LLU */
+        int is_unsigned = 0;
+        int is_long = 0;
+        int is_long_long = 0;
+
+        if (peek(lex) == 'u' || peek(lex) == 'U') {
+            is_unsigned = 1; advance(lex);
         }
+        if (peek(lex) == 'l' || peek(lex) == 'L') {
+            advance(lex);
+            if (peek(lex) == 'l' || peek(lex) == 'L') {
+                is_long_long = 1; advance(lex);
+            } else {
+                is_long = 1;
+            }
+        }
+        if (!is_unsigned && (peek(lex) == 'u' || peek(lex) == 'U')) {
+            is_unsigned = 1; advance(lex);
+        }
+
+        if (is_long_long)
+            kind = TOK_LONG_LIT;
+        else if (is_long)
+            kind = TOK_LONG_LIT;
     }
 
     buf[len] = '\0';
