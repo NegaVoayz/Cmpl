@@ -166,6 +166,7 @@ dce_func(IR_Func* fn, Arena* a)
             all[idx++] = inst;
 
     int* marked = arena_alloc(a, n * sizeof(int));
+    memset(marked, 0, n * sizeof(int));
 
     /* start from side-effecting instructions */
     for (int i = 0; i < n; i++)

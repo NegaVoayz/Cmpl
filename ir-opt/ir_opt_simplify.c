@@ -6,37 +6,35 @@
 #include <string.h>
 
 /* ---------------------------------------------------------------
- *  Count instruction in a block (for emptiness check)
- * --------------------------------------------------------------- */
-
-static int
-count_instrs(IR_Block* blk)
-{
-    int n = 0;
-    for (IR_Instr* i = blk->first; i; i = i->next) n++;
-    return n;
-}
-
-/* ---------------------------------------------------------------
- *  Replace all br references to 'old' with 'new' in a function
+ *  Replace all br references and phi in_blocks from 'old' to 'new'
  * --------------------------------------------------------------- */
 
 static void
 redirect_brs(IR_Func* fn, IR_Block* old, IR_Block* new)
 {
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
+        /* update branch terminators */
         IR_Instr* term = blk->last;
-        if (!term) continue;
 
-        if (term->opcode == IROP_BR && term->in_blocks &&
-            term->in_blocks[0] == old)
-            term->in_blocks[0] = new;
-
-        if (term->opcode == IROP_COND_BR && term->in_blocks) {
-            if (term->in_blocks[0] == old)
+        if (term) {
+            if (term->opcode == IROP_BR && term->in_blocks &&
+                term->in_blocks[0] == old)
                 term->in_blocks[0] = new;
-            if (term->in_blocks[1] == old)
-                term->in_blocks[1] = new;
+
+            if (term->opcode == IROP_COND_BR && term->in_blocks) {
+                if (term->in_blocks[0] == old)
+                    term->in_blocks[0] = new;
+                if (term->in_blocks[1] == old)
+                    term->in_blocks[1] = new;
+            }
+        }
+
+        /* update phi in_blocks pointing at the merged-away block */
+        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+            if (inst->opcode != IROP_PHI) break;
+            for (int p = 0; p < inst->n_incoming; p++)
+                if (inst->in_blocks[p] == old)
+                    inst->in_blocks[p] = new;
         }
     }
 }
@@ -146,12 +144,13 @@ simplify_func(IR_Func* fn)
     do {
         again = 0;
 
-        /* merge empty blocks (just br without other instructions) */
+        /* merge blocks that are a single unconditional branch */
         for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-            if (count_instrs(blk) == 1 && blk != fn->blocks) {
-                again |= merge_block(fn, blk);
-                if (again) break;
-            }
+            if (blk == fn->blocks) continue;
+            if (!blk->last || blk->last->opcode != IROP_BR) continue;
+            if (blk->first != blk->last) continue;
+            again |= merge_block(fn, blk);
+            if (again) break;
         }
         if (again) { changed = 1; continue; }
 

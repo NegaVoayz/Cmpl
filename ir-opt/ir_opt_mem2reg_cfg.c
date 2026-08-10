@@ -55,18 +55,21 @@ static int meet(BlkInfo* bi, int a, int b, int* mark, int stamp)
     return 0;
 }
 
+#define DOM_MAX_ITER 200
+
 void
 compute_doms(BlkInfo* bi, int n)
 {
     int mark[MAX_BLK] = {0};
-    int stamp = 1;
 
     bi[0].idom = 0;
     for (int i = 1; i < n; i++) bi[i].idom = -1;
 
-    int changed;
+    int changed, iter = 0;
     do {
         changed = 0;
+        int stamp = 1;  /* reset each iteration */
+
         for (int i = 1; i < n; i++) {
             if (!bi[i].n_preds) continue;
 
@@ -86,7 +89,7 @@ compute_doms(BlkInfo* bi, int n)
             }
             if (nd != bi[i].idom) { bi[i].idom = nd; changed = 1; }
         }
-    } while (changed);
+    } while (changed && ++iter < DOM_MAX_ITER);
 }
 
 /* ---------------------------------------------------------------
