@@ -129,6 +129,7 @@ struct IR_Instr {
     int          n_incoming;
     IR_Value**   in_vals;
     IR_Block**   in_blocks;
+    IR_Value*    phi_alloca;    /* alloca this phi was inserted for */
     IR_Instr*    next;
 };
 

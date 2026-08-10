@@ -36,13 +36,15 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca,
     int saved_top = *top;
     IR_Value* cur = (*top >= 0) ? stack[*top] : NULL;
 
-    /* Push phi results as new reaching definitions at block entry.
-       Phi incoming values are filled BY predecessor blocks' terminators,
-       not here — we only push the phi result so later loads use it. */
+    /* Push phi results for THIS alloca as reaching definitions.
+       When multiple allocas are promoted, each has its own phi nodes;
+       we only push the phi that belongs to the alloca being renamed. */
     for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
         if (inst->opcode != IROP_PHI) break;
-        cur = inst->result;
-        if (*top < MAX_STACK - 1) stack[++(*top)] = cur;
+        if (inst->phi_alloca == alloca) {
+            cur = inst->result;
+            if (*top < MAX_STACK - 1) stack[++(*top)] = cur;
+        }
     }
 
     /* Walk instructions: track stores, replace loads */
@@ -73,9 +75,9 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca,
                 IR_Block* succ = term->in_blocks[s];
                 for (IR_Instr* inst = succ->first; inst; inst = inst->next) {
                     if (inst->opcode != IROP_PHI) break;
+                    if (inst->phi_alloca != alloca) continue;
                     for (int pi = 0; pi < inst->n_incoming; pi++) {
-                        if (inst->in_vals[pi] == alloca &&
-                            inst->in_blocks[pi] == blk)
+                        if (inst->in_blocks[pi] == blk)
                             inst->in_vals[pi] = cur;
                     }
                 }

@@ -71,6 +71,7 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
             phi->in_vals[p] = alloca;
             phi->in_blocks[p] = bi[bi[idf[k]].preds[p]].blk;
         }
+        phi->phi_alloca = alloca;
         phi->next = blk->first;
         blk->first = phi;
         if (!blk->last) blk->last = phi;
@@ -97,6 +98,11 @@ promote_func(IR_Func* fn)
     compute_df(bi, n);
 
     int changed = 0;
+
+    /* promote allocas one at a time. each promotion adds phi nodes
+     * and renames; DCE in the next fixed-point iteration removes the
+     * now-dead loads/stores before the next alloca is promoted.
+     * (phi_alloca tagging is set for future multi-alloca rename.) */
     for (int pass = 0; pass < 4; pass++) {
         int did = 0;
         for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
