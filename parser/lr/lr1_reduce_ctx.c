@@ -68,6 +68,18 @@ LR_Action lr1_handle_comma(LR1_Parser* p)
     for (int i = p->sp; i >= 0; i--) {
         if (p->stack[i].state == S_POSTFIX_LPAREN) {
             AST_Node* expr = p->stack[p->sp].node;
+
+            /* consume pending cast: (type)arg0, arg1 — the cast
+             * belongs to the current expression, not the next one */
+            if (p->pending_cast && expr) {
+                AST_Node* cast = ast_node_new(p->arena, AST_CAST,
+                                              p->cast_loc.line, p->cast_loc.col);
+                cast->body.cast.type_expr = p->cast_type;
+                cast->body.cast.cast_expr = expr;
+                p->pending_cast = 0;
+                expr = cast;
+            }
+
             p->sp--;
             goto_push(p, expr, SYM_ARG_LIST);
             p->tok = p->tok->next;

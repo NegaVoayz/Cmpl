@@ -95,6 +95,17 @@ LR_Action reduce_call_close(LR1_Parser* p)
         lparen_idx--;
     if (lparen_idx < 0) return LR_ERROR;
 
+    /* consume pending cast on last argument: call((type)expr) */
+    if (p->pending_cast && p->stack[p->sp].node) {
+        AST_Node* last = p->stack[p->sp].node;
+        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
+                                      p->cast_loc.line, p->cast_loc.col);
+        cast->body.cast.type_expr = p->cast_type;
+        cast->body.cast.cast_expr = last;
+        p->pending_cast = 0;
+        p->stack[p->sp].node = cast;
+    }
+
     AST_Node* args = NULL;
     AST_Node** tail = &args;
 
