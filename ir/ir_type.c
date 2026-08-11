@@ -297,6 +297,15 @@ ir_clear_struct_cache(void)
     cache_enabled = 1;
 }
 
+void
+ir_reset_type_caches(void)
+{
+    n_struct_cache = 0;
+    cache_enabled = 0;
+    n_ast_map = 0;
+    memset(type_slots, 0, sizeof(type_slots));
+}
+
 /* ---------------------------------------------------------------
  *  Type utilities
  * --------------------------------------------------------------- */
