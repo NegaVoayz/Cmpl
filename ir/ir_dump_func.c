@@ -207,6 +207,9 @@ ir_dump_module(IR_Module* mod, FILE* out)
 {
     if (!mod || !out) return;
 
+    /* reset shared anonymous struct name table for this module dump */
+    dump_anon_count = 0;
+
     /* collect and emit string constant globals (before functions) */
     dump_str_reset();
     dump_str_collect_module(mod);
