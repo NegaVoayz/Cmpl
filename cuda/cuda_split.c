@@ -45,6 +45,8 @@ cuda_split(AST_Node* root, CudaSplit* out)
     AST_Node *host_head = NULL, *host_tail = NULL;
     AST_Node *dev_head = NULL, *dev_tail = NULL;
 
+    out->copies = NULL;
+
     if (!root || root->type != AST_PROGRAM) {
         out->host_decls = NULL;
         out->device_decls = NULL;
@@ -77,8 +79,17 @@ cuda_split(AST_Node* root, CudaSplit* out)
                 append_node(&host_head, &host_tail, decl);
 
         } else {
-            /* other declarations (typedefs, structs, etc.) go to host only */
+            /* type definitions are needed by both host and device
+             * for type resolution in ir_gen_module_ex().  shallow-
+             * clone them so each side has its own decl chain. */
             append_node(&host_head, &host_tail, decl);
+            if (decl->type == AST_TYPEDEF || decl->type == AST_STRUCT_DEF ||
+                decl->type == AST_UNION_DEF || decl->type == AST_ENUM_DEF) {
+                AST_Node* copy = malloc(sizeof(AST_Node));
+                memcpy(copy, decl, sizeof(AST_Node));
+                copy->next = NULL;
+                append_node(&dev_head, &dev_tail, copy);
+            }
         }
         decl = next;
     }

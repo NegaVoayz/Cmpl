@@ -44,6 +44,7 @@ int cuda_parse_var_qualifiers(LR1_Parser* p);
 typedef struct {
     AST_Node* host_decls;
     AST_Node* device_decls;
+    AST_Node* copies;       /* malloc'd type-def copies; freed by caller */
 } CudaSplit;
 
 /* Separate a program AST into host and device declaration lists.
