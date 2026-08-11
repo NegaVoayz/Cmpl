@@ -110,10 +110,15 @@ The `base/` module provides shared infrastructure used by all other modules:
 
 | Directory | Purpose |
 |---|---|
-| `include/` | Stub C standard headers (`stdio.h`, `stdlib.h`, `string.h`, `ctype.h`, `stdint.h`, `stddef.h`) for self-hosting compilation |
+| `include/` | Stub C standard headers (`stdio.h`, `stdlib.h`, `string.h`, `ctype.h`, `stdint.h`, `stddef.h`) for self-hosting compilation. Extended with `printf`, `fflush`, `fputs`, `fgets`, `fseek`, `ftell`, `remove`, `getenv`, `bsearch`, `SEEK_*` constants. |
 | `test/` | Regression and unit tests: `test.c`, `test_full.c`, `test_ir.c`, `test_pp.c`, `test_optimize.c`, `test_kernel.c`, `test_gpu.c`, `test_lr1_edge.c`, `test_cast.c`, `test_enum.c`, etc. |
 | `doc/` | Design documentation (these files) |
 | `rt/` | Companion Vulkan runtime library (linked separately by users, not built by Cmpl) |
+| `build/self_new/` | CRT bridge file: `crt_shim.c` provides `stdin`/`stdout`/`stderr` symbols (initialized via `__acrt_iob_func()` constructor) and POSIX stubs for `opendir`/`readdir`/`closedir`/`popen`/`pclose`. Compiled directly with clang. |
+
+### Build System
+
+- **`build_self.ps1`** — Self-hosting build script. Compiles all 76 C source files directly with system `clang` (using the MinGW toolchain) rather than bootstrapping through a pre-built cmpl binary. The `crt_shim.c` bridge file is compiled with clang because it uses `__attribute__((constructor))` which cmpl does not parse yet. Produces `build/self/cmpl_self.exe` and runs a smoke test (compiling `test/test.c`).
 
 ## Key Design Decisions
 
@@ -122,7 +127,7 @@ From [CLAUDE.md](../CLAUDE.md):
 - **Token chain**: Tokens form a singly-linked list via `Token.next`. No array — the parser walks the chain. All tokens are arena-allocated; teardown is a single `arena_free()`.
 - **AST with parent-stores-tail**: Chain-owning AST/IR nodes have both `head` and `last` pointers. The last child's `next` points to the parent for upward traversal. Append is O(1): `parent->last->next = node; parent->last = node`.
 - **Hybrid reduction**: LR(1) handles expressions (operator precedence is natural as shift/reduce rules). LL handles everything else (statements, declarations, blocks) — structural constructs that are awkward to express as LR productions.
-- **Memory model**: A single arena per compilation unit owns all Token, AST_Node, IR_Value, IR_Instr, IR_Type, and IR_Block objects. No `free()` calls — teardown is `arena_free()`. HashMaps provide O(1) name lookup throughout.
+- **Memory model**: A single arena per compilation unit owns all Token, AST_Node, IR_Value, IR_Instr, IR_Type, and IR_Block objects. No `free()` calls — teardown is `arena_free()`. HashMaps provide O(1) name lookup throughout. **CUDA exception**: Two arenas exist (host + device modules). `ir_reset_type_caches()` at the start of each `ir_gen_module_ex()` prevents cross-arena IR_Type* pollution via static caches.
 - **Own IR tree**: In-memory LLVM IR data structures with no external LLVM dependency. The `.ll` text bridge connects to the LLVM ecosystem when needed. Def-use chains on IR_Value enable O(n) DCE and correct GVN user redirection.
 - **Per-file limits**: ≤ 200 lines per file, ≤ 80 lines per function, K&R braces.
-- **Self-hosting**: Cmpl can compile its own source files (73/73 objects link; 54/54 source files generate valid LLVM IR accepted by clang).
+- **Self-hosting**: Cmpl can compile its own source files (77/77 objects link; full self-compilation working via `build_self.ps1`).
