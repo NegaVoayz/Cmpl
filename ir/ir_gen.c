@@ -432,6 +432,10 @@ ir_gen_module_ex(AST_Node* root, int is_device)
                                    : "x86_64-unknown-linux-gnu";
     mod->data_layout = "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024";
 
+    /* reset static caches so no IR_Type* from a previous module's arena
+     * leaks into this one (critical for CUDA host→device dual gen) */
+    ir_reset_type_caches();
+
     /* pass 0.5: collect typedefs + enum constants, resolve throughout AST */
     {
         TypedefEntry *typedefs = NULL, *enum_vals = NULL;
