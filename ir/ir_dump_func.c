@@ -387,6 +387,36 @@ ir_dump_module(IR_Module* mod, FILE* out)
         dump_func(out, func);
         if (func->next) fprintf(out, "\n");
     }
+
+    /* emit llvm.global_ctors for constructor functions */
+    {
+        int n_ctors = 0;
+
+        for (IR_Func* fn = mod->funcs; fn; fn = fn->next)
+            if (fn->is_constructor) n_ctors++;
+
+        if (n_ctors > 0) {
+            fprintf(out, "\n@llvm.global_ctors = appending global "
+                        "[%d x { i32, ptr, ptr }] [\n", n_ctors);
+
+            int ci = 0;
+            for (IR_Func* fn = mod->funcs; fn; fn = fn->next) {
+                if (!fn->is_constructor) continue;
+
+                fprintf(out, "  { i32, ptr, ptr } "
+                            "{ i32 65535, ptr @%.*s, ptr null }",
+                        fn->name.length, fn->name.data);
+
+                ci++;
+                if (ci < n_ctors)
+                    fprintf(out, ",\n");
+                else
+                    fprintf(out, "\n");
+            }
+
+            fprintf(out, "]\n");
+        }
+    }
 }
 
 /* ---------------------------------------------------------------

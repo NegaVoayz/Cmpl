@@ -34,7 +34,8 @@ int is_type_start(Token* tok)
         k == TOK_STATIC  || k == TOK_EXTERN  || k == TOK_CONST ||
         k == TOK_VOLATILE|| k == TOK_REGISTER|| k == TOK_TYPEDEF ||
         k == TOK_KW_GLOBAL || k == TOK_KW_DEVICE || k == TOK_KW_HOST ||
-        k == TOK_KW_SHARED || k == TOK_KW_CONSTANT)
+        k == TOK_KW_SHARED || k == TOK_KW_CONSTANT ||
+        k == TOK_ATTRIBUTE)
         return 1;
 
     /* User-defined types: peek past stars/qualifiers for another ident.
@@ -70,7 +71,7 @@ int is_type_start(Token* tok)
 
 static AST_Node*
 parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
-                     int linkage, int addr_space)
+                     int linkage, int addr_space, int is_constructor)
 {
     AST_Node* head = NULL;
     AST_Node** tail = &head;
@@ -90,6 +91,32 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             }
 
             if (scan && scan->kind == TYPE_FUNC) {
+                /* pointer-to-function: TYPE_FUNC->TYPE_PTR->...
+                 * e.g. void (*f)(void) — treat as variable/typedef, not func def. */
+                if (n_ptr == 0 && scan->inner && scan->inner->kind == TYPE_PTR) {
+                    ll_expect(p, TOK_SEMI);
+                    /* inline variable/typedef creation (same logic as below) */
+                    { AST_Node* vd = ast_node_new(p->arena, AST_VAR_DECL,
+                                                  start->loc.line, start->loc.col);
+                      vd->body.var_decl.var_type = full;
+                      vd->body.var_decl.name = dname;
+                      vd->body.var_decl.addr_space = addr_space;
+                      vd->body.var_decl.linkage = linkage;
+                      vd->body.var_decl.init = NULL;
+                      if (is_typedef) {
+                          AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
+                                                      start->loc.line, start->loc.col);
+                          td->body.typedef_decl.aliased_type = full;
+                          td->body.typedef_decl.name = dname;
+                          vd = td;
+                      }
+                      *tail = vd;
+                      tail = &vd->next;
+                      if (p->tok->kind == TOK_COMMA) p->tok = p->tok->next;
+                      else { if (!head) head = vd; return head; }
+                    }
+                }
+
                 AST_Node* params = scan->params;
                 Type* ret_type;
 
@@ -114,6 +141,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                 fn->body.func_def.name = dname;
                 fn->body.func_def.params = params;
                 fn->body.func_def.linkage = linkage;
+                fn->body.func_def.is_constructor = is_constructor;
                 fn->body.func_def.body = ll_parse_stmt(p);
                 *tail = fn;
                 return head ? head : fn;
@@ -126,6 +154,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             fd->body.func_def.name = dname;
             fd->body.func_def.params = params;
             fd->body.func_def.linkage = linkage;
+            fd->body.func_def.is_constructor = 0;
             fd->body.func_def.body = NULL;
             *tail = fd;
             return head ? head : fd;
@@ -178,6 +207,36 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
 }
 
 /* ---------------------------------------------------------------
+ *  Attribute parser: __attribute__((constructor))
+ * --------------------------------------------------------------- */
+
+static int
+parse_attribute(LR1_Parser* p)
+{
+    if (p->tok->kind != TOK_ATTRIBUTE)
+        return 0;
+
+    p->tok = p->tok->next;  /* skip __attribute__ */
+    ll_expect(p, TOK_LPAREN);
+    ll_expect(p, TOK_LPAREN);
+
+    int has_constructor = 0;
+
+    if (p->tok->kind == TOK_IDENT) {
+        /* check for "constructor" */
+        if (p->tok->body.ident.length == 11 &&
+            memcmp(p->tok->body.ident.data, "constructor", 11) == 0)
+            has_constructor = 1;
+        p->tok = p->tok->next;
+    }
+
+    ll_expect(p, TOK_RPAREN);
+    ll_expect(p, TOK_RPAREN);
+
+    return has_constructor;
+}
+
+/* ---------------------------------------------------------------
  *  Main declaration parser
  * --------------------------------------------------------------- */
 
@@ -185,6 +244,7 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
 {
     Token* start = p->tok;
     int is_typedef = 0;
+    int is_constructor = parse_attribute(p);
     int linkage = cuda_parse_qualifiers(p);
     int addr_space = cuda_parse_var_qualifiers(p);
 
@@ -233,5 +293,6 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
     if (!base) { p->tok = p->tok->next; return NULL; }
     if (p->tok->kind == TOK_SEMI) { p->tok = p->tok->next; return NULL; }
 
-    return parse_var_list_decl(p, start, base, is_typedef, linkage, addr_space);
+    return parse_var_list_decl(p, start, base, is_typedef, linkage, addr_space,
+                                is_constructor);
 }

@@ -17,6 +17,7 @@ typedef enum {
     TOK_KW_HOST,       /* __host__ */
     TOK_KW_SHARED,     /* __shared__ */
     TOK_KW_CONSTANT,   /* __constant__ */
+    TOK_ATTRIBUTE,     /* __attribute__ */
 
     // lit
     TOK_INT_LIT,      // 42

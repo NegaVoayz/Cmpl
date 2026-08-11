@@ -325,6 +325,8 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
 
     ctx.ret_type = func->ret_type;
 
+    func->is_constructor = fd->body.func_def.is_constructor;
+
     /* map AST linkage to IR_Linkage */
     switch (fd->body.func_def.linkage) {
     case 2: func->linkage = LINK_KERNEL;   break;  /* LINK_GLOBAL */

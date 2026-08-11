@@ -117,7 +117,8 @@ struct AST_Node {
             AST_Node* params;
             AST_Node* last_param;
             AST_Node* body;
-            int       linkage;    /* 0=host, 1=device, 2=global, 3=host_device */
+            int       linkage;       /* 0=host, 1=device, 2=global, 3=host_device */
+            int       is_constructor; /* __attribute__((constructor)) */
         } func_def;
 
         /* struct / union definition */

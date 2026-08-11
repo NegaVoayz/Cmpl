@@ -171,6 +171,7 @@ struct IR_Func {
     IR_Block*    blocks;
     IR_Block*    last_block;
     IR_Linkage   linkage;
+    int          is_constructor; /* __attribute__((constructor)) */
     IR_Func*     next;
 };
 
