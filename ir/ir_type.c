@@ -350,7 +350,9 @@ ir_type_eq(IR_Type* a, IR_Type* b)
     case IR_FUNC:
         return ir_type_eq(a->inner, b->inner) && ir_type_eq(a->members, b->members);
     case IR_STRUCT:
-        return a->name.data == b->name.data;  /* compare by tag */
+        if (!a->name.data && !b->name.data)
+            return a == b;  /* anonymous: pointer identity only */
+        return a->name.data == b->name.data;  /* named: compare by tag */
     default:
         return 1;
     }
