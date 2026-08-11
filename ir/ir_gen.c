@@ -242,6 +242,14 @@ static void resolve_ast_node(AST_Node* n, TypedefEntry* table)
         if (n->body.var_decl.init)
             resolve_expr_types(n->body.var_decl.init, table);
         break;
+    case AST_STRUCT_DEF:
+    case AST_UNION_DEF:
+        for (AST_Node* f = n->body.struct_def.fields; f; f = f->next)
+            resolve_type_tree(f->body.var_decl.var_type, table);
+        break;
+    case AST_TYPEDEF:
+        resolve_type_tree(n->body.typedef_decl.aliased_type, table);
+        break;
     case AST_FUNC_DEF:
         resolve_type_tree(n->body.func_def.ret_type, table);
         for (AST_Node* p = n->body.func_def.params;
