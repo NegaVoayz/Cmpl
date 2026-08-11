@@ -292,7 +292,10 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
         return gep;
     }
     case AST_INDEX: {
-        IR_Value* arr = gen_expr(ctx, n->body.subscript.array);
+        /* for nested indices like arr[i][j], recurse to get a pointer
+         * chain rather than loading the inner value */
+        IR_Value* arr = gen_store_ptr(ctx, n->body.subscript.array);
+        if (!arr) arr = gen_expr(ctx, n->body.subscript.array);
         IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
         return ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
     }
@@ -713,9 +716,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       return ir_const_int(b, t_i32, sz); }
 
     case AST_POSTFIX:
-    { IR_Value* ptr = NULL;
-      if (n->body.postfix.operand->type == AST_IDENT)
-          ptr = sym_lookup(ctx, n->body.postfix.operand->body.ident.name);
+    { IR_Value* ptr = gen_store_ptr(ctx, n->body.postfix.operand);
       if (!ptr) { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
       IR_Value* old_val = ir_build_load(b, ptr);
       IR_Value* new_val;
