@@ -3,6 +3,7 @@
 #include "ir.h"
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "ast.h"
@@ -220,7 +221,17 @@ ast_to_ir_type(Arena* a, Type* ast)
       return ir_array_type(a, inner, ast->arr_size > 0 ? ast->arr_size : 0); }
     case TYPE_FUNC:
     {
-        IR_Type* ret = ast_to_ir_type(a, ast->inner);
+        /* pointer-to-function: the declarator parser produces
+         * TYPE_FUNC -> TYPE_PTR -> ret_ty for (*f)(args).
+         * Lift the pointer layers outside the function type so
+         * IR is PTR -> FUNC rather than FUNC -> PTR -> ret. */
+        Type* inner = ast->inner;
+        int n_ptr = 0;
+        while (inner && inner->kind == TYPE_PTR) {
+            n_ptr++;
+            inner = inner->inner;
+        }
+        IR_Type* ret = ast_to_ir_type(a, inner);
         IR_Type *params = NULL, **tail = &params;
 
         for (AST_Node* p = ast->params; p; p = p->next) {
@@ -228,7 +239,10 @@ ast_to_ir_type(Arena* a, Type* ast)
             *tail = clone_type_for_chain(a, pt);
             tail = &(*tail)->next;
         }
-        return ir_func_type(a, ret, params);
+        IR_Type* ft = ir_func_type(a, ret, params);
+        while (n_ptr-- > 0)
+            ft = ir_ptr_type(a, ft, 0);
+        return ft;
     }
 
     case TYPE_STRUCT:
@@ -246,6 +260,12 @@ ast_to_ir_type(Arena* a, Type* ast)
       }
       IR_Type* t = ir_type_new(a, IR_STRUCT);
       t->name = ast->name;
+      /* Cache BEFORE building members so self-referencing fields
+       * (e.g. Arena* prev inside struct Arena) hit the cache and
+       * avoid infinite recursion -> stack overflow. */
+      if (cache_enabled && t->name.data && n_struct_cache < MAX_STRUCT_CACHE)
+          struct_cache[n_struct_cache++] = t;
+      register_struct_ast(t, ast);
       if (ast->params) {
           IR_Type** tail = &t->members;
           for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL; f = f->next) {
@@ -255,9 +275,6 @@ ast_to_ir_type(Arena* a, Type* ast)
               tail = &(*tail)->next;
           }
       }
-      if (cache_enabled && t->name.data && n_struct_cache < MAX_STRUCT_CACHE)
-          struct_cache[n_struct_cache++] = t;
-      register_struct_ast(t, ast);
       return t; }
     case TYPE_NAMED:
         if (ast->inner) return ast_to_ir_type(a, ast->inner);
