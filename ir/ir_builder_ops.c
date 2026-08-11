@@ -171,7 +171,8 @@ ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
      * the result is ptr-to-element, not ptr-to-aggregate */
     IR_Type* result_ty = ptr_ty;
     int is_aggregate = (ptr_ty->inner &&
-        (ptr_ty->inner->kind == IR_ARRAY || ptr_ty->inner->kind == IR_STRUCT));
+        (ptr_ty->inner->kind == IR_ARRAY || ptr_ty->inner->kind == IR_STRUCT ||
+         ptr_ty->inner->kind == IR_UNION));
     int skip_idx1 = (!is_aggregate && idx1 &&
         idx1->kind == VAL_CONST_INT && idx1->body.int_val == 0);
 

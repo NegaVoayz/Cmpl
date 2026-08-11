@@ -115,7 +115,7 @@ static int members_eq(IR_Type* a, IR_Type* b)
 static void collect_struct_types_rec(IR_Type* t)
 {
     if (!t) return;
-    if (t->kind != IR_STRUCT) {
+    if (t->kind != IR_STRUCT && t->kind != IR_UNION) {
         if (t->kind == IR_PTR || t->kind == IR_ARRAY)
             collect_struct_types_rec(t->inner);
         else if (t->kind == IR_FUNC) {
@@ -232,7 +232,9 @@ ir_dump_module(IR_Module* mod, FILE* out)
             dump_type(out, gv->type);
             fprintf(out, " ");
             /* use zeroinitializer for array/struct types with zero init */
-            if (gv->type && (gv->type->kind == IR_ARRAY || gv->type->kind == IR_STRUCT) &&
+            if (gv->type && (gv->type->kind == IR_ARRAY ||
+                             gv->type->kind == IR_STRUCT ||
+                             gv->type->kind == IR_UNION) &&
                 gv->body.init_val->kind == VAL_CONST_INT &&
                 gv->body.init_val->body.int_val == 0) {
                 fprintf(out, "zeroinitializer");

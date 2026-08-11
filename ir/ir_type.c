@@ -258,7 +258,8 @@ ast_to_ir_type(Arena* a, Type* ast)
                   return sc;
           }
       }
-      IR_Type* t = ir_type_new(a, IR_STRUCT);
+      IR_Type* t = ir_type_new(a,
+          (ast->kind == TYPE_UNION) ? IR_UNION : IR_STRUCT);
       t->name = ast->name;
       /* Cache BEFORE building members so self-referencing fields
        * (e.g. Arena* prev inside struct Arena) hit the cache and
@@ -310,6 +311,35 @@ ir_reset_type_caches(void)
  *  Type utilities
  * --------------------------------------------------------------- */
 
+static int
+ir_type_align(IR_Type* t)
+{
+    if (!t) return 1;
+
+    switch (t->kind) {
+    case IR_VOID:  return 1;
+    case IR_I1:    return 1;
+    case IR_I8:    return 1;
+    case IR_I16:   return 2;
+    case IR_I32:   return 4;
+    case IR_I64:   return 8;
+    case IR_F32:   return 4;
+    case IR_F64:   return 8;
+    case IR_PTR:   return 8;
+    case IR_ARRAY: return ir_type_align(t->inner);
+    case IR_STRUCT:
+    case IR_UNION:
+    { int max_a = 1;
+      for (IR_Type* f = t->members; f; f = f->next) {
+          int a = ir_type_align(f);
+          if (a > max_a) max_a = a;
+      }
+      return max_a; }
+    case IR_FUNC:  return 1;
+    default:       return 1;
+    }
+}
+
 int
 ir_type_size(IR_Type* t)
 {
@@ -326,10 +356,25 @@ ir_type_size(IR_Type* t)
     case IR_F64:   return 8;
     case IR_PTR:   return 8;   /* 64-bit pointer */
     case IR_ARRAY: return t->size * ir_type_size(t->inner);
+    case IR_UNION:
+    { int max_sz = 0, max_al = 1;
+      for (IR_Type* f = t->members; f; f = f->next) {
+          int sz = ir_type_size(f);
+          int al = ir_type_align(f);
+          if (sz > max_sz) max_sz = sz;
+          if (al > max_al) max_al = al;
+      }
+      return (max_sz + max_al - 1) / max_al * max_al; }
     case IR_STRUCT:
-    { int sz = 0;
-      for (IR_Type* f = t->members; f; f = f->next) sz += ir_type_size(f);
-      return sz; }
+    { int offset = 0, max_al = 1;
+      for (IR_Type* f = t->members; f; f = f->next) {
+          int al = ir_type_align(f);
+          int sz = ir_type_size(f);
+          if (al > max_al) max_al = al;
+          offset = (offset + al - 1) / al * al;  /* align */
+          offset += sz;
+      }
+      return (offset + max_al - 1) / max_al * max_al; }
     case IR_FUNC:  return 0;
     default:       return 0;
     }
@@ -350,6 +395,7 @@ ir_type_eq(IR_Type* a, IR_Type* b)
     case IR_FUNC:
         return ir_type_eq(a->inner, b->inner) && ir_type_eq(a->members, b->members);
     case IR_STRUCT:
+    case IR_UNION:
         if (!a->name.data && !b->name.data)
             return a == b;  /* anonymous: pointer identity only */
         return a->name.data == b->name.data;  /* named: compare by tag */
@@ -375,6 +421,7 @@ ir_type_name(IR_Type* t)
     case IR_PTR:   return "ptr";
     case IR_ARRAY: return "array";
     case IR_STRUCT:return "struct";
+    case IR_UNION: return "union";
     case IR_FUNC:  return "func";
     default:       return "?";
     }
@@ -387,7 +434,7 @@ ir_type_name(IR_Type* t)
 Type*
 ir_struct_ast_lookup(IR_Type* t)
 {
-    if (!t || t->kind != IR_STRUCT) return NULL;
+    if (!t || (t->kind != IR_STRUCT && t->kind != IR_UNION)) return NULL;
 
     /* named structs: double-check via tag name */
     for (int i = 0; i < n_ast_map; i++)

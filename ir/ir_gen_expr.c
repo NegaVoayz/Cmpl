@@ -47,6 +47,41 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
 {
     IR_Builder* b = ctx->b;
 
+    /* logical AND/OR: coerce both sides to i1, then bitwise and/or.
+     * This does NOT short-circuit. */
+    if (op == TOK_AMPAMP || op == TOK_PIPEPIPE) {
+        IR_Value* li = lhs;
+        if (li && li->type && li->type->kind != IR_I1) {
+            if (li->type->kind == IR_PTR) {
+                IR_Value* nv = arena_alloc(b->arena, sizeof(IR_Value));
+                nv->kind = VAL_CONST_NULL; nv->type = li->type;
+                li = ir_build_icmp(b, IR_COND_NE, li, nv);
+            } else if (li->type->kind == IR_F32 || li->type->kind == IR_F64) {
+                li = ir_build_fcmp(b, IR_COND_NE, li,
+                    ir_const_float(b->arena, li->type, 0.0));
+            } else {
+                li = ir_build_icmp(b, IR_COND_NE, li,
+                    ir_const_int(b, li->type ? li->type : t_i32, 0));
+            }
+        }
+        IR_Value* ri = rhs;
+        if (ri && ri->type && ri->type->kind != IR_I1) {
+            if (ri->type->kind == IR_PTR) {
+                IR_Value* nv = arena_alloc(b->arena, sizeof(IR_Value));
+                nv->kind = VAL_CONST_NULL; nv->type = ri->type;
+                ri = ir_build_icmp(b, IR_COND_NE, ri, nv);
+            } else if (ri->type->kind == IR_F32 || ri->type->kind == IR_F64) {
+                ri = ir_build_fcmp(b, IR_COND_NE, ri,
+                    ir_const_float(b->arena, ri->type, 0.0));
+            } else {
+                ri = ir_build_icmp(b, IR_COND_NE, ri,
+                    ir_const_int(b, ri->type ? ri->type : t_i32, 0));
+            }
+        }
+        return (op == TOK_AMPAMP) ? ir_build_and(b, li, ri)
+                                   : ir_build_or(b, li, ri);
+    }
+
     /* fixup: ptr + int or ptr += int → use GEP */
     if (op == TOK_PLUS || op == TOK_MINUS ||
         op == TOK_PLUSEQ || op == TOK_MINUSEQ) {
@@ -172,6 +207,105 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
 }
 
 /* ---------------------------------------------------------------
+ *  Store-target pointer for assignment LHS
+ * --------------------------------------------------------------- */
+
+/* forward: gen_expr is defined after gen_store_ptr */
+IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
+
+static IR_Value*
+gen_store_ptr(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
+
+    switch (n->type) {
+    case AST_IDENT: {
+        IR_Value* ptr = sym_lookup(ctx, n->body.ident.name);
+        if (ptr) return ptr;
+        return global_lookup(ctx->mod, n->body.ident.name);
+    }
+    case AST_MEMBER: {
+        TokenKind op = n->body.member.op;
+        String mem_name = n->body.member.member;
+        IR_Value* struct_ptr = NULL;
+        IR_Type* struct_ty = NULL;
+        Type* ast_struct = NULL;
+
+        if (op == TOK_ARROW) {
+            IR_Value* record_val = gen_expr(ctx, n->body.member.record);
+            if (!record_val || !record_val->type ||
+                record_val->type->kind != IR_PTR)
+                return NULL;
+            struct_ty = record_val->type->inner;
+            struct_ptr = record_val;
+        } else {
+            if (n->body.member.record->type == AST_IDENT) {
+                struct_ptr = sym_lookup(ctx,
+                    n->body.member.record->body.ident.name);
+                if (!struct_ptr)
+                    struct_ptr = global_lookup(ctx->mod,
+                        n->body.member.record->body.ident.name);
+                if (struct_ptr && struct_ptr->type &&
+                    struct_ptr->type->kind == IR_PTR)
+                    struct_ty = struct_ptr->type->inner;
+            }
+            if (!struct_ptr) {
+                IR_Value* record_val = gen_expr(ctx,
+                    n->body.member.record);
+                if (!record_val || !record_val->type ||
+                    (record_val->type->kind != IR_STRUCT &&
+                     record_val->type->kind != IR_UNION))
+                    return NULL;
+                struct_ty = record_val->type;
+                struct_ptr = ir_build_alloca(b, struct_ty);
+                ir_build_store(b, record_val, struct_ptr);
+            }
+        }
+
+        if (!struct_ty || (struct_ty->kind != IR_STRUCT &&
+                           struct_ty->kind != IR_UNION))
+            return NULL;
+
+        ast_struct = ir_struct_ast_lookup(struct_ty);
+
+        int field_idx = -1;
+        if (ast_struct)
+            field_idx = ir_struct_field_index(ast_struct, mem_name);
+        if (field_idx < 0) return NULL;
+
+        IR_Type* field_ty = t_i32;
+        { int fi = 0;
+          for (IR_Type* m = struct_ty->members; m; m = m->next, fi++)
+              if (fi == field_idx) { field_ty = m; break; } }
+
+        if (ast_struct && ast_struct->kind == TYPE_UNION) {
+            /* union: all fields at offset 0 — bitcast */
+            return ir_build_bitcast(b, struct_ptr,
+                ir_ptr_type(ctx->b->arena, field_ty,
+                    struct_ptr->type ? struct_ptr->type->addrspace : 0));
+        }
+
+        IR_Value* gep = ir_build_gep(b, struct_ptr,
+            ir_const_int(b, t_i32, 0),
+            ir_const_int(b, t_i32, field_idx));
+        gep->type = ir_ptr_type(ctx->b->arena, field_ty, 0);
+        return gep;
+    }
+    case AST_INDEX: {
+        IR_Value* arr = gen_expr(ctx, n->body.subscript.array);
+        IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
+        return ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
+    }
+    case AST_UNARY:
+        if (n->body.unary.op == TOK_STAR)
+            return gen_expr(ctx, n->body.unary.operand);
+        return NULL;
+    default:
+        return NULL;
+    }
+}
+
+/* ---------------------------------------------------------------
  *  Expression generation
  * --------------------------------------------------------------- */
 
@@ -198,15 +332,27 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       if (ptr) return ir_build_load(b, ptr);
       ptr = global_lookup(ctx->mod, n->body.ident.name);
       if (ptr) return ir_build_load(b, ptr);
+      /* function name used as a value (function pointer) —
+       * resolves to the global function symbol. */
+      if (ctx->sig_map) {
+          IR_Type* ret_t = func_type_lookup(ctx->sig_map, n->body.ident.name);
+          if (ret_t) {
+              IR_Value* fn_val = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+              fn_val->kind = VAL_GLOBAL;
+              fn_val->name = n->body.ident.name;
+              IR_Type* func_ty = ir_func_type(ctx->b->arena, ret_t, NULL);
+              fn_val->type = ir_ptr_type(ctx->b->arena, func_ty, 0);
+              return fn_val;
+          }
+      }
       IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
       v->kind = VAL_UNDEF; v->type = t_i32; return v; }
 
     case AST_BINARY:
     { if (n->body.binary.op == TOK_EQ) {
           IR_Value* rhs = gen_expr(ctx, n->body.binary.right);
-          if (n->body.binary.left->type == AST_IDENT) {
-              IR_Value* ptr = sym_lookup(ctx, n->body.binary.left->body.ident.name);
-              if (ptr) ir_build_store(b, rhs, ptr); }
+          IR_Value* ptr = gen_store_ptr(ctx, n->body.binary.left);
+          if (ptr) ir_build_store(b, rhs, ptr);
           return rhs; }
       IR_Value* l = gen_expr(ctx, n->body.binary.left);
       IR_Value* r = gen_expr(ctx, n->body.binary.right);
@@ -222,6 +368,18 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
               if (ptr) return ptr;
               ptr = global_lookup(ctx->mod, opnd->body.ident.name);
               if (ptr) return ptr;
+              /* &function_name → address of function symbol */
+              if (ctx->sig_map) {
+                  IR_Type* ret_t = func_type_lookup(ctx->sig_map,
+                      opnd->body.ident.name);
+                  if (ret_t) {
+                      IR_Value* fn = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+                      fn->kind = VAL_GLOBAL; fn->name = opnd->body.ident.name;
+                      IR_Type* ft = ir_func_type(ctx->b->arena, ret_t, NULL);
+                      fn->type = ir_ptr_type(ctx->b->arena, ft, 0);
+                      return fn;
+                  }
+              }
           }
 
           /* &arr[i] → return GEP pointer, don't load */
@@ -260,7 +418,8 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
                   }
               }
 
-              if (struct_ty && struct_ty->kind == IR_STRUCT) {
+              if (struct_ty && (struct_ty->kind == IR_STRUCT ||
+                         struct_ty->kind == IR_UNION)) {
                   Type* ast = ir_struct_ast_lookup(struct_ty);
                   int fi = ast ? ir_struct_field_index(ast, mname) : -1;
                   if (fi >= 0) {
@@ -494,7 +653,8 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
                 IR_Value* record_val = gen_expr(ctx,
                     n->body.member.record);
                 if (!record_val || !record_val->type ||
-                    record_val->type->kind != IR_STRUCT) {
+                    record_val->type->kind != IR_STRUCT &&
+                    record_val->type->kind != IR_UNION) {
                     IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
                     v->kind = VAL_UNDEF; v->type = t_i32; return v;
                 }
@@ -504,7 +664,8 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
             }
         }
 
-        if (!struct_ty || struct_ty->kind != IR_STRUCT) {
+        if (!struct_ty || (struct_ty->kind != IR_STRUCT &&
+                           struct_ty->kind != IR_UNION)) {
             IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
             v->kind = VAL_UNDEF; v->type = t_i32; return v;
         }

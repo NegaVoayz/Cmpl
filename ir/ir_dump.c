@@ -59,6 +59,7 @@ void dump_type(FILE* out, IR_Type* ty)
         break;
 
     case IR_STRUCT:
+    case IR_UNION:
         if (ty->name.data) {
             fprintf(out, "%%struct.%.*s", ty->name.length, ty->name.data);
         } else if (ty->members) {

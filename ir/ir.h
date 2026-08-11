@@ -21,7 +21,7 @@ typedef enum {
     IR_VOID, IR_I1,
     IR_I8, IR_I16, IR_I32, IR_I64,
     IR_F32, IR_F64,
-    IR_PTR, IR_ARRAY, IR_STRUCT, IR_FUNC
+    IR_PTR, IR_ARRAY, IR_STRUCT, IR_UNION, IR_FUNC
 } IR_TypeKind;
 
 /* ---------------------------------------------------------------

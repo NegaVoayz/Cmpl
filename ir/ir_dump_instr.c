@@ -182,13 +182,13 @@ void dump_instr(FILE* out, IR_Instr* inst)
          * access and emit only the variable index. LLVM requires
          * struct field indices to be constant. */
         if (idx0_is_zero && idx1_is_variable &&
-            elem && elem->kind == IR_STRUCT) {
+            elem && (elem->kind == IR_STRUCT || elem->kind == IR_UNION)) {
             fprintf(out, ", ");
             dump_type(out, inst->operands[2]->type);
             fprintf(out, " ");
             dump_value(out, inst->operands[2]);
         } else if (idx0_is_zero && inst->operands[2] &&
-                   (!elem || (elem->kind != IR_ARRAY && elem->kind != IR_STRUCT))) {
+                   (!elem || (elem->kind != IR_ARRAY && elem->kind != IR_STRUCT && elem->kind != IR_UNION))) {
             /* scalar: skip zero idx0, emit idx1 directly */
             fprintf(out, ", ");
             dump_type(out, inst->operands[2]->type);
