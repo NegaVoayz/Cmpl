@@ -78,18 +78,34 @@ static Type* typedef_lookup(TypedefEntry* table, String name)
     return NULL;
 }
 
-static void resolve_type_tree(Type* t, TypedefEntry* table)
+/* resolve_fields: if 1, enter struct/union field lists (AST_VAR_DECL).
+ * dropped to 0 when crossing TYPE_PTR — pointers act as a firewall
+ * so structs reached through pointers don't have their fields iterated.
+ * TYPE_NAMED that resolves directly to TYPE_STRUCT preserves the flag. */
+static void resolve_type_tree_ex(Type* t, TypedefEntry* table, int resolve_fields)
 {
     if (!t) return;
     if (t->kind == TYPE_NAMED && !t->inner) {
         Type* resolved = typedef_lookup(table, t->name);
         if (resolved) t->inner = resolved;
     }
-    resolve_type_tree(t->inner, table);
-    resolve_type_tree(t->next, table);
-    for (AST_Node* p = t->params;
-         p && p->type == AST_PARAM_DECL; p = p->next)
-        resolve_type_tree(p->body.param_decl.param_type, table);
+    /* TYPE_PTR is the firewall: what it points to doesn't enter struct fields */
+    resolve_type_tree_ex(t->inner, table,
+                         t->kind == TYPE_PTR ? 0 : resolve_fields);
+    resolve_type_tree_ex(t->next, table, resolve_fields);
+    for (AST_Node* p = t->params; p; p = p->next) {
+        Type* ft = NULL;
+        if (p->type == AST_PARAM_DECL)
+            ft = p->body.param_decl.param_type;
+        else if (resolve_fields && p->type == AST_VAR_DECL)
+            ft = p->body.var_decl.var_type;
+        if (ft) resolve_type_tree_ex(ft, table, 1);
+    }
+}
+
+static void resolve_type_tree(Type* t, TypedefEntry* table)
+{
+    resolve_type_tree_ex(t, table, 1);
 }
 
 static void resolve_expr_types(AST_Node* e, TypedefEntry* table);
@@ -104,6 +120,25 @@ static void resolve_expr_types(AST_Node* e, TypedefEntry* table)
         resolve_expr_types(e->body.cast.cast_expr, table); break;
     case AST_SIZEOF_TYPE:
         resolve_type_tree(e->body.sizeof_type.type_expr, table); break;
+    case AST_SIZEOF_EXPR:
+        /* If the operand is an identifier that is a typedef name
+         * (e.g. sizeof(PPCtx) where PPCtx is a typedef), convert
+         * this to sizeof(type) so the correct size is computed.
+         * The LR parser cannot distinguish typedef names from
+         * variable names, so this is resolved here. */
+        if (e->body.sizeof_expr.expr &&
+            e->body.sizeof_expr.expr->type == AST_IDENT) {
+            Type* rt = typedef_lookup(table,
+                         e->body.sizeof_expr.expr->body.ident.name);
+            if (rt) {
+                e->type = AST_SIZEOF_TYPE;
+                e->body.sizeof_type.type_expr = rt;
+                resolve_type_tree(rt, table);
+                break;  /* node is now AST_SIZEOF_TYPE — do NOT
+                         * fall through to sizeof_expr path! */
+            }
+        }
+        resolve_expr_types(e->body.sizeof_expr.expr, table); break;
     case AST_BINARY:
         resolve_expr_types(e->body.binary.left, table);
         resolve_expr_types(e->body.binary.right, table); break;
