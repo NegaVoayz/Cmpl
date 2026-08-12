@@ -108,6 +108,8 @@ main(int argc, char** argv)
     if (!root) {
         printf("Parse error!\n");
         pp_ctx_free(&pp_ctx);
+        arena_free(ast_arena);
+        free(code);
         return 1;
     }
 
@@ -175,6 +177,8 @@ main(int argc, char** argv)
         }
 
         free(launches);
+        if (host_mod)  arena_free(host_mod->arena);
+        if (device_mod) arena_free(device_mod->arena);
     } else if (codegen_mode) {
         /* -------------------------------------------------------
          *  LLVM codegen path: IR gen → optimize → clang subprocess
@@ -207,6 +211,7 @@ main(int argc, char** argv)
             int result = cg_compile(mod, output, codegen_mode, opt_level);
             if (result != 0)
                 fprintf(stderr, "Codegen failed.\n");
+            arena_free(mod->arena);
         }
     } else if (dump_ir) {
         printf("\n--- IR ---\n"); fflush(stdout);
@@ -215,6 +220,7 @@ main(int argc, char** argv)
         if (mod) {
             ir_optimize(mod, opt_level);
             ir_dump_module(mod, stdout);
+            arena_free(mod->arena);
         }
     } else {
         printf("\nAST:\n");
@@ -222,7 +228,12 @@ main(int argc, char** argv)
     }
 
     pp_ctx_free(&pp_ctx);
-    /* NOTE: code must not be freed here -- AST String fields are
-     * non-owning pointers into token data which references source text. */
+
+    /* AST arena owns all AST nodes; code buffer holds the preprocessed
+     * source text that AST String fields point into.  Free the AST
+     * arena first (which invalidates all AST String pointers), then
+     * free the code buffer — both are safe to reclaim at exit. */
+    arena_free(ast_arena);
+    free(code);
     return 0;
 }
