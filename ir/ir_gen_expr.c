@@ -529,7 +529,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
 	                  operand->body.cast.cast_expr);
 	              IR_Value* deref = ir_build_load(b, ptr_val);
 	              IR_Type* target = ir_type_from_ast(b->arena,
-	                  operand->body.cast.type_expr);
+	                  operand->body.cast.type_expr, ctx->is_device);
 	              if (target && deref->type &&
 	                  !ir_type_eq(deref->type, target)) {
 	                  if (deref->type->kind == IR_PTR ||
@@ -622,7 +622,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     case AST_CAST:
     { IR_Value* cv = gen_expr(ctx, n->body.cast.cast_expr);
       if (!cv) return NULL;
-      IR_Type* target = ir_type_from_ast(b->arena, n->body.cast.type_expr);
+      IR_Type* target = ir_type_from_ast(b->arena, n->body.cast.type_expr, ctx->is_device);
       if (!target || !cv->type) return cv;
       /* already matching types — nothing to do */
       if (ir_type_eq(cv->type, target)) return cv;
@@ -758,7 +758,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     }
 
     case AST_SIZEOF_TYPE:
-    { IR_Type* t = ir_type_from_ast(ctx->b->arena, n->body.sizeof_type.type_expr);
+    { IR_Type* t = ir_type_from_ast(ctx->b->arena, n->body.sizeof_type.type_expr, ctx->is_device);
       return ir_const_int(b, t_i32, ir_type_size(t)); }
 
     case AST_SIZEOF_EXPR:

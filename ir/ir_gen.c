@@ -318,7 +318,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     IR_Func*    func = arena_alloc(a, sizeof(IR_Func));
 
     func->name = fd->body.func_def.name;
-    func->ret_type = ir_type_from_ast(a, fd->body.func_def.ret_type);
+    func->ret_type = ir_type_from_ast(a, fd->body.func_def.ret_type, is_device);
 
     if (!func->ret_type)
         func->ret_type = t_void;
@@ -362,7 +362,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     {
         int i = 0;
         for (AST_Node* p = fd->body.func_def.params; p; p = p->next, i++) {
-            IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type);
+            IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type, is_device);
             /* if resolved type is i32 but AST type is a named typedef
              * (e.g. unresolved typedef for function pointer or struct),
              * default to ptr — typedefs aren't resolved at parse time. */
@@ -548,7 +548,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type != AST_FUNC_DEF) continue;
 
-        IR_Type* rt = ir_type_from_ast(a, decl->body.func_def.ret_type);
+        IR_Type* rt = ir_type_from_ast(a, decl->body.func_def.ret_type, is_device);
         hashmap_put(&sig_map, decl->body.func_def.name,
                     rt ? rt : t_void);
     }
@@ -585,7 +585,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         IR_Value* gv = arena_alloc(a, sizeof(IR_Value));
         gv->kind = VAL_GLOBAL;
         gv->name = decl->body.var_decl.name;
-        gv->type = ir_type_from_ast(a, decl->body.var_decl.var_type);
+        gv->type = ir_type_from_ast(a, decl->body.var_decl.var_type, is_device);
 
         /* fix up: if the IR type is an array-of-i32 but the AST element
          * type is a named typedef (likely fn ptr), use ptr elements */

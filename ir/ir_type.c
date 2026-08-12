@@ -195,7 +195,7 @@ static IR_Type* clone_type_for_chain(Arena* a, IR_Type* src)
  * --------------------------------------------------------------- */
 
 static IR_Type*
-ast_to_ir_type(Arena* a, Type* ast)
+ast_to_ir_type(Arena* a, Type* ast, int device_addrspace)
 {
     if (!ast) return t_void;
 
@@ -211,13 +211,14 @@ ast_to_ir_type(Arena* a, Type* ast)
 
     case TYPE_SIGNED:
     case TYPE_UNSIGNED:
-        if (ast->next) return ast_to_ir_type(a, ast->next);
+        if (ast->next) return ast_to_ir_type(a, ast->next, device_addrspace);
         return t_i32;
     case TYPE_PTR:
-    { IR_Type* inner = ast_to_ir_type(a, ast->inner); int as = ast->is_const ? 3 : 0;
+    { IR_Type* inner = ast_to_ir_type(a, ast->inner, device_addrspace);
+      int as = (device_addrspace && ast->is_const) ? 3 : 0;
       return ir_ptr_type(a, inner, as); }
     case TYPE_ARRAY:
-    { IR_Type* inner = ast_to_ir_type(a, ast->inner);
+    { IR_Type* inner = ast_to_ir_type(a, ast->inner, device_addrspace);
       return ir_array_type(a, inner, ast->arr_size > 0 ? ast->arr_size : 0); }
     case TYPE_FUNC:
     {
@@ -231,11 +232,11 @@ ast_to_ir_type(Arena* a, Type* ast)
             n_ptr++;
             inner = inner->inner;
         }
-        IR_Type* ret = ast_to_ir_type(a, inner);
+        IR_Type* ret = ast_to_ir_type(a, inner, device_addrspace);
         IR_Type *params = NULL, **tail = &params;
 
         for (AST_Node* p = ast->params; p; p = p->next) {
-            IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type);
+            IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type, device_addrspace);
             *tail = clone_type_for_chain(a, pt);
             tail = &(*tail)->next;
         }
@@ -270,7 +271,7 @@ ast_to_ir_type(Arena* a, Type* ast)
       if (ast->params) {
           IR_Type** tail = &t->members;
           for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL; f = f->next) {
-              IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type);
+              IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type, device_addrspace);
               if (!ft || ft->kind == IR_VOID) ft = t_i8;
               *tail = clone_type_for_chain(a, ft);
               tail = &(*tail)->next;
@@ -278,7 +279,7 @@ ast_to_ir_type(Arena* a, Type* ast)
       }
       return t; }
     case TYPE_NAMED:
-        if (ast->inner) return ast_to_ir_type(a, ast->inner);
+        if (ast->inner) return ast_to_ir_type(a, ast->inner, device_addrspace);
         return t_i32;
     default:
         return t_i32;
@@ -286,10 +287,10 @@ ast_to_ir_type(Arena* a, Type* ast)
 }
 
 IR_Type*
-ir_type_from_ast(Arena* a, Type* ast_type)
+ir_type_from_ast(Arena* a, Type* ast_type, int device_addrspace)
 {
     init_singletons();
-    return ast_to_ir_type(a, ast_type);
+    return ast_to_ir_type(a, ast_type, device_addrspace);
 }
 
 void

@@ -193,7 +193,7 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
     case AST_BREAK: if (ctx->break_blk) ir_build_br(b, ctx->break_blk); break;
     case AST_CONTINUE: if (ctx->cont_blk) ir_build_br(b, ctx->cont_blk); break;
     case AST_VAR_DECL:
-    { IR_Type* vt = ir_type_from_ast(b->arena, n->body.var_decl.var_type);
+    { IR_Type* vt = ir_type_from_ast(b->arena, n->body.var_decl.var_type, ctx->is_device);
       if (!vt || vt->kind == IR_VOID) vt = t_i8;
       /* evaluate init before creating alloca — init type may reveal
        * that an unresolved typedef is actually a fn ptr */

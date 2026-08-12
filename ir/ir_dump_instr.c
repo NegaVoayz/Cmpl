@@ -169,7 +169,11 @@ void dump_instr(FILE* out, IR_Instr* inst)
 
         fprintf(out, "getelementptr ");
         dump_type(out, elem);
-        fprintf(out, ", ptr ");
+        { IR_Type* base_ty = inst->operands[0] ? inst->operands[0]->type : NULL;
+          if (base_ty && base_ty->kind == IR_PTR && base_ty->addrspace > 0)
+              fprintf(out, ", ptr addrspace(%d) ", base_ty->addrspace);
+          else
+              fprintf(out, ", ptr "); }
         dump_value(out, inst->operands[0]);
 
         int idx0_is_zero = (inst->operands[1] &&
