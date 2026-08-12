@@ -35,7 +35,8 @@ is_straight_line(IR_Func* fn)
  * --------------------------------------------------------------- */
 
 static int
-inline_call(IR_Func* caller, IR_Block* blk, IR_Instr* call, IR_Func* callee)
+inline_call(IR_Func* caller, IR_Block* blk, IR_Instr* call, IR_Func* callee,
+            Arena* arena)
 {
     if (!callee->blocks) return 0;
 
@@ -71,8 +72,9 @@ inline_call(IR_Func* caller, IR_Block* blk, IR_Instr* call, IR_Func* callee)
             continue;  /* don't clone the ret itself */
         }
 
-        /* clone the instruction */
-        IR_Instr* copy = calloc(1, sizeof(IR_Instr));
+        /* clone the instruction (allocated from module arena so
+         * it is reclaimed with the module, not leaked). */
+        IR_Instr* copy = arena_alloc(arena, sizeof(IR_Instr));
         memcpy(copy, ci, sizeof(IR_Instr));
         copy->next = NULL;
 
@@ -160,7 +162,7 @@ inline_in_module(IR_Module* mod)
                 if (func_size(callee) > MAX_INLINE_SIZE) continue;
                 if (!is_straight_line(callee)) continue;
 
-                changed |= inline_call(fn, blk, inst, callee);
+                changed |= inline_call(fn, blk, inst, callee, mod->arena);
             }
         }
     }

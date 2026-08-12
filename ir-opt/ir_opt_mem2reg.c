@@ -35,7 +35,7 @@ alloca_ok(IR_Func* fn, IR_Value* a)
  * --------------------------------------------------------------- */
 
 static int
-promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
+promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca, Arena* arena)
 {
     int defs[MAX_BLK], nd = 0;
 
@@ -52,21 +52,23 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
 
     int idf[MAX_BLK], n_idf = compute_idf(bi, n, defs, nd, idf);
 
-    /* insert phi nodes at IDF blocks */
+    /* insert phi nodes at IDF blocks.
+     * Allocate from the module's arena so they are reclaimed
+     * when the module is freed (no manual free needed). */
     for (int k = 0; k < n_idf; k++) {
         IR_Block* blk = bi[idf[k]].blk;
-        IR_Instr* phi = calloc(1, sizeof(IR_Instr));
+        IR_Instr* phi = arena_alloc(arena, sizeof(IR_Instr));
         phi->opcode = IROP_PHI;
         phi->type = alloca->type ? alloca->type->inner : NULL;
 
-        phi->result = calloc(1, sizeof(IR_Value));
+        phi->result = arena_alloc(arena, sizeof(IR_Value));
         phi->result->kind = VAL_INSTR;
         phi->result->type = phi->type;
         phi->result->def_instr = phi;
 
         phi->n_incoming = bi[idf[k]].n_preds;
-        phi->in_vals = calloc(phi->n_incoming, sizeof(IR_Value*));
-        phi->in_blocks = calloc(phi->n_incoming, sizeof(IR_Block*));
+        phi->in_vals = arena_alloc(arena, phi->n_incoming * sizeof(IR_Value*));
+        phi->in_blocks = arena_alloc(arena, phi->n_incoming * sizeof(IR_Block*));
         for (int p = 0; p < phi->n_incoming; p++) {
             phi->in_vals[p] = alloca;
             phi->in_blocks[p] = bi[bi[idf[k]].preds[p]].blk;
@@ -86,7 +88,7 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
  * --------------------------------------------------------------- */
 
 static int
-promote_func(IR_Func* fn)
+promote_func(IR_Func* fn, Arena* arena)
 {
     BlkInfo* bi = calloc(MAX_BLK, sizeof(BlkInfo));
     if (!bi) return 0;
@@ -109,7 +111,7 @@ promote_func(IR_Func* fn)
             for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
                 if (inst->opcode != IROP_ALLOCA) continue;
                 if (!alloca_ok(fn, inst->result)) continue;
-                did |= promote_one(fn, bi, n, inst->result);
+                did |= promote_one(fn, bi, n, inst->result, arena);
                 if (did) break;
             }
             if (did) break;
@@ -132,6 +134,6 @@ opt_mem2reg(IR_Module* mod)
     int changed = 0;
     for (IR_Func* fn = mod->funcs; fn; fn = fn->next)
         if (fn->blocks)
-            changed |= promote_func(fn);
+            changed |= promote_func(fn, mod->arena);
     return changed;
 }

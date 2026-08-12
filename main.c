@@ -89,6 +89,7 @@ main(int argc, char** argv)
         char* pp_code = pp_preprocess(&pp_ctx, filename);
         if (pp_code) {
             fputs(pp_code, stdout);
+            free(pp_code);
         }
         pp_ctx_free(&pp_ctx);
         return 0;
