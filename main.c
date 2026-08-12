@@ -215,7 +215,7 @@ main(int argc, char** argv)
             arena_free(mod->arena);
         }
     } else if (dump_ir) {
-        printf("\n--- IR ---\n"); fflush(stdout);
+        printf("\n--- IR ---\n");
         IR_Module* mod = ir_gen_program(root);
 
         if (mod) {

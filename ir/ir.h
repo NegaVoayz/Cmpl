@@ -205,6 +205,9 @@ typedef struct {
     Arena*       arena;        /* allocator for all IR objects */
 } IR_Builder;
 
+/* Max anonymous struct/union types per module (shared by ir_dump.c + ir_dump_func.c) */
+#define IR_MAX_ANON_TYPES 256
+
 extern IR_Type *t_void, *t_i1, *t_i8, *t_i16, *t_i32, *t_i64;
 extern IR_Type *t_f32, *t_f64;
 

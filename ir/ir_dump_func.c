@@ -98,7 +98,7 @@ dump_func(FILE* out, IR_Func* func)
  *  structs to their canonical named equivalent.
  * --------------------------------------------------------------- */
 
-#define MAX_STRUCT_TYPES 64
+#define MAX_STRUCT_TYPES 256
 static IR_Type* struct_seen[MAX_STRUCT_TYPES];
 static int n_struct_seen = 0;
 
@@ -159,7 +159,7 @@ static void collect_struct_types_rec(IR_Type* t)
     struct_seen[n_struct_seen++] = t;
 
     /* register in dump_anon table so dump_type finds it */
-    if (!t->name.data && dump_anon_count < 64) {
+    if (!t->name.data && dump_anon_count < IR_MAX_ANON_TYPES) {
         for (int i = 0; i < dump_anon_count; i++)
             if (dump_anon_types[i] == t) return;
         dump_anon_types[dump_anon_count++] = t;
