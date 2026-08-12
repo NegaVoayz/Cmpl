@@ -141,13 +141,19 @@ static void collect_struct_types_rec(IR_Type* t)
     }
     if (!t->members || n_struct_seen >= MAX_STRUCT_TYPES) return;
 
-    /* dedup: named structs by pointer; anonymous by member layout */
+    /* dedup: named structs by name string (clones of a named struct
+     * have different pointers but share the same name data pointer);
+     * anonymous structs by pointer identity (each distinct anonymous
+     * struct has a unique IR_Type*, cached by AST pointer). */
     if (t->name.data) {
-        for (int i = 0; i < n_struct_seen; i++)
-            if (struct_seen[i] == t) return;
+        for (int i = 0; i < n_struct_seen; i++) {
+            IR_Type* s = struct_seen[i];
+            if (s->name.data == t->name.data &&
+                s->name.length == t->name.length) return;
+        }
     } else {
         for (int i = 0; i < n_struct_seen; i++)
-            if (members_eq(struct_seen[i]->members, t->members)) return;
+            if (struct_seen[i] == t) return;
     }
 
     struct_seen[n_struct_seen++] = t;
