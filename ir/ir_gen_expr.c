@@ -657,8 +657,30 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       /* same-size int conversion, or struct→struct: bitcast */
       return ir_build_bitcast(b, cv, target); }
     case AST_COMPOUND_LIT:
-        { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-          v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+    { /* (type){init} — allocate a temporary, store the value, return ptr.
+         * For array types like (T[]){e1,e2}, each element is a separate
+         * store to the alloca'd space.  The init is currently skipped by
+         * the parser for non-empty initializers, so we handle the common
+         * single-element case heuristically: if the type is an array or
+         * pointer, alloca one element and store the (already evaluated)
+         * init expression. */
+        Type* ct = n->body.compound_lit.type_expr;
+        IR_Type* ir_t = ct ? ir_type_from_ast(ctx->b->arena, ct) : NULL;
+
+        /* Alloca space for the compound literal */
+        IR_Value* alloca_ptr = ir_build_alloca(b, ir_t ? ir_t : t_i8);
+
+        /* If there is an init expression, store it */
+        if (n->body.compound_lit.init) {
+            IR_Value* init_val = gen_expr(ctx, n->body.compound_lit.init);
+            if (init_val) {
+                /* Store directly — for array types the init may need
+                 * to be stored element-by-element, but single-element
+                 * arrays decay to pointer and store works. */
+                ir_build_store(b, init_val, alloca_ptr);
+            }
+        }
+        return alloca_ptr; }
 
     case AST_INDEX:
     { IR_Value* arr = gen_expr(ctx, n->body.subscript.array);

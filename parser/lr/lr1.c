@@ -270,6 +270,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
 
                         AST_Node* n = ast_node_new(p->arena, AST_COMPOUND_LIT,
                                                     start->loc.line, start->loc.col);
+                        n->body.compound_lit.type_expr = ct;
                         n->body.compound_lit.init = NULL;
                         goto_push(p, n, SYM_PRIMARY);
                         continue;
