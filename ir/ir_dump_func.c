@@ -102,6 +102,20 @@ dump_func(FILE* out, IR_Func* func)
 static IR_Type* struct_seen[MAX_STRUCT_TYPES];
 static int n_struct_seen = 0;
 
+/* Return the largest member of a union type (by size).
+ * For structs, returns NULL (all members are used). */
+static IR_Type* union_largest_member(IR_Type* t)
+{
+    if (!t || t->kind != IR_UNION || !t->members) return NULL;
+    IR_Type* best = NULL;
+    int best_sz = 0;
+    for (IR_Type* m = t->members; m; m = m->next) {
+        int sz = ir_type_size(m);
+        if (sz > best_sz) { best_sz = sz; best = m; }
+    }
+    return best;
+}
+
 /* compare two struct member lists for equality */
 static int members_eq(IR_Type* a, IR_Type* b)
 {
@@ -144,6 +158,12 @@ static void collect_struct_types_rec(IR_Type* t)
             if (dump_anon_types[i] == t) return;
         dump_anon_types[dump_anon_count++] = t;
     }
+
+    /* Recurse into members so nested struct/union types are collected.
+     * For unions, all members need collection since they are accessed
+     * via bitcast even though only the largest is emitted inline. */
+    for (IR_Type* m = t->members; m; m = m->next)
+        collect_struct_types_rec(m);
 }
 
 static void emit_struct_types(FILE* out, IR_Module* mod)
@@ -170,28 +190,45 @@ static void emit_struct_types(FILE* out, IR_Module* mod)
         IR_Type* t = struct_seen[i];
         if (!t->name.data || !t->members) continue;
 
-        fprintf(out, "%%struct.%.*s = type { ", t->name.length, t->name.data);
-        int first = 1;
-        for (IR_Type* m = t->members; m; m = m->next) {
-            if (!first) fprintf(out, ", ");
-            first = 0;
-            dump_type(out, m);
+        if (t->kind == IR_UNION) {
+            /* Union: emit only the largest member, since all members
+             * overlap at offset 0.  LLVM represents unions as a struct
+             * containing just the largest member. */
+            IR_Type* largest = union_largest_member(t);
+            fprintf(out, "%%struct.%.*s = type { ", t->name.length, t->name.data);
+            dump_type(out, largest ? largest : t->members);
+            fprintf(out, " }\n");
+        } else {
+            fprintf(out, "%%struct.%.*s = type { ", t->name.length, t->name.data);
+            int first = 1;
+            for (IR_Type* m = t->members; m; m = m->next) {
+                if (!first) fprintf(out, ", ");
+                first = 0;
+                dump_type(out, m);
+            }
+            fprintf(out, " }\n");
         }
-        fprintf(out, " }\n");
     }
 
     /* emit anonymous structs discovered during dump_type calls */
     for (int i = 0; i < dump_anon_count; i++) {
         IR_Type* t = dump_anon_types[i];
 
-        fprintf(out, "%%struct.anon.%d = type { ", i);
-        int first = 1;
-        for (IR_Type* m = t->members; m; m = m->next) {
-            if (!first) fprintf(out, ", ");
-            first = 0;
-            dump_type(out, m);
+        if (t->kind == IR_UNION) {
+            IR_Type* largest = union_largest_member(t);
+            fprintf(out, "%%struct.anon.%d = type { ", i);
+            dump_type(out, largest ? largest : t->members);
+            fprintf(out, " }\n");
+        } else {
+            fprintf(out, "%%struct.anon.%d = type { ", i);
+            int first = 1;
+            for (IR_Type* m = t->members; m; m = m->next) {
+                if (!first) fprintf(out, ", ");
+                first = 0;
+                dump_type(out, m);
+            }
+            fprintf(out, " }\n");
         }
-        fprintf(out, " }\n");
     }
     if (n_struct_seen + dump_anon_count > 0) fprintf(out, "\n");
 }
