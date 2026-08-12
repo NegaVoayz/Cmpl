@@ -130,4 +130,4 @@ From [CLAUDE.md](../CLAUDE.md):
 - **Memory model**: A single arena per compilation unit owns all Token, AST_Node, IR_Value, IR_Instr, IR_Type, and IR_Block objects. No `free()` calls — teardown is `arena_free()`. HashMaps provide O(1) name lookup throughout. **CUDA exception**: Two arenas exist (host + device modules). `ir_reset_type_caches()` at the start of each `ir_gen_module_ex()` prevents cross-arena IR_Type* pollution via static caches.
 - **Own IR tree**: In-memory LLVM IR data structures with no external LLVM dependency. The `.ll` text bridge connects to the LLVM ecosystem when needed. Def-use chains on IR_Value enable O(n) DCE and correct GVN user redirection.
 - **Per-file limits**: ≤ 200 lines per file, ≤ 80 lines per function, K&R braces.
-- **Self-hosting**: Cmpl can compile its own source files (77/77 objects link; full self-compilation working via `build_self.ps1`).
+- **Self-hosting**: Cmpl can compile its own source files (77/77 pass IR gen; 76/77 pass clang `.ll` → `.o`; link succeeds; runtime smoke test in progress via `build_self.ps1`).

@@ -427,9 +427,15 @@ based on source and destination types:
 |---|---|---|
 | ptr | int | `ptrtoint` |
 | int | ptr | `inttoptr` |
+| float (narrower) | float (wider) | `fpext` |
+| float (wider) | float (narrower) | `fptrunc` |
 | int (narrower) | int (wider) | `zext` |
 | int (wider) | int (narrower) | `trunc` |
 | ptr | ptr | `bitcast` |
+
+Float widening/narrowing in AST casts is routed through `IROP_BITCAST` rather
+than `IROP_ZEXT`/`IROP_TRUNC`, since LLVM requires `fpext`/`fptrunc` for
+floating-point size changes.
 
 ### Comparison Type Coercion
 
@@ -442,6 +448,70 @@ When `gen_binary_op` encounters comparison operands with mismatched types:
 
 This handles type mismatches that arise from incomplete struct member type
 resolution during AST-to-IR lowering.
+
+### Enum Constant Resolution
+
+Enum member references (e.g., `CG_OUT_LLVM_IR`, `AST_IDENT`) are resolved during
+IR generation via `enum_val_lookup()`. During `ir_gen_module_ex()`, all `AST_ENUM_DEF`
+nodes are collected into a linked list of `(name, int_value)` pairs. This table is
+passed through `ir_gen_function()` → `GenCtx.enum_vals` → `gen_expr()`.
+
+When `gen_expr` encounters an `AST_IDENT` that is neither a local variable nor a
+global, it checks the enum table before falling back to `VAL_UNDEF`:
+
+```c
+case AST_IDENT:
+{ IR_Value* ptr = sym_lookup(ctx, n->body.ident.name);
+  if (ptr) return ir_build_load(b, ptr);
+  ptr = global_lookup(ctx->mod, n->body.ident.name);
+  if (ptr) return ir_build_load(b, ptr);
+  /* check enum constants before falling back to undef */
+  { int ev = enum_val_lookup(ctx->enum_vals, n->body.ident.name);
+    if (ev >= 0) return ir_const_int(b, t_i32, ev); }
+  IR_Value* v = ...; v->kind = VAL_UNDEF; ...; return v; }
+```
+
+Without this, all enum constants in generated IR became `undef`, corrupting
+switch/case dispatch and comparison logic throughout the self-compiled binary.
+
+### Logical AND / OR (`&&`, `||`)
+
+`gen_binary_op` handles `TOK_AMPAMP` (&&) and `TOK_PIPEPIPE` (||) by coercing
+both operands to `i1` (using the same rules as `coerce_to_i1` in `ir_gen_stmt.c`),
+then emitting `and i1` or `or i1`:
+
+```c
+if (op == TOK_AMPAMP || op == TOK_PIPEPIPE) {
+    /* coerce lhs to i1 (ptr→icmp ne null, float→fcmp ne 0.0, int→icmp ne 0) */
+    /* coerce rhs to i1 */
+    return (op == TOK_AMPAMP) ? ir_build_and(b, li, ri)
+                               : ir_build_or(b, li, ri);
+}
+```
+
+This does **not** short-circuit — both operands are always evaluated. NULL-guard
+patterns like `if (p && p->field)` must be restructured at source level to avoid
+dereferencing NULL when the left side is false. In practice, the cmpl source code
+avoids this pattern in performance-critical paths.
+
+### CRT Interaction: stdout / stderr / stdin
+
+The self-hosted compiler references `@stdout`, `@stderr`, and `@stdin` as external
+global `ptr` symbols (declared in `include/stdio.h`). MinGW's UCRT does not export
+these as linkable symbols — they are macros to `__acrt_iob_func(N)`. The bridge file
+`build/self_new/crt_shim.c` provides real definitions initialized via a constructor:
+
+```c
+__attribute__((constructor))
+static void crt_shim_init(void) {
+    stdin  = __acrt_iob_func(0);
+    stdout = __acrt_iob_func(1);
+    stderr = __acrt_iob_func(2);
+}
+```
+
+This file is compiled directly with clang (not via cmpl) because cmpl does not
+parse `__attribute__((constructor))`.
 
 ## IR Text Output (`.ll` Dump)
 
@@ -499,12 +569,14 @@ The AST walk produces IR via the builder:
 ```
 ast_to_ir(IR_Builder* b, AST_Node* node)
   AST_INT_LIT     → ir_const_int(val)
-  AST_IDENT       → lookup SSA value in symbol table
-  AST_BINARY      → lhs = ast_to_ir(left), rhs = ast_to_ir(right), ir_build_add/lsub/...
-  AST_UNARY       → operand = ast_to_ir(expr), ir_build_...
+  AST_IDENT       → sym_lookup (local alloca), then global_lookup, then enum_val_lookup
+  AST_BINARY      → lhs = ast_to_ir(left), rhs = ast_to_ir(right), gen_binary_op()
+                    (handles arithmetic, comparisons, logical &&/||, pointer ops, GEP)
+  AST_UNARY       → operand = ast_to_ir(expr), ir_build_... (&/*/-/!/~)
   AST_CALL        → args = ast_to_ir each arg, ir_build_call(name, ...)
+                    (direct calls for AST_IDENT callees, indirect via ir_build_call_ptr otherwise)
   AST_RETURN      → val = ast_to_ir(expr), ir_build_ret(val)
-  AST_IF          → cond = ast_to_ir(condition), ir_build_cond_br, then_block, else_block
+  AST_IF          → cond = coerce_to_i1(ast_to_ir(condition)), ir_build_cond_br, then/else/merge blocks
   AST_WHILE       → cond_block, body_block, merge_block with branches
   AST_VAR_DECL    → ir_build_alloca(type), store init if present, add to symbol table
   AST_FUNC_DEF    → ir_func_new(name, ret_type, params), ast_to_ir(body)
