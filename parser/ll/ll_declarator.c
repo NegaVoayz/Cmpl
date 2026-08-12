@@ -69,29 +69,78 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
     }
     /* else: abstract declarator (no name), like int[] or int(*)() */
 
-    /* 3. Suffix: array [...] and function (...) */
+    /* 3. Suffix: array [...] and function (...)
+     *
+     * C declarator semantics: suffixes closest to the identifier
+     * bind tightest.  char x[64][512] means "x is array of 64
+     * (array of 512 char)" — [64] is the outer dimension, [512]
+     * is the inner.  Since the loop reads left-to-right, we
+     * collect array types in order and reverse them before
+     * chaining, so the first [N] becomes the outermost array. */
+    #define MAX_SUFFIX 16
+    Type* array_suffixes[MAX_SUFFIX];
+    int n_arrays = 0;
+    int has_func = 0;
+    Type* func_type = NULL;
+
     for (;;) {
         if (p->tok->kind == TOK_LBRACKET) {
+            if (n_arrays >= MAX_SUFFIX) break;
             p->tok = p->tok->next;
 
             Type* arr = type_new(p->arena, TYPE_ARRAY);
 
             arr->arr_size = 0;
 
-            if (p->tok->kind == TOK_INT_LIT) {
+            if (p->tok->kind == TOK_INT_LIT &&
+                p->tok->next && p->tok->next->kind == TOK_RBRACKET) {
                 arr->arr_size = (int)p->tok->body.int_val;
                 p->tok = p->tok->next;
-            } else if (p->tok->kind == TOK_IDENT) {
-                /* enum constant or macro — preserve for later resolution */
+            } else if (p->tok->kind == TOK_IDENT &&
+                       p->tok->next && p->tok->next->kind == TOK_RBRACKET) {
                 arr->size_name = p->tok->body.ident;
                 p->tok = p->tok->next;
+            } else if (p->tok->kind != TOK_RBRACKET) {
+                Token* rbrack = p->tok;
+                while (rbrack && rbrack->kind != TOK_RBRACKET)
+                    rbrack = rbrack->next;
+
+                if (rbrack) rbrack->kind = TOK_SEMI;
+
+                AST_Node* expr = ll_parse_expr(p);
+
+                if (rbrack) rbrack->kind = TOK_RBRACKET;
+
+                if (expr) {
+                    if (expr->type == AST_INT_LIT)
+                        arr->arr_size = (int)expr->body.literal.int_val;
+                    else if (expr->type == AST_BINARY &&
+                             expr->body.binary.left &&
+                             expr->body.binary.left->type == AST_INT_LIT &&
+                             expr->body.binary.right &&
+                             expr->body.binary.right->type == AST_INT_LIT) {
+                        int l = (int)expr->body.binary.left->body.literal.int_val;
+                        int r = (int)expr->body.binary.right->body.literal.int_val;
+                        TokenKind op = expr->body.binary.op;
+                        if (op == TOK_PLUS)      arr->arr_size = l + r;
+                        else if (op == TOK_MINUS) arr->arr_size = l - r;
+                        else if (op == TOK_STAR)  arr->arr_size = l * r;
+                        else if (op == TOK_SLASH) arr->arr_size = l / r;
+                    }
+                }
             }
 
             if (p->tok->kind == TOK_RBRACKET)
                 p->tok = p->tok->next;
 
-            arr->inner = result;
-            result = arr;
+            /* wrap pending pointer layers so array wraps them:
+             *   char *seen[64] → [64 x ptr], not ptr to [64 x i8] */
+            while (ptr_count-- > 0) {
+                Type* pwrap = type_new(p->arena, TYPE_PTR);
+                pwrap->inner = result;
+                result = pwrap;
+            }
+            array_suffixes[n_arrays++] = arr;
         } else if (p->tok->kind == TOK_LPAREN) {
             p->tok = p->tok->next;
 
@@ -100,6 +149,8 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
             func->params = ll_parse_params(p);
             func->inner = result;
             result = func;
+            has_func = 1;
+            func_type = func;
 
             if (p->tok->kind == TOK_RPAREN)
                 p->tok = p->tok->next;
@@ -107,6 +158,14 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
             break;
         }
     }
+
+    /* Chain array suffixes in REVERSE order so the first [N]
+     * becomes the outermost dimension (correct C semantics). */
+    for (int i = n_arrays - 1; i >= 0; i--) {
+        array_suffixes[i]->inner = result;
+        result = array_suffixes[i];
+    }
+    #undef MAX_SUFFIX
 
     /* 4. Wrap pointer layers (outermost star first) */
     while (ptr_count-- > 0) {
