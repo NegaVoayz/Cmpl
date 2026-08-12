@@ -102,6 +102,13 @@ main(int argc, char** argv)
         return 1;
     }
 
+    if (!code[0]) {
+        fprintf(stderr, "pp: empty preprocessor output for '%s'\n", filename);
+        pp_ctx_free(&pp_ctx);
+        free(code);
+        return 1;
+    }
+
     printf("--- Parsing ---\n");
     Arena* ast_arena = arena_new();
     AST_Node* root = parse_program(code, ast_arena);
