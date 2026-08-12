@@ -172,6 +172,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
 
         if (p->tok->kind == TOK_EQ) {
             p->tok = p->tok->next;
+
             if (p->tok->kind == TOK_LBRACE) {
                 /* count initializer elements for array size inference */
                 int depth = 1, elem_count = 0, has_elem = 0;
@@ -212,7 +213,32 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                         scan->arr_size = elem_count;
                 }
             } else {
+                /* Scan ahead to find the terminating comma or semicolon
+                 * at the top level (outside parens/brackets/braces).
+                 * Replace a top-level comma with semicolon so the LR
+                 * parser treats it as the expression terminator.
+                 * This fixes multi-declarator initializers like
+                 * `int a = foo(x), b = 2;` where the comma between
+                 * declarators must not be parsed as a comma operator. */
+                Token* comma = NULL;
+                { int depth = 0;
+                  for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
+                      if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
+                          t->kind == TOK_LBRACE) depth++;
+                      else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
+                               t->kind == TOK_RBRACE) depth--;
+                      else if (depth == 0 && t->kind == TOK_COMMA)
+                          { comma = t; break; }
+                      else if (depth == 0 && t->kind == TOK_SEMI)
+                          break;
+                  }
+                }
+                TokenKind saved = TOK_SEMI;
+                if (comma) { saved = comma->kind; comma->kind = TOK_SEMI; }
+
                 vd->body.var_decl.init = ll_parse_expr(p);
+
+                if (comma) comma->kind = saved;
             }
         }
 

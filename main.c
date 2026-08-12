@@ -33,6 +33,19 @@ main(int argc, char** argv)
     /* Add bundled include stubs for system headers */
     pp_add_include_path(&pp_ctx, "../include");
 
+    /* Add all source directories for self-hosting cross-directory includes.
+     * Paths are relative to the build directory (where cmpl is normally run). */
+    pp_add_include_path(&pp_ctx, "../base");
+    pp_add_include_path(&pp_ctx, "../tokenizer");
+    pp_add_include_path(&pp_ctx, "../ir");
+    pp_add_include_path(&pp_ctx, "../pp");
+    pp_add_include_path(&pp_ctx, "../parser");
+    pp_add_include_path(&pp_ctx, "../ast-opt");
+    pp_add_include_path(&pp_ctx, "../ir-opt");
+    pp_add_include_path(&pp_ctx, "../vulkan");
+    pp_add_include_path(&pp_ctx, "../cuda");
+    pp_add_include_path(&pp_ctx, "../llvm-codegen");
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ir") == 0) {
             dump_ir = 1;

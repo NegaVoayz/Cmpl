@@ -154,7 +154,14 @@ AST_Node* ll_parse_program(LR1_Parser* p)
             root->body.program.last_decl->next = node;
         else
             root->body.program.decls = node;
+
+        /* Walk to the last node in the returned chain.
+         * Multi-declarator declarations (e.g. `int a, b, c;`)
+         * return a chain, and we must set last_decl to the
+         * tail so the next declaration appends correctly. */
         root->body.program.last_decl = node;
+        while (root->body.program.last_decl->next)
+            root->body.program.last_decl = root->body.program.last_decl->next;
     }
 
     return root;

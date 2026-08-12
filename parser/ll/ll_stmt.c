@@ -79,7 +79,12 @@ static AST_Node* ll_parse_block(LR1_Parser* p)
             n->body.block.last_stmt->next = stmt;
         else
             n->body.block.stmts = stmt;
+
+        /* Walk to the last node for multi-declarator chains
+         * (e.g. `int a, b, c;` inside a block). */
         n->body.block.last_stmt = stmt;
+        while (n->body.block.last_stmt->next)
+            n->body.block.last_stmt = n->body.block.last_stmt->next;
     }
 
     ll_expect(p, TOK_RBRACE);
