@@ -1,12 +1,10 @@
 $ErrorActionPreference = "Continue"
-$env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
+# Use MinGW's clang/LLVM toolchain (has CRT libraries, unlike bare LLVM on Windows)
+$env:PATH = "C:\MinGW\bin;C:\Program Files\LLVM\bin;$env:PATH"
+# Force MinGW target so clang uses ld (not lld-link) and finds MinGW CRT libraries
+$CLANG_FLAGS = "--target=x86_64-w64-mingw32"
 Set-Location "D:\MyCodes\C\Cmpl"
 
-# Use build2 which has a working cache (build/ was corrupted)
-$CMPL = ".\build2\cmpl.exe"
-Write-Host "Using: $CMPL"
-
-# All source files that need to be compiled
 $sources = @(
     "main.c", "dump_ast.c",
     "base/arena.c", "base/hash.c",
@@ -22,7 +20,8 @@ $sources = @(
     "parser/ll/ll_stmt_ctrl_jump.c", "parser/ll/ll_type.c", "parser/ll/ll_declarator.c",
     "parser/ll/ll_decl.c", "parser/ll/ll_decl_agg.c", "parser/ll/ll_decl_struct.c",
     "parser/parse.c",
-    "ast-opt/optimize.c", "ast-opt/ast_walk.c", "ast-opt/opt_fold.c",
+    "ast-opt/optimize.c", "ast-opt/ast_walk.c", "ast-opt/opt_enum.c",
+    "ast-opt/opt_fold.c",
     "ast-opt/opt_fold_walk.c", "ast-opt/opt_fold_try.c", "ast-opt/opt_propagate.c",
     "ast-opt/opt_propagate_scan.c", "ast-opt/opt_propagate_replace.c", "ast-opt/opt_dead.c",
     "ir/ir_type.c", "ir/ir_builder.c", "ir/ir_builder_ops.c", "ir/ir_gen.c",
@@ -37,6 +36,32 @@ $sources = @(
     "llvm-codegen/llvm_cg.c"
 )
 
+# ================================================================
+# Stage 0: Find or build the cmpl binary to use for self-compilation
+# ================================================================
+
+# Prefer a previously self-built cmpl (has the enum/&&/crt fixes).
+# Fall back to the bootstrap cmpl in build2/.
+$CMPL = $null
+if (Test-Path ".\build\self\cmpl_self.exe") {
+    # Save a copy before cleaning build/self/
+    Copy-Item ".\build\self\cmpl_self.exe" ".\build\cmpl_prev.exe" -Force
+    $CMPL = ".\build\cmpl_prev.exe"
+    Write-Host "Using previously self-built cmpl (saved to build/cmpl_prev.exe)"
+} elseif (Test-Path ".\build2\cmpl.exe") {
+    $CMPL = ".\build2\cmpl.exe"
+    Write-Host "Using bootstrap: $CMPL"
+}
+
+if (-not $CMPL) {
+    Write-Host "ERROR: No cmpl binary found. Run bootstrap build first."
+    exit 1
+}
+
+# ================================================================
+# Stage 1: Use cmpl to generate LLVM IR for all source files
+# ================================================================
+
 # Clean build dir
 Remove-Item -Recurse -Force build/self -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force build/self | Out-Null
@@ -44,9 +69,10 @@ New-Item -ItemType Directory -Force build/self | Out-Null
 $failed = @()
 $objFiles = @()
 
-Write-Host "=== Step 1: Generate LLVM IR for all $($sources.Count) source files ==="
+Write-Host "=== Stage 1: Generate LLVM IR with cmpl for all $($sources.Count) source files ==="
 foreach ($src in $sources) {
-    $base = [System.IO.Path]::GetFileNameWithoutExtension($src)
+    $base = $src -replace '[/\\]', '_'
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($base)
     $llFile = "build/self/$base.ll"
     $objFile = "build/self/$base.o"
     $objFiles += $objFile
@@ -61,7 +87,7 @@ foreach ($src in $sources) {
     }
 
     Write-Host "    -> $objFile"
-    $clangResult = & clang -c -o $objFile $llFile 2>&1
+    $clangResult = & clang $CLANG_FLAGS -c -o $objFile $llFile 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "    FAIL (clang): $src"
         Write-Host $clangResult
@@ -69,10 +95,15 @@ foreach ($src in $sources) {
     }
 }
 
-# Also compile crt_shim.c
-Write-Host "  crt_shim.c"
-& $CMPL -emit-llvm -I./include -I./base -I. -o build/self/crt_shim.ll build/self_new/crt_shim.c 2>&1 | Out-Null
-& clang -c -o build/self/crt_shim.o build/self/crt_shim.ll 2>&1 | Out-Null
+# Compile crt_shim.c directly with clang (not via cmpl) because it uses
+# __attribute__((constructor)) which cmpl does not parse yet.
+# It provides stdout/stderr/stdin symbols initialised from the UCRT.
+Write-Host "  crt_shim.c (direct clang)"
+& clang $CLANG_FLAGS -c -o build/self/crt_shim.o build/self_new/crt_shim.c 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "    FAIL (clang direct): crt_shim.c"
+    $failed += "crt_shim.c"
+}
 $objFiles += "build/self/crt_shim.o"
 
 Write-Host ""
@@ -83,22 +114,35 @@ if ($failed.Count -gt 0) {
     foreach ($f in $failed) { Write-Host "  $f" }
 }
 
+# ================================================================
+# Stage 2: Link cmpl_self.exe
+# ================================================================
+
 Write-Host ""
-Write-Host "=== Step 2: Link cmpl_self.exe ==="
-$objsStr = ($objFiles | ForEach-Object { "`"$_`"" }) -join " "
-$linkCmd = "clang -o build/self/cmpl_self.exe $objsStr"
-Write-Host $linkCmd
-Invoke-Expression $linkCmd
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "SUCCESS: cmpl_self.exe built!"
-    Write-Host ""
-    Write-Host "=== Step 3: Test cmpl_self.exe ==="
-    & ./build/self/cmpl_self.exe -emit-llvm -I./include -I./base -I. -o build/self/test_self.ll test/test.c 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "SELF-COMPILATION WORKS!"
-    } else {
-        Write-Host "cmpl_self.exe ran but may have issues (exit=$LASTEXITCODE)"
-    }
-} else {
+Write-Host "=== Stage 2: Link cmpl_self.exe ==="
+Write-Host "clang -o build/self/cmpl_self.exe build/self/*.o"
+& clang $CLANG_FLAGS -o build/self/cmpl_self.exe build/self/*.o 2>&1
+if ($LASTEXITCODE -ne 0) {
     Write-Host "LINK FAILED"
+    exit 1
 }
+Write-Host "SUCCESS: cmpl_self.exe built!"
+
+# ================================================================
+# Stage 3: Self-compilation test
+# ================================================================
+
+Write-Host ""
+Write-Host "=== Stage 3: Test cmpl_self.exe ==="
+$testResult = & ./build/self/cmpl_self.exe -emit-llvm -I./include -I./base -I. -o build/self/test_self.ll test/test.c 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "SELF-COMPILATION WORKS!"
+} else {
+    Write-Host "cmpl_self.exe failed (exit=$LASTEXITCODE)"
+    Write-Host $testResult
+    Remove-Item ".\build\cmpl_prev.exe" -ErrorAction SilentlyContinue
+    exit 1
+}
+
+# Clean up the saved previous binary
+Remove-Item ".\build\cmpl_prev.exe" -ErrorAction SilentlyContinue
