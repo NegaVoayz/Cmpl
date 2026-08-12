@@ -20,8 +20,9 @@ static int singletons_inited = 0;
 
 /* named struct type cache — deduplicates IR_Type objects for the same struct.
  * Disabled during pass 0 (pre-typedef-resolution) to avoid caching incomplete types. */
-#define MAX_STRUCT_CACHE 32
+#define MAX_STRUCT_CACHE 64
 static IR_Type* struct_cache[MAX_STRUCT_CACHE];
+static Type*    struct_cache_ast[MAX_STRUCT_CACHE]; /* AST ptr for anonymous dedup */
 static int n_struct_cache = 0;
 static int cache_enabled = 0;
 
@@ -195,7 +196,7 @@ static IR_Type* clone_type_for_chain(Arena* a, IR_Type* src)
  * --------------------------------------------------------------- */
 
 static IR_Type*
-ast_to_ir_type(Arena* a, Type* ast, int device_addrspace)
+ast_to_ir_type(Arena* a, Type* ast)
 {
     if (!ast) return t_void;
 
@@ -211,14 +212,13 @@ ast_to_ir_type(Arena* a, Type* ast, int device_addrspace)
 
     case TYPE_SIGNED:
     case TYPE_UNSIGNED:
-        if (ast->next) return ast_to_ir_type(a, ast->next, device_addrspace);
+        if (ast->next) return ast_to_ir_type(a, ast->next);
         return t_i32;
     case TYPE_PTR:
-    { IR_Type* inner = ast_to_ir_type(a, ast->inner, device_addrspace);
-      int as = (device_addrspace && ast->is_const) ? 3 : 0;
+    { IR_Type* inner = ast_to_ir_type(a, ast->inner); int as = 0;
       return ir_ptr_type(a, inner, as); }
     case TYPE_ARRAY:
-    { IR_Type* inner = ast_to_ir_type(a, ast->inner, device_addrspace);
+    { IR_Type* inner = ast_to_ir_type(a, ast->inner);
       return ir_array_type(a, inner, ast->arr_size > 0 ? ast->arr_size : 0); }
     case TYPE_FUNC:
     {
@@ -232,11 +232,11 @@ ast_to_ir_type(Arena* a, Type* ast, int device_addrspace)
             n_ptr++;
             inner = inner->inner;
         }
-        IR_Type* ret = ast_to_ir_type(a, inner, device_addrspace);
+        IR_Type* ret = ast_to_ir_type(a, inner);
         IR_Type *params = NULL, **tail = &params;
 
         for (AST_Node* p = ast->params; p; p = p->next) {
-            IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type, device_addrspace);
+            IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type);
             *tail = clone_type_for_chain(a, pt);
             tail = &(*tail)->next;
         }
@@ -248,15 +248,25 @@ ast_to_ir_type(Arena* a, Type* ast, int device_addrspace)
 
     case TYPE_STRUCT:
     case TYPE_UNION:
-    { /* dedup named structs: same Type* for the same tag name.
-       * Anonymous structs (no tag) are NOT cached — they get named
-       * at emission time by the module dumper. */
-      if (cache_enabled && ast->name.data) {
-          for (int i = 0; i < n_struct_cache; i++) {
-              IR_Type* sc = struct_cache[i];
-              if (sc->name.length == ast->name.length &&
-                  memcmp(sc->name.data, ast->name.data, ast->name.length) == 0)
-                  return sc;
+    { /* dedup by name (named) or by AST pointer (anonymous).
+       * Anonymous structs must also be cached so every
+       * ast_to_ir_type call for the same typedef returns the
+       * same IR_Type — otherwise ir_struct_ast_lookup fails
+       * on clones in member chains. */
+      if (cache_enabled) {
+          if (ast->name.data) {
+              for (int i = 0; i < n_struct_cache; i++) {
+                  IR_Type* sc = struct_cache[i];
+                  if (sc->name.length == ast->name.length &&
+                      memcmp(sc->name.data, ast->name.data,
+                             ast->name.length) == 0)
+                      return sc;
+              }
+          } else {
+              for (int i = 0; i < n_struct_cache; i++)
+                  if (!struct_cache[i]->name.data &&
+                      struct_cache_ast[i] == ast)
+                      return struct_cache[i];
           }
       }
       IR_Type* t = ir_type_new(a,
@@ -265,13 +275,16 @@ ast_to_ir_type(Arena* a, Type* ast, int device_addrspace)
       /* Cache BEFORE building members so self-referencing fields
        * (e.g. Arena* prev inside struct Arena) hit the cache and
        * avoid infinite recursion -> stack overflow. */
-      if (cache_enabled && t->name.data && n_struct_cache < MAX_STRUCT_CACHE)
-          struct_cache[n_struct_cache++] = t;
+      if (cache_enabled && n_struct_cache < MAX_STRUCT_CACHE) {
+          struct_cache_ast[n_struct_cache] = ast;
+          struct_cache[n_struct_cache] = t;
+          n_struct_cache++;
+      }
       register_struct_ast(t, ast);
       if (ast->params) {
           IR_Type** tail = &t->members;
           for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL; f = f->next) {
-              IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type, device_addrspace);
+              IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type);
               if (!ft || ft->kind == IR_VOID) ft = t_i8;
               *tail = clone_type_for_chain(a, ft);
               tail = &(*tail)->next;
@@ -279,7 +292,7 @@ ast_to_ir_type(Arena* a, Type* ast, int device_addrspace)
       }
       return t; }
     case TYPE_NAMED:
-        if (ast->inner) return ast_to_ir_type(a, ast->inner, device_addrspace);
+        if (ast->inner) return ast_to_ir_type(a, ast->inner);
         return t_i32;
     default:
         return t_i32;
@@ -287,10 +300,10 @@ ast_to_ir_type(Arena* a, Type* ast, int device_addrspace)
 }
 
 IR_Type*
-ir_type_from_ast(Arena* a, Type* ast_type, int device_addrspace)
+ir_type_from_ast(Arena* a, Type* ast_type)
 {
     init_singletons();
-    return ast_to_ir_type(a, ast_type, device_addrspace);
+    return ast_to_ir_type(a, ast_type);
 }
 
 void
@@ -437,10 +450,28 @@ ir_struct_ast_lookup(IR_Type* t)
 {
     if (!t || (t->kind != IR_STRUCT && t->kind != IR_UNION)) return NULL;
 
-    /* named structs: double-check via tag name */
+    /* exact pointer match first (covers originals and registered clones) */
     for (int i = 0; i < n_ast_map; i++)
         if (ast_map_keys[i] == t)
             return ast_map_vals[i];
+
+    /* clone fallback: clone_type_for_chain shallow-copies struct/union
+     * types for member chains. clones share the same members pointer
+     * and name data — match by structural identity. */
+    for (int i = 0; i < n_ast_map; i++) {
+        IR_Type* k = ast_map_keys[i];
+        if (k->kind != t->kind) continue;
+        if (t->name.data) {
+            /* named: match by tag name */
+            if (k->name.data == t->name.data &&
+                k->name.length == t->name.length)
+                return ast_map_vals[i];
+        } else {
+            /* anonymous: match by members pointer (shared via shallow copy) */
+            if (k->members == t->members)
+                return ast_map_vals[i];
+        }
+    }
     return NULL;
 }
 

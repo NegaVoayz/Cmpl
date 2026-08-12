@@ -219,11 +219,19 @@ void dump_instr(FILE* out, IR_Instr* inst)
         IR_Type* dst = inst->type;
         int src_ptr = src && src->kind == IR_PTR;
         int dst_ptr = dst && dst->kind == IR_PTR;
+        int src_fp = src && (src->kind == IR_F32 || src->kind == IR_F64);
+        int dst_fp = dst && (dst->kind == IR_F32 || dst->kind == IR_F64);
 
         if (src_ptr && !dst_ptr)
             fprintf(out, "ptrtoint ");
         else if (!src_ptr && dst_ptr)
             fprintf(out, "inttoptr ");
+        else if (src_fp && dst_fp &&
+                 ir_type_size(src) < ir_type_size(dst))
+            fprintf(out, "fpext ");
+        else if (src_fp && dst_fp &&
+                 ir_type_size(src) > ir_type_size(dst))
+            fprintf(out, "fptrunc ");
         else if (src && dst && !src_ptr && !dst_ptr &&
                  ir_type_size(src) < ir_type_size(dst))
             fprintf(out, "zext ");

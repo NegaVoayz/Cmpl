@@ -340,12 +340,11 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       /* function name used as a value (function pointer) —
        * resolves to the global function symbol. */
       if (ctx->sig_map) {
-          IR_Type* ret_t = func_type_lookup(ctx->sig_map, n->body.ident.name);
-          if (ret_t) {
+          IR_Type* func_ty = func_type_lookup(ctx->sig_map, n->body.ident.name);
+          if (func_ty) {
               IR_Value* fn_val = arena_alloc(ctx->b->arena, sizeof(IR_Value));
               fn_val->kind = VAL_GLOBAL;
               fn_val->name = n->body.ident.name;
-              IR_Type* func_ty = ir_func_type(ctx->b->arena, ret_t, NULL);
               fn_val->type = ir_ptr_type(ctx->b->arena, func_ty, 0);
               return fn_val;
           }
@@ -389,13 +388,12 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
               if (ptr) return ptr;
               /* &function_name → address of function symbol */
               if (ctx->sig_map) {
-                  IR_Type* ret_t = func_type_lookup(ctx->sig_map,
+                  IR_Type* func_ty = func_type_lookup(ctx->sig_map,
                       opnd->body.ident.name);
-                  if (ret_t) {
+                  if (func_ty) {
                       IR_Value* fn = arena_alloc(ctx->b->arena, sizeof(IR_Value));
                       fn->kind = VAL_GLOBAL; fn->name = opnd->body.ident.name;
-                      IR_Type* ft = ir_func_type(ctx->b->arena, ret_t, NULL);
-                      fn->type = ir_ptr_type(ctx->b->arena, ft, 0);
+                      fn->type = ir_ptr_type(ctx->b->arena, func_ty, 0);
                       return fn;
                   }
               }
@@ -529,7 +527,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
 	                  operand->body.cast.cast_expr);
 	              IR_Value* deref = ir_build_load(b, ptr_val);
 	              IR_Type* target = ir_type_from_ast(b->arena,
-	                  operand->body.cast.type_expr, ctx->is_device);
+	                  operand->body.cast.type_expr);
 	              if (target && deref->type &&
 	                  !ir_type_eq(deref->type, target)) {
 	                  if (deref->type->kind == IR_PTR ||
@@ -563,8 +561,25 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next)
           arg_buf[n_args++] = gen_expr(ctx, a);
       IR_Type* ret_t = t_i32;
-      if (cn.length > 0) ret_t = func_type_lookup(ctx->sig_map, cn);
+      IR_Type* func_ty = NULL;
+      if (cn.length > 0) {
+          func_ty = func_type_lookup(ctx->sig_map, cn);
+          if (func_ty) ret_t = func_ty->inner;
+      }
       if (!ret_t) ret_t = t_i32;
+      /* fix up argument types to match function signature.
+       * if arg is i32 but param is ptr (unresolved typedef),
+       * bitcast so the call + declare have correct types. */
+      if (func_ty && func_ty->members) {
+          IR_Type* expected = func_ty->members;
+          for (int i = 0; i < n_args && expected;
+               i++, expected = expected->next) {
+              if (arg_buf[i] && arg_buf[i]->type &&
+                  arg_buf[i]->type->kind == IR_I32 &&
+                  expected->kind == IR_PTR)
+                  arg_buf[i] = ir_build_bitcast(b, arg_buf[i], expected);
+          }
+      }
       if (fn_ptr) {
           /* indirect call through function pointer */
           return ir_build_call_ptr(b, fn_ptr, ret_t, arg_buf, n_args);
@@ -622,12 +637,16 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     case AST_CAST:
     { IR_Value* cv = gen_expr(ctx, n->body.cast.cast_expr);
       if (!cv) return NULL;
-      IR_Type* target = ir_type_from_ast(b->arena, n->body.cast.type_expr, ctx->is_device);
+      IR_Type* target = ir_type_from_ast(b->arena, n->body.cast.type_expr);
       if (!target || !cv->type) return cv;
       /* already matching types — nothing to do */
       if (ir_type_eq(cv->type, target)) return cv;
       /* int ↔ ptr: use bitcast */
       if (cv->type->kind == IR_PTR || target->kind == IR_PTR)
+          return ir_build_bitcast(b, cv, target);
+      /* float ↔ float: use bitcast (dumper emits fpext/fptrunc) */
+      if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
+          (target->kind == IR_F32 || target->kind == IR_F64))
           return ir_build_bitcast(b, cv, target);
       /* int widening: zext (unsigned) or sext (signed) */
       if (ir_type_size(cv->type) < ir_type_size(target))
@@ -758,7 +777,7 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     }
 
     case AST_SIZEOF_TYPE:
-    { IR_Type* t = ir_type_from_ast(ctx->b->arena, n->body.sizeof_type.type_expr, ctx->is_device);
+    { IR_Type* t = ir_type_from_ast(ctx->b->arena, n->body.sizeof_type.type_expr);
       return ir_const_int(b, t_i32, ir_type_size(t)); }
 
     case AST_SIZEOF_EXPR:

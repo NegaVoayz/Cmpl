@@ -26,7 +26,7 @@ typedef struct TypedefEntry {
 typedef struct {
     IR_Builder*   b;
     HashMap       syms;         /* local variables: name → IR_Value* (alloca) */
-    HashMap*      sig_map;      /* module-level: func name → IR_Type* (ret type) */
+    HashMap*      sig_map;      /* module-level: func name → IR_Type* (func type) */
     IR_Block*     break_blk;    /* target for break */
     IR_Block*     cont_blk;     /* target for continue */
     IR_Type*      ret_type;     /* enclosing function return type */
@@ -318,7 +318,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     IR_Func*    func = arena_alloc(a, sizeof(IR_Func));
 
     func->name = fd->body.func_def.name;
-    func->ret_type = ir_type_from_ast(a, fd->body.func_def.ret_type, is_device);
+    func->ret_type = ir_type_from_ast(a, fd->body.func_def.ret_type);
 
     if (!func->ret_type)
         func->ret_type = t_void;
@@ -362,7 +362,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     {
         int i = 0;
         for (AST_Node* p = fd->body.func_def.params; p; p = p->next, i++) {
-            IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type, is_device);
+            IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type);
             /* if resolved type is i32 but AST type is a named typedef
              * (e.g. unresolved typedef for function pointer or struct),
              * default to ptr — typedefs aren't resolved at parse time. */
@@ -540,17 +540,41 @@ ir_gen_module_ex(AST_Node* root, int is_device)
      * so subsequent ir_type_from_ast() calls get consistent IR_Type* */
     ir_clear_struct_cache();
 
-    /* collect function signatures for call return type lookup.
-     * MUST run after typedef resolution so struct return types resolve. */
+    /* collect function signatures for call return type + param type lookup.
+     * MUST run after typedef resolution so struct return types resolve.
+     * Stores IR_FUNC type (ret type + param list) for each function. */
     HashMap sig_map;
 
     hashmap_init(&sig_map, a, 64);
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type != AST_FUNC_DEF) continue;
 
-        IR_Type* rt = ir_type_from_ast(a, decl->body.func_def.ret_type, is_device);
-        hashmap_put(&sig_map, decl->body.func_def.name,
-                    rt ? rt : t_void);
+        IR_Type* rt = ir_type_from_ast(a, decl->body.func_def.ret_type);
+
+        /* collect parameter types with TYPE_NAMED→ptr fixup.
+         * if a param type is unresolved typedef → i32 fallback,
+         * default to ptr — same fixup as ir_gen_function lines 366-374. */
+        IR_Type *params = NULL, **ptail = &params;
+
+        for (AST_Node* p = decl->body.func_def.params;
+             p && p->type == AST_PARAM_DECL; p = p->next) {
+            IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type);
+
+            if (pty && pty->kind == IR_I32) {
+                Type* ast = p->body.param_decl.param_type;
+                if (ast && ast->kind == TYPE_NAMED && !ast->inner)
+                    pty = ir_ptr_type(a, t_i8, 0);
+            }
+            /* clone to avoid corrupting singletons when chaining */
+            IR_Type* cp = arena_alloc(a, sizeof(IR_Type));
+            memcpy(cp, pty ? pty : t_i32, sizeof(IR_Type));
+            cp->next = NULL;
+            *ptail = cp;
+            ptail = &cp->next;
+        }
+
+        IR_Type* func_ty = ir_func_type(a, rt ? rt : t_void, params);
+        hashmap_put(&sig_map, decl->body.func_def.name, func_ty);
     }
 
     /* first pass: collect global variables (both extern decls and definitions) */
@@ -585,7 +609,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         IR_Value* gv = arena_alloc(a, sizeof(IR_Value));
         gv->kind = VAL_GLOBAL;
         gv->name = decl->body.var_decl.name;
-        gv->type = ir_type_from_ast(a, decl->body.var_decl.var_type, is_device);
+        gv->type = ir_type_from_ast(a, decl->body.var_decl.var_type);
 
         /* fix up: if the IR type is an array-of-i32 but the AST element
          * type is a named typedef (likely fn ptr), use ptr elements */
