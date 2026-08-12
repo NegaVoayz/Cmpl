@@ -383,31 +383,28 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     if (fd->body.func_def.body)
         gen_stmt(&ctx, fd->body.func_def.body);
 
-    /* ensure terminator on the last block, and add unreachable to empty blocks */
+    /* ensure every block has a proper terminator.
+     * empty blocks (e.g. merge blocks after if-without-else) get a ret;
+     * blocks whose last instruction is not a terminator get a ret;
+     * blocks that already have a terminator are left alone. */
     {
         IR_Block* blk = func->blocks;
         while (blk) {
-            if (!blk->first) {
-                /* empty block: add unreachable */
+            IR_Instr* term = blk->last;
+
+            if (!term || (term->opcode != IROP_RET &&
+                          term->opcode != IROP_BR &&
+                          term->opcode != IROP_COND_BR &&
+                          term->opcode != IROP_UNREACHABLE)) {
                 ir_builder_set_block(b, blk);
-                ir_build_unreachable(b);
-            } else {
-                IR_Instr* term = blk->last;
 
-                if (!term || (term->opcode != IROP_RET &&
-                              term->opcode != IROP_BR &&
-                              term->opcode != IROP_COND_BR &&
-                              term->opcode != IROP_UNREACHABLE)) {
-                    ir_builder_set_block(b, blk);
-
-                    if (func->ret_type && func->ret_type->kind != IR_VOID) {
-                        IR_Value* undef = arena_alloc(a, sizeof(IR_Value));
-                        undef->kind = VAL_UNDEF;
-                        undef->type = func->ret_type;
-                        ir_build_ret(b, undef);
-                    } else {
-                        ir_build_ret(b, NULL);
-                    }
+                if (func->ret_type && func->ret_type->kind != IR_VOID) {
+                    IR_Value* undef = arena_alloc(a, sizeof(IR_Value));
+                    undef->kind = VAL_UNDEF;
+                    undef->type = func->ret_type;
+                    ir_build_ret(b, undef);
+                } else {
+                    ir_build_ret(b, NULL);
                 }
             }
             blk = blk->next;

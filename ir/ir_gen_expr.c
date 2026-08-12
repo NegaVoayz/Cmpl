@@ -196,6 +196,8 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
         return ir_build_xor(b, lhs, rhs);
     case TOK_LTLT:  case TOK_LTLTEQ:
         return ir_build_shl(b, lhs, rhs);
+    case TOK_GTGT:  case TOK_GTGTEQ:
+        return ir_build_ashr(b, lhs, rhs);
     case TOK_EQEQ:     return is_float ? ir_build_fcmp(b, IR_COND_EQ, lhs, rhs) : ir_build_icmp(b, IR_COND_EQ, lhs, rhs);
     case TOK_BANGEQ:   return is_float ? ir_build_fcmp(b, IR_COND_NE, lhs, rhs) : ir_build_icmp(b, IR_COND_NE, lhs, rhs);
     case TOK_LT:       return is_float ? ir_build_fcmp(b, IR_COND_SLT, lhs, rhs) : ir_build_icmp(b, IR_COND_SLT, lhs, rhs);
@@ -352,14 +354,28 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       v->kind = VAL_UNDEF; v->type = t_i32; return v; }
 
     case AST_BINARY:
-    { if (n->body.binary.op == TOK_EQ) {
+    { TokenKind op = n->body.binary.op;
+      int is_cmpd = (op == TOK_PLUSEQ || op == TOK_MINUSEQ ||
+                     op == TOK_STAREQ || op == TOK_SLASHEQ ||
+                     op == TOK_PERCENTEQ || op == TOK_AMPEQ ||
+                     op == TOK_PIPEEQ || op == TOK_CARETEQ ||
+                     op == TOK_LTLTEQ || op == TOK_GTGTEQ);
+      if (op == TOK_EQ || is_cmpd) {
           IR_Value* rhs = gen_expr(ctx, n->body.binary.right);
           IR_Value* ptr = gen_store_ptr(ctx, n->body.binary.left);
-          if (ptr) ir_build_store(b, rhs, ptr);
-          return rhs; }
+          if (ptr) {
+              IR_Value* result;
+              if (op == TOK_EQ) result = rhs;
+              else { IR_Value* old = ir_build_load(b, ptr);
+                     result = gen_binary_op(ctx, op, old, rhs); }
+              ir_build_store(b, result, ptr);
+              return result; }
+          if (op == TOK_EQ) return rhs;
+          IR_Value* l = gen_expr(ctx, n->body.binary.left);
+          return gen_binary_op(ctx, op, l, rhs); }
       IR_Value* l = gen_expr(ctx, n->body.binary.left);
       IR_Value* r = gen_expr(ctx, n->body.binary.right);
-      return gen_binary_op(ctx, n->body.binary.op, l, r); }
+      return gen_binary_op(ctx, op, l, r); }
 
     case AST_UNARY:
     { /* address-of (&x): return the address pointer directly, no load */
@@ -432,6 +448,41 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
                   }
               }
           }
+      }
+
+      /* prefix ++ / -- */
+      if (n->body.unary.op == TOK_PLUSPLUS ||
+          n->body.unary.op == TOK_MINUSMINUS) {
+          IR_Value* ptr = gen_store_ptr(ctx, n->body.unary.operand);
+          if (ptr) {
+              IR_Value* old_val = ir_build_load(b, ptr);
+              IR_Value* new_val;
+              if (old_val->type && old_val->type->kind == IR_PTR) {
+                  IR_Value* idx;
+                  if (n->body.unary.op == TOK_PLUSPLUS)
+                      idx = ir_const_int(b, t_i32, 1);
+                  else {
+                      IR_Value* neg = ir_build_sub(b,
+                          ir_const_int(b, t_i32, 0),
+                          ir_const_int(b, t_i32, 1));
+                      idx = neg; }
+                  new_val = ir_build_gep(b, old_val, idx,
+                      ir_const_int(b, t_i32, 0));
+              } else {
+                  IR_Value* one = ir_const_int(b,
+                      old_val->type ? old_val->type : t_i32, 1);
+                  new_val = (n->body.unary.op == TOK_PLUSPLUS)
+                      ? ir_build_add(b, old_val, one)
+                      : ir_build_sub(b, old_val, one);
+              }
+              ir_build_store(b, new_val, ptr);
+              return new_val; }
+          IR_Value* op = gen_expr(ctx, n->body.unary.operand);
+          IR_Value* one = ir_const_int(b,
+              op->type ? op->type : t_i32, 1);
+          return (n->body.unary.op == TOK_PLUSPLUS)
+              ? ir_build_add(b, op, one)
+              : ir_build_sub(b, op, one);
       }
 
       IR_Value* op = gen_expr(ctx, n->body.unary.operand);

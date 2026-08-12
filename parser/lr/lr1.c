@@ -79,12 +79,13 @@ static int is_cast_start(Token* tok)
 /* states at or below cast-expr level -- where a pending cast should wrap */
 static int is_cast_level(int s)
 {
-    /* HS_PRIMARY / S_BINRHS_PRIMARY are deliberately excluded —
-     * otherwise casts wrap too early, producing *(type)expr
-     * instead of (type)*expr for expressions like (unsigned char)*p. */
-    return s == HS_POSTFIX || s == HS_UNARY ||
+    /* HS_POSTFIX / S_BINRHS_POSTFIX are deliberately excluded —
+     * postfix operators bind tighter than casts.  If we wrap at
+     * HS_POSTFIX, (unsigned char)key.data[i] becomes
+     * ((unsigned char)key.data)[i] instead of the correct
+     * (unsigned char)(key.data[i]). */
+    return s == HS_UNARY ||
            s == HS_CAST_EXPR ||
-           s == S_BINRHS_POSTFIX ||
            s == S_BINRHS_UNARY;
 }
 
@@ -156,8 +157,12 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
         LR1_Func  func = action_table[state][next];
 
         /* When stop_at_comma is set, treat comma as terminator
-         * (enum values, init lists, etc.).  Return what we have. */
-        if (p->stop_at_comma && next == TOK_COMMA) {
+         * (enum values, init lists, etc.).  Return what we have.
+         * Only return if the stack top actually holds a node —
+         * after a shift the node is still NULL and we must let the
+         * reducer run first so e.g. TOK_INT_LIT becomes AST_INT_LIT. */
+        if (p->stop_at_comma && next == TOK_COMMA &&
+            p->stack[p->sp].node) {
             AST_Node* result = p->stack[p->sp].node;
             if (p->pending_cast && result) {
                 AST_Node* cast = ast_node_new(p->arena, AST_CAST,

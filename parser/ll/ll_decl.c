@@ -173,7 +173,27 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
         if (p->tok->kind == TOK_EQ) {
             p->tok = p->tok->next;
             if (p->tok->kind == TOK_LBRACE) {
-                int depth = 1;
+                /* count initializer elements for array size inference */
+                int depth = 1, elem_count = 0, has_elem = 0;
+                Token* init_tok = p->tok->next;
+                while (init_tok->kind != TOK_EOF && depth > 0) {
+                    if (init_tok->kind == TOK_LBRACE) {
+                        depth++;
+                        if (depth == 2) has_elem = 1;
+                    }
+                    if (init_tok->kind == TOK_RBRACE) depth--;
+                    if (depth == 1 && init_tok->kind == TOK_COMMA) {
+                        elem_count++; has_elem = 0;
+                    }
+                    if (depth == 1 && init_tok->kind != TOK_COMMA &&
+                        init_tok->kind != TOK_LBRACE &&
+                        init_tok->kind != TOK_RBRACE)
+                        has_elem = 1;
+                    if (depth > 0) init_tok = init_tok->next;
+                }
+                if (has_elem) elem_count++;
+                /* skip the initializer (advance p->tok past it) */
+                depth = 1;
                 p->tok = p->tok->next;
                 while (p->tok->kind != TOK_EOF && depth > 0) {
                     if (p->tok->kind == TOK_LBRACE) depth++;
@@ -182,6 +202,15 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                 }
                 if (p->tok->kind == TOK_RBRACE)
                     p->tok = p->tok->next;
+                /* set array size from initializer count */
+                if (elem_count > 0) {
+                    Type* scan = full;
+                    while (scan && scan->kind == TYPE_PTR)
+                        scan = scan->inner;
+                    if (scan && scan->kind == TYPE_ARRAY &&
+                        scan->arr_size == 0)
+                        scan->arr_size = elem_count;
+                }
             } else {
                 vd->body.var_decl.init = ll_parse_expr(p);
             }
@@ -281,6 +310,20 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
                     while (prev->next != last) prev = prev->next;
                     prev->next = td;
                 }
+            } else if (last->type == AST_STRUCT_DEF ||
+                       last->type == AST_UNION_DEF) {
+                /* typedef struct Foo Foo; — bare struct/union, create
+                 * a typedef entry so the tag name is usable as a type */
+                AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
+                                            last->loc.line, last->loc.col);
+                td->body.typedef_decl.name = last->body.struct_def.name;
+                Type* aliased = type_new(p->arena,
+                    (last->type == AST_STRUCT_DEF) ? TYPE_STRUCT : TYPE_UNION);
+                aliased->name = last->body.struct_def.name;
+                aliased->params = last->body.struct_def.fields;
+                td->body.typedef_decl.aliased_type = aliased;
+                /* return both the struct def and the typedef */
+                last->next = td;
             }
         }
         return n;

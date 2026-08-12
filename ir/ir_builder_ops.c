@@ -35,6 +35,7 @@ BINOP_BUILDER(ir_build_and, IROP_AND)
 BINOP_BUILDER(ir_build_or,  IROP_OR)
 BINOP_BUILDER(ir_build_xor, IROP_XOR)
 BINOP_BUILDER(ir_build_shl, IROP_SHL)
+BINOP_BUILDER(ir_build_ashr, IROP_ASHR)
 
 #undef BINOP_BUILDER
 

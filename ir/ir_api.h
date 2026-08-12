@@ -62,6 +62,7 @@ IR_Value*   ir_build_and(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_or(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_xor(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_shl(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_ashr(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_icmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_fcmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_call(IR_Builder* b, const char* callee, IR_Type* ret_ty,
