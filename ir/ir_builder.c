@@ -227,7 +227,9 @@ ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr)
     /* If the value is a larger integer than the pointee, truncate it.
      * This fixes ptr-ptr subtraction producing i64 stored into i32 alloca,
      * and any other implicit narrowing conversion.
-     * Only applies to integer types — struct/ptr narrowing uses bitcast. */
+     * Only applies to integer types — struct/ptr narrowing uses bitcast.
+     * Also coerce across the int/float boundary (sitofp/fptosi) so
+     * e.g. `double x = 3;` stores a real double, not an int bit pattern. */
     if (val && val->type && ptr && ptr->type &&
         ptr->type->kind == IR_PTR && ptr->type->inner) {
         int val_sz = ir_type_size(val->type);
@@ -235,8 +237,17 @@ ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr)
         int val_int = (val->type->kind >= IR_I1 && val->type->kind <= IR_I64);
         int elem_int = (ptr->type->inner->kind >= IR_I1 &&
                         ptr->type->inner->kind <= IR_I64);
+        int val_fp = (val->type->kind == IR_F32 || val->type->kind == IR_F64);
+        int elem_fp = (ptr->type->inner->kind == IR_F32 ||
+                       ptr->type->inner->kind == IR_F64);
         if (val_int && elem_int && val_sz > elem_sz && elem_sz > 0)
             val = ir_build_trunc(b, val, ptr->type->inner);
+        else if (val_int && elem_fp)
+            val = ir_build_sitofp(b, val, ptr->type->inner);
+        else if (val_fp && elem_int)
+            val = ir_build_fptosi(b, val, ptr->type->inner);
+        else if (val_fp && elem_fp && val_sz < elem_sz)
+            val = ir_build_bitcast(b, val, ptr->type->inner);
     }
 
     IR_Instr* inst = make_instr(b, IROP_STORE, t_void);

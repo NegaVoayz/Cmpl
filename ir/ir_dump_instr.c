@@ -283,6 +283,24 @@ void dump_instr(FILE* out, IR_Instr* inst)
         dump_type(out, inst->type);
         break;
 
+    case IROP_SITOFP:
+        fprintf(out, "sitofp ");
+        dump_type(out, inst->operands[0]->type);
+        fprintf(out, " ");
+        dump_value(out, inst->operands[0]);
+        fprintf(out, " to ");
+        dump_type(out, inst->type);
+        break;
+
+    case IROP_FPTOSI:
+        fprintf(out, "fptosi ");
+        dump_type(out, inst->operands[0]->type);
+        fprintf(out, " ");
+        dump_value(out, inst->operands[0]);
+        fprintf(out, " to ");
+        dump_type(out, inst->type);
+        break;
+
     case IROP_SELECT:
         fprintf(out, "select i1 ");
         dump_value(out, inst->operands[0]);

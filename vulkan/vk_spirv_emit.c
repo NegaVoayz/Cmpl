@@ -15,6 +15,7 @@ enum {
     SpvOpSGreaterThan = 181, SpvOpSGreaterThanEqual = 183,
     SpvOpSLessThan = 179, SpvOpSLessThanEqual = 185,
     SpvOpSelect = 169, SpvOpBitcast = 124, SpvOpPhi = 245,
+    SpvOpConvertSToF = 137, SpvOpConvertFToS = 148,
     SpvOpBranch = 249, SpvOpBranchConditional = 250,
     SpvOpReturn = 253, SpvOpReturnValue = 254, SpvOpNop = 0,
     SpvStorageFunc = 7, SpvStorageWorkgroup = 4,
@@ -158,6 +159,10 @@ void emit_instr(SPV_Writer* w, IR_Instr* inst, IdMap* tm, int tn, IdMap* vm, int
     } break;
     case IROP_TRUNC: case IROP_ZEXT: case IROP_SEXT:
         E3(SpvOpBitcast, find_id(tm, tn, inst->type), rid, v0); break;
+    case IROP_SITOFP:
+        E3(SpvOpConvertSToF, find_id(tm, tn, inst->type), rid, v0); break;
+    case IROP_FPTOSI:
+        E3(SpvOpConvertFToS, find_id(tm, tn, inst->type), rid, v0); break;
     default:
         if (emit_arith(w, inst, rid, v0, v1, tm, tn)) break;
         if (emit_cf(w, inst, rid, v0, v1, v2, tm, tn, bm, bn)) break;

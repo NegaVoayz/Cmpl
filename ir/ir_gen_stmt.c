@@ -293,6 +293,14 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
                   else
                       rv = ir_build_bitcast(b, rv, ctx->ret_type);
               }
+              /* int → float: sitofp */
+              else if (rk >= IR_I1 && rk <= IR_I64 &&
+                       (fk == IR_F32 || fk == IR_F64))
+                  rv = ir_build_sitofp(b, rv, ctx->ret_type);
+              /* float → int: fptosi */
+              else if ((rk == IR_F32 || rk == IR_F64) &&
+                       fk >= IR_I1 && fk <= IR_I64)
+                  rv = ir_build_fptosi(b, rv, ctx->ret_type);
               /* i1 → wider int */
               else if (rk == IR_I1 && fk != IR_I1)
                   rv = ir_build_zext(b, rv, ctx->ret_type);

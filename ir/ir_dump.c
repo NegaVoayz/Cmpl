@@ -3,6 +3,7 @@
 #include "ir.h"
 
 #include <stdio.h>
+#include <string.h>
 
 /* from ir_dump_str.c */
 extern int  dump_str_index(String s);
@@ -105,13 +106,18 @@ void dump_value(FILE* out, IR_Value* val)
         break;
 
     case VAL_CONST_FLOAT:
-        /* LLVM requires decimal point in float literals.
-         * %g strips trailing zeros including the decimal for 0.0,
-         * so handle 0.0 specially. */
-        if (val->body.float_val == 0.0)
-            fprintf(out, "0.0");
-        else
-            fprintf(out, "%g", val->body.float_val);
+        /* LLVM requires a decimal point or exponent in float literals.
+         * %g prints integral values like 7.0 as "7", which clang
+         * rejects as an integer constant — append ".0" when needed. */
+        {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%g", val->body.float_val);
+            fprintf(out, "%s", buf);
+            if (!strchr(buf, '.') && !strchr(buf, 'e') &&
+                !strchr(buf, 'E') && !strchr(buf, 'i') &&
+                !strchr(buf, 'n'))
+                fprintf(out, ".0");
+        }
         break;
 
     case VAL_CONST_NULL:

@@ -83,6 +83,8 @@ IR_Value*   ir_build_bitcast(IR_Builder* b, IR_Value* val, IR_Type* to_ty);
 IR_Value*   ir_build_trunc(IR_Builder* b, IR_Value* val, IR_Type* to_ty);
 IR_Value*   ir_build_zext(IR_Builder* b, IR_Value* val, IR_Type* to_ty);
 IR_Value*   ir_build_sext(IR_Builder* b, IR_Value* val, IR_Type* to_ty);
+IR_Value*   ir_build_sitofp(IR_Builder* b, IR_Value* val, IR_Type* to_ty);
+IR_Value*   ir_build_fptosi(IR_Builder* b, IR_Value* val, IR_Type* to_ty);
 IR_Value*   ir_build_select(IR_Builder* b, IR_Value* cond,
                             IR_Value* tv, IR_Value* fv);
 

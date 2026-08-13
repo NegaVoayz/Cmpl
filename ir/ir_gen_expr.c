@@ -218,17 +218,35 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
             else if (!lp && rp && is_cmp)
                 lhs = ir_build_bitcast(b, lhs, rhs->type);
             else if (!lp && !rp) {
-                /* both are integers of different sizes — widen smaller.
-                 * only if BOTH are integers (not struct/float/etc). */
+                /* both scalars of different kinds — coerce to a common
+                 * type so the opcode gets valid operands (C usual
+                 * arithmetic conversions: float wins over int). */
                 int l_int = (lhs->type->kind >= IR_I1 &&
                              lhs->type->kind <= IR_I64);
                 int r_int = (rhs->type->kind >= IR_I1 &&
                              rhs->type->kind <= IR_I64);
+                int l_fp = (lhs->type->kind == IR_F32 ||
+                            lhs->type->kind == IR_F64);
+                int r_fp = (rhs->type->kind == IR_F32 ||
+                            rhs->type->kind == IR_F64);
+
                 if (l_int && r_int) {
+                    /* both integers of different sizes — widen smaller */
                     if (ir_type_size(lhs->type) < ir_type_size(rhs->type))
                         lhs = ir_build_zext(b, lhs, rhs->type);
                     else
                         rhs = ir_build_zext(b, rhs, lhs->type);
+                } else if (l_int && r_fp) {
+                    /* int + float: sitofp the int operand */
+                    lhs = ir_build_sitofp(b, lhs, rhs->type);
+                } else if (l_fp && r_int) {
+                    rhs = ir_build_sitofp(b, rhs, lhs->type);
+                } else if (l_fp && r_fp) {
+                    /* float widening: bitcast (dumper emits fpext) */
+                    if (ir_type_size(lhs->type) < ir_type_size(rhs->type))
+                        lhs = ir_build_bitcast(b, lhs, rhs->type);
+                    else
+                        rhs = ir_build_bitcast(b, rhs, lhs->type);
                 }
             }
         }
@@ -684,6 +702,15 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
                       arg_buf[i] = ir_build_zext(b, arg_buf[i], expected);
                   else if (at_sz > ex_sz)
                       arg_buf[i] = ir_build_trunc(b, arg_buf[i], expected);
+              } else if (at_int &&
+                         (expected->kind == IR_F32 ||
+                          expected->kind == IR_F64)) {
+                  /* int arg → float param: sitofp */
+                  arg_buf[i] = ir_build_sitofp(b, arg_buf[i], expected);
+              } else if ((at->kind == IR_F32 || at->kind == IR_F64) &&
+                         ex_int) {
+                  /* float arg → int param: fptosi */
+                  arg_buf[i] = ir_build_fptosi(b, arg_buf[i], expected);
               } else if (at->kind != expected->kind) {
                   arg_buf[i] = ir_build_bitcast(b, arg_buf[i], expected);
               }
@@ -766,6 +793,21 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
               IR_Value* undef = arena_alloc(b->arena, sizeof(IR_Value));
               undef->kind = VAL_UNDEF; undef->type = e->type;
               t = undef;
+          } else if ((t->type->kind == IR_F32 || t->type->kind == IR_F64) &&
+                     (e->type->kind == IR_F32 || e->type->kind == IR_F64)) {
+              /* float widening: bitcast (dumper emits fpext) */
+              if (ir_type_size(e->type) < ir_type_size(t->type))
+                  e = ir_build_bitcast(b, e, t->type);
+              else
+                  t = ir_build_bitcast(b, t, e->type);
+          } else if (t->type->kind >= IR_I1 && t->type->kind <= IR_I64 &&
+                     (e->type->kind == IR_F32 || e->type->kind == IR_F64)) {
+              /* int branch → float branch: sitofp */
+              t = ir_build_sitofp(b, t, e->type);
+          } else if ((t->type->kind == IR_F32 || t->type->kind == IR_F64) &&
+                     e->type->kind >= IR_I1 && e->type->kind <= IR_I64) {
+              /* float branch → int branch: fptosi */
+              e = ir_build_fptosi(b, e, t->type);
           } else if (ir_type_size(t->type) >= ir_type_size(e->type)) {
               e = ir_build_zext(b, e, t->type);
           } else {
@@ -788,6 +830,14 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
           (target->kind == IR_F32 || target->kind == IR_F64))
           return ir_build_bitcast(b, cv, target);
+      /* int → float: sitofp (zext/trunc are invalid across int/float) */
+      if (cv->type->kind >= IR_I1 && cv->type->kind <= IR_I64 &&
+          (target->kind == IR_F32 || target->kind == IR_F64))
+          return ir_build_sitofp(b, cv, target);
+      /* float → int: fptosi (truncates toward zero, as C requires) */
+      if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
+          target->kind >= IR_I1 && target->kind <= IR_I64)
+          return ir_build_fptosi(b, cv, target);
       /* int widening: zext (unsigned) or sext (signed) */
       if (ir_type_size(cv->type) < ir_type_size(target))
           return ir_build_zext(b, cv, target);
