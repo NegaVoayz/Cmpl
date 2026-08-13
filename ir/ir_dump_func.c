@@ -386,11 +386,18 @@ ir_dump_module(IR_Module* mod, FILE* out)
 
                 for (IR_Block* blk = f->blocks; blk; blk = blk->next) {
                     for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
-                        /* check fixed operands and call args */
-                        int n_vals = 3 + inst->n_call_args;
+                        /* check fixed operands and call args.
+                         * if/else (not ?:) — ?: now emits control flow
+                         * with a phi, and call_args is only valid on
+                         * call instructions. */
+                        int n_vals = (inst->opcode == IROP_CALL)
+                                   ? 3 + inst->n_call_args : 3;
                         for (int vi = 0; vi < n_vals; vi++) {
-                            IR_Value* v = vi < 3 ? inst->operands[vi]
-                                                 : inst->call_args[vi - 3];
+                            IR_Value* v = NULL;
+                            if (vi < 3)
+                                v = inst->operands[vi];
+                            else if (inst->call_args)
+                                v = inst->call_args[vi - 3];
                             if (!v || v->kind != VAL_GLOBAL) continue;
                             if (!v->name.data) continue;
                             if (!v->type || v->type->kind != IR_PTR) continue;

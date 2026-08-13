@@ -79,6 +79,13 @@ make_instr(IR_Builder* b, IR_Opcode op, IR_Type* ty)
     inst->type = ty;
     inst->result = make_vreg(b, ty);
     inst->result->def_instr = inst;
+    /* zero the call/phi extension fields so readers that don't check
+     * opcode (e.g. dumpers scanning operands) never see garbage */
+    inst->n_call_args = 0;
+    inst->call_args = NULL;
+    inst->n_incoming = 0;
+    inst->in_vals = NULL;
+    inst->in_blocks = NULL;
     return inst;
 }
 
@@ -224,12 +231,12 @@ ir_build_load(IR_Builder* b, IR_Value* ptr)
 IR_Value*
 ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr)
 {
-    /* If the value is a larger integer than the pointee, truncate it.
-     * This fixes ptr-ptr subtraction producing i64 stored into i32 alloca,
-     * and any other implicit narrowing conversion.
-     * Only applies to integer types — struct/ptr narrowing uses bitcast.
-     * Also coerce across the int/float boundary (sitofp/fptosi) so
-     * e.g. `double x = 3;` stores a real double, not an int bit pattern. */
+    /* Coerce the stored value to the pointee type:
+     *   - larger int  -> truncate (i64 -> i32 alloca, ptr-ptr sub)
+     *   - smaller int -> zext (i1/i8/i16 -> i32/i64, e.g. `x = (a==b)`)
+     *   - int <-> float via sitofp/fptosi (e.g. `double x = 3;`)
+     *   - float widening via bitcast (dumper emits fpext)
+     * Struct/ptr narrowing uses bitcast. */
     if (val && val->type && ptr && ptr->type &&
         ptr->type->kind == IR_PTR && ptr->type->inner) {
         int val_sz = ir_type_size(val->type);
@@ -240,9 +247,12 @@ ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr)
         int val_fp = (val->type->kind == IR_F32 || val->type->kind == IR_F64);
         int elem_fp = (ptr->type->inner->kind == IR_F32 ||
                        ptr->type->inner->kind == IR_F64);
-        if (val_int && elem_int && val_sz > elem_sz && elem_sz > 0)
-            val = ir_build_trunc(b, val, ptr->type->inner);
-        else if (val_int && elem_fp)
+        if (val_int && elem_int) {
+            if (val_sz > elem_sz && elem_sz > 0)
+                val = ir_build_trunc(b, val, ptr->type->inner);
+            else if (val->type->kind != ptr->type->inner->kind)
+                val = ir_build_zext(b, val, ptr->type->inner);
+        } else if (val_int && elem_fp)
             val = ir_build_sitofp(b, val, ptr->type->inner);
         else if (val_fp && elem_int)
             val = ir_build_fptosi(b, val, ptr->type->inner);

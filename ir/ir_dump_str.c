@@ -98,6 +98,14 @@ dump_str_collect_module(IR_Module* mod)
                     if (op && op->kind == VAL_CONST_STRING)
                         str_index_of(op->body.str_val);
                 }
+                /* collect from phi incoming values (ternary merges) */
+                if (inst->opcode == IROP_PHI) {
+                    for (int i = 0; i < inst->n_incoming; i++) {
+                        IR_Value* op = inst->in_vals[i];
+                        if (op && op->kind == VAL_CONST_STRING)
+                            str_index_of(op->body.str_val);
+                    }
+                }
             }
         }
     }
