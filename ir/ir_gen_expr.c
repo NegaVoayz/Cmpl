@@ -17,6 +17,12 @@ extern IR_Value* sym_lookup(GenCtx* ctx, String name);
 extern IR_Value* global_lookup(IR_Module* mod, String name);
 extern IR_Type*  func_type_lookup(HashMap* sig_map, String name);
 
+/* from ir_builder.c (shared internal helper) */
+extern void append_instr(IR_Builder* b, IR_Instr* inst);
+
+/* forward: gen_expr is defined later, but gen_logical calls it */
+IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
+
 /* ---------------------------------------------------------------
  *  CUDA builtin lookup (for device IR only)
  * --------------------------------------------------------------- */
@@ -39,6 +45,89 @@ static int match_str(const char* a, const String* b)
 }
 
 /* ---------------------------------------------------------------
+ *  Boolean coercion + short-circuit logical AND/OR
+ * --------------------------------------------------------------- */
+
+/* coerce any scalar/pointer value to an i1 boolean */
+static IR_Value*
+coerce_bool(IR_Builder* b, IR_Value* v)
+{
+    if (!v) return NULL;
+    if (v->type && v->type->kind == IR_I1) return v;
+
+    if (v->type && v->type->kind == IR_PTR) {
+        IR_Value* nv = arena_alloc(b->arena, sizeof(IR_Value));
+        nv->kind = VAL_CONST_NULL; nv->type = v->type;
+        return ir_build_icmp(b, IR_COND_NE, v, nv);
+    }
+    if (v->type && (v->type->kind == IR_F32 || v->type->kind == IR_F64))
+        return ir_build_fcmp(b, IR_COND_NE, v,
+            ir_const_float(b->arena, v->type, 0.0));
+    return ir_build_icmp(b, IR_COND_NE, v,
+        ir_const_int(b, v->type ? v->type : t_i32, 0));
+}
+
+/* Short-circuit a && b / a || b.  Unlike the bitwise fallback this
+ * must NOT evaluate the RHS when the LHS already determines the
+ * result, because the compiler's own code relies on that for NULL
+ * checks like `p && p->field == x`. */
+static IR_Value*
+gen_logical(GenCtx* ctx, TokenKind op, AST_Node* l, AST_Node* r)
+{
+    IR_Builder* b = ctx->b;
+    IR_Block* rhs_blk = ir_builder_new_block(b,
+        op == TOK_AMPAMP ? "land.rhs" : "lor.rhs");
+    IR_Block* end_blk = ir_builder_new_block(b,
+        op == TOK_AMPAMP ? "land.end" : "lor.end");
+
+    /* link rhs and end blocks into the function */
+    if (b->cur_func->last_block) b->cur_func->last_block->next = rhs_blk;
+    else b->cur_func->blocks = rhs_blk;
+    b->cur_func->last_block = rhs_blk;
+    rhs_blk->next = end_blk;
+    b->cur_func->last_block = end_blk;
+
+    /* evaluate LHS, then branch (entry block is where the branch lands) */
+    IR_Value* lhs = gen_expr(ctx, l);
+    IR_Value* li = coerce_bool(b, lhs);
+    IR_Block* entry = b->cur_block;
+
+    if (op == TOK_AMPAMP)
+        ir_build_cond_br(b, li, rhs_blk, end_blk);
+    else
+        ir_build_cond_br(b, li, end_blk, rhs_blk);
+
+    /* RHS block.  Nested &&/|| recursively create their own blocks, so
+     * the block that finally branches to end_blk is b->cur_block AFTER
+     * the RHS is evaluated — capture it as the phi's incoming block. */
+    ir_builder_set_block(b, rhs_blk);
+    IR_Value* rhs = gen_expr(ctx, r);
+    IR_Value* ri = coerce_bool(b, rhs);
+    IR_Block* rhs_end = b->cur_block;
+    ir_build_br(b, end_blk);
+
+    /* merge: phi [ const, entry ], [ ri, rhs_end ] */
+    ir_builder_set_block(b, end_blk);
+    IR_Instr* phi = arena_alloc(b->arena, sizeof(IR_Instr));
+    phi->opcode = IROP_PHI;
+    phi->type = t_i1;
+    phi->result = arena_alloc(b->arena, sizeof(IR_Value));
+    phi->result->kind = VAL_INSTR;
+    phi->result->type = t_i1;
+    phi->result->def_instr = phi;
+    phi->n_incoming = 2;
+    phi->in_vals = arena_alloc(b->arena, 2 * sizeof(IR_Value*));
+    phi->in_blocks = arena_alloc(b->arena, 2 * sizeof(IR_Block*));
+    phi->in_vals[0] = ir_const_int(b, t_i1, (op == TOK_AMPAMP) ? 0 : 1);
+    phi->in_blocks[0] = entry;
+    phi->in_vals[1] = ri;
+    phi->in_blocks[1] = rhs_end;
+    append_instr(b, phi);
+
+    return phi->result;
+}
+
+/* ---------------------------------------------------------------
  *  Binary operator map
  * --------------------------------------------------------------- */
 
@@ -46,41 +135,6 @@ static IR_Value*
 gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
 {
     IR_Builder* b = ctx->b;
-
-    /* logical AND/OR: coerce both sides to i1, then bitwise and/or.
-     * This does NOT short-circuit. */
-    if (op == TOK_AMPAMP || op == TOK_PIPEPIPE) {
-        IR_Value* li = lhs;
-        if (li && li->type && li->type->kind != IR_I1) {
-            if (li->type->kind == IR_PTR) {
-                IR_Value* nv = arena_alloc(b->arena, sizeof(IR_Value));
-                nv->kind = VAL_CONST_NULL; nv->type = li->type;
-                li = ir_build_icmp(b, IR_COND_NE, li, nv);
-            } else if (li->type->kind == IR_F32 || li->type->kind == IR_F64) {
-                li = ir_build_fcmp(b, IR_COND_NE, li,
-                    ir_const_float(b->arena, li->type, 0.0));
-            } else {
-                li = ir_build_icmp(b, IR_COND_NE, li,
-                    ir_const_int(b, li->type ? li->type : t_i32, 0));
-            }
-        }
-        IR_Value* ri = rhs;
-        if (ri && ri->type && ri->type->kind != IR_I1) {
-            if (ri->type->kind == IR_PTR) {
-                IR_Value* nv = arena_alloc(b->arena, sizeof(IR_Value));
-                nv->kind = VAL_CONST_NULL; nv->type = ri->type;
-                ri = ir_build_icmp(b, IR_COND_NE, ri, nv);
-            } else if (ri->type->kind == IR_F32 || ri->type->kind == IR_F64) {
-                ri = ir_build_fcmp(b, IR_COND_NE, ri,
-                    ir_const_float(b->arena, ri->type, 0.0));
-            } else {
-                ri = ir_build_icmp(b, IR_COND_NE, ri,
-                    ir_const_int(b, ri->type ? ri->type : t_i32, 0));
-            }
-        }
-        return (op == TOK_AMPAMP) ? ir_build_and(b, li, ri)
-                                   : ir_build_or(b, li, ri);
-    }
 
     /* fixup: ptr + int or ptr += int → use GEP */
     if (op == TOK_PLUS || op == TOK_MINUS ||
@@ -259,15 +313,32 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
                     struct_ty = struct_ptr->type->inner;
             }
             if (!struct_ptr) {
-                IR_Value* record_val = gen_expr(ctx,
+                /* nested lvalue (a.b.c, arr[i].x, p->q.r): get the
+                 * ADDRESS of the record via gen_store_ptr rather than
+                 * loading it into a temporary.  The temp approach only
+                 * reads the value, so a store to the field would be
+                 * lost. */
+                IR_Value* rec_ptr = gen_store_ptr(ctx,
                     n->body.member.record);
-                if (!record_val || !record_val->type ||
-                    (record_val->type->kind != IR_STRUCT &&
-                     record_val->type->kind != IR_UNION))
-                    return NULL;
-                struct_ty = record_val->type;
-                struct_ptr = ir_build_alloca(b, struct_ty);
-                ir_build_store(b, record_val, struct_ptr);
+                if (rec_ptr && rec_ptr->type &&
+                    rec_ptr->type->kind == IR_PTR &&
+                    rec_ptr->type->inner &&
+                    (rec_ptr->type->inner->kind == IR_STRUCT ||
+                     rec_ptr->type->inner->kind == IR_UNION)) {
+                    struct_ptr = rec_ptr;
+                    struct_ty = rec_ptr->type->inner;
+                } else {
+                    /* true rvalue (e.g. f().x): eval + temp copy */
+                    IR_Value* record_val = gen_expr(ctx,
+                        n->body.member.record);
+                    if (!record_val || !record_val->type ||
+                        (record_val->type->kind != IR_STRUCT &&
+                         record_val->type->kind != IR_UNION))
+                        return NULL;
+                    struct_ty = record_val->type;
+                    struct_ptr = ir_build_alloca(b, struct_ty);
+                    ir_build_store(b, record_val, struct_ptr);
+                }
             }
         }
 
@@ -375,6 +446,13 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
                      op == TOK_PERCENTEQ || op == TOK_AMPEQ ||
                      op == TOK_PIPEEQ || op == TOK_CARETEQ ||
                      op == TOK_LTLTEQ || op == TOK_GTGTEQ);
+
+      /* logical AND/OR: short-circuit (must not evaluate RHS if LHS
+       * decides the result) */
+      if (op == TOK_AMPAMP || op == TOK_PIPEPIPE)
+          return gen_logical(ctx, op, n->body.binary.left,
+                             n->body.binary.right);
+
       if (op == TOK_EQ || is_cmpd) {
           IR_Value* rhs = gen_expr(ctx, n->body.binary.right);
           IR_Value* ptr = gen_store_ptr(ctx, n->body.binary.left);
@@ -745,18 +823,17 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
         return alloca_ptr; }
 
     case AST_INDEX:
-    { IR_Value* arr = gen_expr(ctx, n->body.subscript.array);
+    { /* Get the base address via gen_store_ptr, which does NOT decay a
+       * multi-dimensional array to &arr[0].  Using gen_expr here would
+       * decay `table` to &table[0], making the first index step ELEMENTS
+       * instead of ROWS (so table[i][j] reads table[0][i][j]). */
+      IR_Value* arr = gen_store_ptr(ctx, n->body.subscript.array);
+      if (arr && arr->type && arr->type->kind == IR_PTR &&
+          arr->type->inner && arr->type->inner->kind == IR_PTR)
+          arr = ir_build_load(b, arr);
+      if (!arr) arr = gen_expr(ctx, n->body.subscript.array);
       IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
-      /* detect if base is a pointer to an array (outer dim of 2D array).
-       * In that case, GEP + decay but don't load — let outer index load. */
-      int base_is_array = (arr && arr->type && arr->type->kind == IR_PTR &&
-                           arr->type->inner &&
-                           arr->type->inner->kind == IR_ARRAY);
       IR_Value* gep = ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
-      if (base_is_array) {
-          return ir_build_gep(b, gep, ir_const_int(b, t_i32, 0),
-                              ir_const_int(b, t_i32, 0));
-      }
       return ir_build_load(b, gep); }
 
     case AST_MEMBER:

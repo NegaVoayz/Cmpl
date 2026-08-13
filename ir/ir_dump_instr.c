@@ -299,8 +299,10 @@ void dump_instr(FILE* out, IR_Instr* inst)
     case IROP_PHI:
         fprintf(out, "phi ");
         dump_type(out, inst->type);
+        fprintf(out, " ");
         for (int i = 0; i < inst->n_incoming; i++) {
-            fprintf(out, " [ ");
+            if (i > 0) fprintf(out, ", ");
+            fprintf(out, "[ ");
             dump_value(out, inst->in_vals[i]);
             fprintf(out, ", %%%s ]", inst->in_blocks[i] ?
                    inst->in_blocks[i]->name.data : "???");

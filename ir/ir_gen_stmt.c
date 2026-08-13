@@ -158,8 +158,14 @@ static void gen_stmt_switch(GenCtx* ctx, AST_Node* n)
         ir_builder_set_block(b, body_blks[i]);
         for (AST_Node* s = case_nodes[i]->body.case_stmt.stmt; s; s = s->next)
             gen_stmt(ctx, s);
+        /* Fall through to the next case body (or default/merge) unless
+         * the body already ended with a terminator (return/break/goto).
+         * C fall-through means an empty body (e.g. `case A: case B:`)
+         * must reach case B's statements, not jump to the merge block. */
+        IR_Block* next = (i + 1 < ci) ? body_blks[i + 1] :
+                         (def_blk ? def_blk : merge);
         if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode))
-            ir_build_br(b, merge);
+            ir_build_br(b, next);
     }
     ctx->break_blk = save_brk;
 
@@ -192,6 +198,30 @@ static void gen_stmt_while(GenCtx* ctx, AST_Node* n)
     ir_builder_set_block(b, bb);
     gen_stmt(ctx, n->body.loop.body);
     if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode)) ir_build_br(b, cb);
+    ctx->break_blk = save_brk; ctx->cont_blk = save_cnt;
+    ir_builder_set_block(b, mb);
+}
+
+static void gen_stmt_do_while(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
+    IR_Block *bb = ir_builder_new_block(b, "do.body");
+    IR_Block *cb = ir_builder_new_block(b, "do.cond");
+    IR_Block *mb = ir_builder_new_block(b, "do.end");
+
+    link_blocks(b->cur_func, bb); bb->next = cb; cb->next = mb;
+    b->cur_func->last_block = mb;
+    ir_build_br(b, bb);
+
+    IR_Block *save_brk = ctx->break_blk, *save_cnt = ctx->cont_blk;
+    ctx->break_blk = mb; ctx->cont_blk = cb;
+    ir_builder_set_block(b, bb);
+    gen_stmt(ctx, n->body.loop.body);
+    if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode))
+        ir_build_br(b, cb);
+    ir_builder_set_block(b, cb);
+    { IR_Value* c = coerce_to_i1(b, gen_expr(ctx, n->body.loop.condition));
+      if (c) ir_build_cond_br(b, c, bb, mb); else ir_build_br(b, mb); }
     ctx->break_blk = save_brk; ctx->cont_blk = save_cnt;
     ir_builder_set_block(b, mb);
 }
@@ -274,6 +304,7 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
       ir_build_ret(b, rv); break; }
     case AST_IF: gen_stmt_if(ctx, n); break;
     case AST_WHILE: gen_stmt_while(ctx, n); break;
+    case AST_DO_WHILE: gen_stmt_do_while(ctx, n); break;
     case AST_FOR: gen_stmt_for(ctx, n); break;
     case AST_BREAK: if (ctx->break_blk) ir_build_br(b, ctx->break_blk); break;
     case AST_CONTINUE: if (ctx->cont_blk) ir_build_br(b, ctx->cont_blk); break;
