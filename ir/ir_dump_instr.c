@@ -163,7 +163,14 @@ void dump_instr(FILE* out, IR_Instr* inst)
         break;
 
     case IROP_GEP:
-    {   IR_Type* elem = inst->operands[0]->type ? inst->operands[0]->type->inner : NULL;
+    {   /* the GEP base type is what the pointer points to.
+         * for a global array, operands[0]->type is IR_ARRAY (not ptr),
+         * so use the full array type as the base (2D indexing needs
+         * the outer dimension). for a ptr, use ->inner (the pointee). */
+        IR_Type* base = inst->operands[0] ? inst->operands[0]->type : NULL;
+        IR_Type* elem = base;
+        if (base && base->kind == IR_PTR)
+            elem = base->inner;
 
         if (!elem || elem->kind == IR_VOID) elem = t_i8;
 

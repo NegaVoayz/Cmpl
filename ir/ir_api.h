@@ -25,8 +25,9 @@ extern IR_Type *t_f32, *t_f64;
 IR_Type*    ir_type_new(Arena* a, IR_TypeKind kind);
 IR_Type*    ir_ptr_type(Arena* a, IR_Type* inner, int addrspace);
 IR_Type*    ir_array_type(Arena* a, IR_Type* elem, int size);
-IR_Type*    ir_func_type(Arena* a, IR_Type* ret, IR_Type* params);
-IR_Type*    ir_type_from_ast(Arena* a, Type* ast_type, int device_addrspace);
+IR_Type*    ir_func_type(Arena* a, IR_Type* ret, IR_Type* params,
+                          int is_variadic);
+IR_Type*    ir_type_from_ast(Arena* a, Type* ast_type);
 void        ir_clear_struct_cache(void);
 void        ir_reset_type_caches(void);
 int         ir_type_size(IR_Type* t);
@@ -41,9 +42,11 @@ IR_Builder* ir_builder_new(IR_Module* mod, Arena* a);
 IR_Block*   ir_builder_new_block(IR_Builder* b, const char* name);
 void        ir_builder_set_block(IR_Builder* b, IR_Block* block);
 
-IR_Value*   ir_const_int(IR_Builder* b, IR_Type* ty, long val);
+IR_Value*   ir_const_int(IR_Builder* b, IR_Type* ty, long long val);
 IR_Value*   ir_const_float(Arena* a, IR_Type* ty, double val);
 IR_Value*   ir_const_null(Arena* a, IR_Type* ty);
+IR_Value*   ir_const_aggregate(Arena* a, IR_Type* ty,
+                               IR_Value** elems, int count);
 
 /* instruction builders */
 IR_Value*   ir_build_alloca(IR_Builder* b, IR_Type* ty);

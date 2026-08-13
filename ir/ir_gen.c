@@ -32,6 +32,7 @@ typedef struct {
     IR_Type*      ret_type;     /* enclosing function return type */
     IR_Module*    mod;          /* for global variable lookup */
     int           is_device;    /* 1 = device IR gen (CUDA builtins), 0 = host */
+    struct SymSave* scope_top;  /* saved shadowed symbols for scope restore */
 } GenCtx;
 
 /* ---------------------------------------------------------------
@@ -60,9 +61,53 @@ IR_Type* func_type_lookup(HashMap* sig_map, String name)
     return hashmap_get(sig_map, name);
 }
 
+/* save old value for a shadowed variable so it can be restored
+ * when the inner block scope exits. */
+typedef struct SymSave {
+    String            name;
+    IR_Value*         old_val;
+    int               had_old;
+    struct SymSave*   next;
+} SymSave;
+
 void sym_add(GenCtx* ctx, String name, IR_Value* alloca)
 {
+    /* save the previous binding (if any) so shadowing can be undone */
+    SymSave* save = arena_alloc(ctx->b->arena, sizeof(SymSave));
+    save->name = name;
+    save->old_val = hashmap_get(&ctx->syms, name);
+    save->had_old = (save->old_val != NULL);
+    save->next = ctx->scope_top;
+    ctx->scope_top = save;
+
     hashmap_put(&ctx->syms, name, alloca);
+}
+
+/* mark the current scope depth; pops restore symbols added since */
+void sym_scope_push(GenCtx* ctx)
+{
+    SymSave* marker = arena_alloc(ctx->b->arena, sizeof(SymSave));
+    marker->name.data = NULL; marker->name.length = 0;
+    marker->had_old = 0; marker->old_val = NULL;
+    marker->next = ctx->scope_top;
+    ctx->scope_top = marker;
+}
+
+/* restore symbols shadowed since the matching sym_scope_push */
+void sym_scope_pop(GenCtx* ctx)
+{
+    while (ctx->scope_top) {
+        SymSave* save = ctx->scope_top;
+        ctx->scope_top = save->next;
+        if (save->name.data == NULL)
+            break;  /* reached the scope marker */
+        if (save->had_old) {
+            String nm;
+            nm.data = save->name.data;
+            nm.length = save->name.length;
+            hashmap_put(&ctx->syms, nm, save->old_val);
+        }
+    }
 }
 
 /* ---------------------------------------------------------------
@@ -159,6 +204,16 @@ static void resolve_expr_types(AST_Node* e, TypedefEntry* table)
     case AST_INDEX:
         resolve_expr_types(e->body.subscript.array, table);
         resolve_expr_types(e->body.subscript.index, table); break;
+    case AST_MEMBER:
+        /* member access: the record is a struct/union lvalue or
+         * a cast-to-struct-pointer — resolve its type so field
+         * lookup works during IR gen. */
+        resolve_expr_types(e->body.member.record, table); break;
+    case AST_INIT_LIST:
+        for (AST_Node* elem = e->body.init_list.elems;
+             elem; elem = elem->next)
+            resolve_expr_types(elem, table);
+        break;
     default: break;
     }
 }
@@ -282,7 +337,9 @@ static void resolve_ast_node(AST_Node* n, TypedefEntry* table)
         resolve_ast_node(n->body.switch_stmt.body, table); break;
     case AST_CASE: case AST_DEFAULT:
         resolve_expr_types(n->body.case_stmt.value, table);
-        resolve_ast_node(n->body.case_stmt.stmt, table); break;
+        for (AST_Node* s = n->body.case_stmt.stmt; s; s = s->next)
+            resolve_ast_node(s, table);
+        break;
     default: break;
     }
 }
@@ -422,6 +479,14 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
 }
 
 /* ---------------------------------------------------------------
+ *  gen_const_init — convert AST initializer to IR constant
+ * --------------------------------------------------------------- */
+
+static IR_Value*
+gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
+               TypedefEntry* enum_vals);
+
+/* ---------------------------------------------------------------
  *  Module generation (top-level entry)
  * --------------------------------------------------------------- */
 
@@ -444,8 +509,8 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     ir_reset_type_caches();
 
     /* pass 0.5: collect typedefs + enum constants, resolve throughout AST */
+    TypedefEntry *typedefs = NULL, *enum_vals = NULL;
     {
-        TypedefEntry *typedefs = NULL, *enum_vals = NULL;
 
         /* collect typedefs */
         for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
@@ -573,7 +638,8 @@ ir_gen_module_ex(AST_Node* root, int is_device)
             ptail = &cp->next;
         }
 
-        IR_Type* func_ty = ir_func_type(a, rt ? rt : t_void, params);
+        IR_Type* func_ty = ir_func_type(a, rt ? rt : t_void, params,
+                                         decl->body.func_def.is_variadic);
         hashmap_put(&sig_map, decl->body.func_def.name, func_ty);
     }
 
@@ -594,14 +660,16 @@ ir_gen_module_ex(AST_Node* root, int is_device)
                  * or tentative definition (linkage==0, no extern keyword) */
                 if (!existing->body.init_val &&
                     (decl->body.var_decl.init || decl->body.var_decl.linkage == 0)) {
-                    IR_Value* init = arena_alloc(a, sizeof(IR_Value));
-                    if (existing->type->kind == IR_PTR) {
-                        init->kind = VAL_CONST_NULL;
-                    } else {
-                        init->kind = VAL_CONST_INT;
+                    if (decl->body.var_decl.init)
+                        existing->body.init_val = gen_const_init(a,
+                            decl->body.var_decl.init, existing->type, enum_vals);
+                    else {
+                        IR_Value* init = arena_alloc(a, sizeof(IR_Value));
+                        init->kind = (existing->type->kind == IR_PTR) ?
+                            VAL_CONST_NULL : VAL_CONST_INT;
+                        init->type = existing->type;
+                        existing->body.init_val = init;
                     }
-                    init->type = existing->type;
-                    existing->body.init_val = init;
                 }
                 continue;
             }
@@ -639,14 +707,8 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         gv->linkage = (decl->body.var_decl.linkage == 4) ? 0 : 1;
 
         if (decl->body.var_decl.init) {
-            IR_Value* init = arena_alloc(a, sizeof(IR_Value));
-            if (gv->type->kind == IR_PTR) {
-                init->kind = VAL_CONST_NULL;
-            } else {
-                init->kind = VAL_CONST_INT;
-            }
-            init->type = gv->type;
-            gv->body.init_val = init;
+            gv->body.init_val = gen_const_init(a, decl->body.var_decl.init,
+                                               gv->type, enum_vals);
         } else if (decl->body.var_decl.linkage != 5) {
             /* not extern: tentative definition or static → zero-initialize */
             IR_Value* init = arena_alloc(a, sizeof(IR_Value));
@@ -685,4 +747,127 @@ IR_Module*
 ir_gen_program(AST_Node* root)
 {
     return ir_gen_module_ex(root, 0);
+}
+
+/* ---------------------------------------------------------------
+ *  gen_const_init — recursive AST-to-IR constant initializer
+ * --------------------------------------------------------------- */
+
+static IR_Value*
+gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
+               TypedefEntry* enum_vals)
+{
+    if (!init || !target_type) return NULL;
+
+    switch (init->type) {
+    case AST_INIT_LIST:
+    {   /* collect child values into an arena-allocated array */
+        int count = 0;
+        AST_Node* e;
+        for (e = init->body.init_list.elems; e; e = e->next) count++;
+
+        IR_Value** elems = arena_alloc(a, count * sizeof(IR_Value*));
+        int idx = 0;
+        IR_Type* child_type = NULL;
+
+        if (target_type->kind == IR_ARRAY)
+            child_type = target_type->inner;
+        else if (target_type->kind == IR_STRUCT ||
+                 target_type->kind == IR_UNION)
+            child_type = target_type->members;
+
+        for (e = init->body.init_list.elems; e; e = e->next) {
+            IR_Type* ct = child_type;
+            /* advance child type through struct member chain */
+            if (target_type->kind == IR_STRUCT ||
+                target_type->kind == IR_UNION) {
+                ct = child_type;
+                /* each init element consumes one struct member */
+                IR_Type* m = target_type->members;
+                int mi = 0;
+                while (m && mi < idx) { m = m->next; mi++; }
+                ct = m;
+            } else if (target_type->kind == IR_ARRAY) {
+                ct = target_type->inner;
+            }
+            elems[idx++] = gen_const_init(a, e, ct ? ct : t_i32,
+                                          enum_vals);
+        }
+        return ir_const_aggregate(a, target_type, elems, count);
+    }
+
+    case AST_INT_LIT:
+    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+        v->kind = VAL_CONST_INT;
+        v->type = target_type;
+        v->body.int_val = init->body.literal.int_val;
+        return v;
+    }
+
+    case AST_LONG_LIT:
+    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+        v->kind = VAL_CONST_INT;
+        v->type = target_type;
+        v->body.int_val = init->body.literal.int_val;
+        return v;
+    }
+
+    case AST_CHAR_LIT:
+    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+        v->kind = VAL_CONST_INT;
+        v->type = target_type;
+        v->body.int_val = init->body.literal.char_val;
+        return v;
+    }
+
+    case AST_STRING_LIT:
+    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+        v->kind = VAL_CONST_STRING;
+        v->type = target_type;
+        v->body.str_val = init->body.literal.str_val;
+        return v;
+    }
+
+    case AST_IDENT:
+        /* look up in enum values */
+        for (TypedefEntry* ev = enum_vals; ev; ev = ev->next) {
+            if (ev->name.length == init->body.ident.name.length &&
+                memcmp(ev->name.data, init->body.ident.name.data,
+                       ev->name.length) == 0) {
+                IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+                v->kind = VAL_CONST_INT;
+                v->type = target_type;
+                v->body.int_val = (long)(intptr_t)ev->aliased_type;
+                return v;
+            }
+        }
+        /* not an enum — warn and return zero */
+        fprintf(stderr, "gen_const: unresolved ident '%.*s'\n",
+                init->body.ident.name.length, init->body.ident.name.data);
+        { IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+          v->kind = VAL_CONST_INT; v->type = target_type;
+          v->body.int_val = 0; return v; }
+
+    case AST_CAST:
+        /* evaluate the inner expression, then cast */
+    {   IR_Value* inner = gen_const_init(a, init->body.cast.cast_expr,
+                                          target_type, enum_vals);
+        return inner;
+    }
+
+    case AST_UNARY:
+        if (init->body.unary.op == TOK_MINUS) {
+            IR_Value* inner = gen_const_init(a, init->body.unary.operand,
+                                              target_type, enum_vals);
+            if (inner && inner->kind == VAL_CONST_INT)
+                inner->body.int_val = -inner->body.int_val;
+            return inner;
+        }
+        /* fall through */
+    default:
+        fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
+        { IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+          v->kind = VAL_CONST_INT; v->type = target_type;
+          v->body.int_val = 0; return v; }
+    }
 }

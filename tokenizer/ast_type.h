@@ -55,6 +55,9 @@ typedef enum {
     AST_TYPEDEF,
     AST_PARAM_DECL,
 
+    /* initializer */
+    AST_INIT_LIST,
+
     /* top-level */
     AST_PROGRAM
 } AST_Type;

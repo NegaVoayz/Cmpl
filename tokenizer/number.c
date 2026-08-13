@@ -80,7 +80,7 @@ read_number(Lexer* lex)
     if (is_float) {
         tok->body.float_val = strtod(buf, NULL);
     } else {
-        tok->body.int_val = strtol(buf, NULL, 0);
+        tok->body.int_val = (long long)strtoull(buf, NULL, 0);
     }
     return tok;
 }

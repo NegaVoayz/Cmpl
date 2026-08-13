@@ -153,7 +153,8 @@ static void collect_struct_types_rec(IR_Type* t)
         }
     } else {
         for (int i = 0; i < n_struct_seen; i++)
-            if (struct_seen[i] == t) return;
+            if (struct_seen[i] == t ||
+                struct_seen[i]->members == t->members) return;
     }
 
     struct_seen[n_struct_seen++] = t;
@@ -161,7 +162,8 @@ static void collect_struct_types_rec(IR_Type* t)
     /* register in dump_anon table so dump_type finds it */
     if (!t->name.data && dump_anon_count < IR_MAX_ANON_TYPES) {
         for (int i = 0; i < dump_anon_count; i++)
-            if (dump_anon_types[i] == t) return;
+            if (dump_anon_types[i] == t ||
+                dump_anon_types[i]->members == t->members) return;
         dump_anon_types[dump_anon_count++] = t;
     }
 
@@ -176,9 +178,17 @@ static void emit_struct_types(FILE* out, IR_Module* mod)
 {
     n_struct_seen = 0;
 
-    /* collect from globals */
-    for (IR_Value* gv = mod->globals; gv; gv = gv->next)
+    /* collect from globals (type and init values) */
+    for (IR_Value* gv = mod->globals; gv; gv = gv->next) {
         collect_struct_types_rec(gv->type);
+        /* also collect struct types from nested aggregate inits */
+        if (gv->body.init_val &&
+            gv->body.init_val->kind == VAL_CONST_AGGREGATE) {
+            for (int i = 0; i < gv->body.init_val->body.aggregate.count; i++)
+                collect_struct_types_rec(
+                    gv->body.init_val->body.aggregate.elems[i]->type);
+        }
+    }
 
     /* collect from function signatures and alloca types */
     for (IR_Func* fn = mod->funcs; fn; fn = fn->next) {
@@ -216,17 +226,20 @@ static void emit_struct_types(FILE* out, IR_Module* mod)
         }
     }
 
-    /* emit anonymous structs discovered during dump_type calls */
+    /* emit anonymous structs discovered during dump_type calls.
+     * use pointer address in the name to avoid cross-module collisions:
+     * %struct.anon.0 in two different .ll files may be different types,
+     * which causes silent struct layout corruption when linked. */
     for (int i = 0; i < dump_anon_count; i++) {
         IR_Type* t = dump_anon_types[i];
 
         if (t->kind == IR_UNION) {
             IR_Type* largest = union_largest_member(t);
-            fprintf(out, "%%struct.anon.%d = type { ", i);
+            fprintf(out, "%%struct.anon.%d.p%p = type { ", i, (void*)t);
             dump_type(out, largest ? largest : t->members);
             fprintf(out, " }\n");
         } else {
-            fprintf(out, "%%struct.anon.%d = type { ", i);
+            fprintf(out, "%%struct.anon.%d.p%p = type { ", i, (void*)t);
             int first = 1;
             for (IR_Type* m = t->members; m; m = m->next) {
                 if (!first) fprintf(out, ", ");
@@ -274,7 +287,9 @@ ir_dump_module(IR_Module* mod, FILE* out)
             fprintf(out, "global ");
             dump_type(out, gv->type);
             fprintf(out, " ");
-            /* use zeroinitializer for array/struct types with zero init */
+            /* use zeroinitializer for array/struct types with zero init.
+             * VAL_CONST_AGGREGATE with 0 elems emits zeroinitializer
+             * from dump_value. */
             if (gv->type && (gv->type->kind == IR_ARRAY ||
                              gv->type->kind == IR_STRUCT ||
                              gv->type->kind == IR_UNION) &&
@@ -345,6 +360,12 @@ ir_dump_module(IR_Module* mod, FILE* out)
                     for (int ai = 0; ai < inst->n_call_args; ai++) {
                         if (ai > 0) fprintf(out, ", ");
                         dump_type(out, inst->call_args[ai]->type);
+                    }
+                    /* check if variadic via func_type stored on call inst */
+                    if (inst->func_type && inst->func_type->kind == IR_FUNC &&
+                        inst->func_type->is_variadic) {
+                        if (inst->n_call_args > 0) fprintf(out, ", ");
+                        fprintf(out, "...");
                     }
                     fprintf(out, ")\n\n");
                 }

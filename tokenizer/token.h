@@ -104,7 +104,7 @@ struct Token {
     Token*    next;
 
     union {
-        long int_val;           // TOK_INT_LIT
+        long long int_val;      // TOK_INT_LIT / TOK_LONG_LIT (64-bit)
         char char_val;          // TOK_CHAR_LIT
         double float_val;       // TOK_FLOAT_LIT
         String str_val;              // TOK_STRING_LIT

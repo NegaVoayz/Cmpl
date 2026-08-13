@@ -10,7 +10,7 @@
  * --------------------------------------------------------------- */
 
 #define MAX_BLK 512
-#define MAX_PRE 32
+#define MAX_PRE 128
 
 typedef struct {
     IR_Block* blk;

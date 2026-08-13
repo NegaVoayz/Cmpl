@@ -57,10 +57,27 @@ dump_str_globals(FILE* out)
     }
 }
 
+static void collect_from_value(IR_Value* val)
+{
+    if (!val) return;
+    if (val->kind == VAL_CONST_STRING)
+        str_index_of(val->body.str_val);
+    else if (val->kind == VAL_CONST_AGGREGATE) {
+        for (int i = 0; i < val->body.aggregate.count; i++)
+            collect_from_value(val->body.aggregate.elems[i]);
+    }
+}
+
 void
 dump_str_collect_module(IR_Module* mod)
 {
     str_count = 0;
+
+    /* collect strings from global initializers */
+    for (IR_Value* gv = mod->globals; gv; gv = gv->next) {
+        if (gv->body.init_val)
+            collect_from_value(gv->body.init_val);
+    }
 
     for (IR_Func* f = mod->funcs; f; f = f->next) {
         if (!f->blocks) continue;

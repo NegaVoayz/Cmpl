@@ -62,18 +62,25 @@ void dump_type(FILE* out, IR_Type* ty)
         if (ty->name.data) {
             fprintf(out, "%%struct.%.*s", ty->name.length, ty->name.data);
         } else if (ty->members) {
-            /* Look up in dump_anon_types by pointer identity only.
-             * All anonymous struct/union types MUST be pre-registered
-             * by collect_struct_types_rec during emit_struct_types.
-             * If a type is not found, emit an opaque {} rather than
-             * silently adding it -- this prevents unsized-type errors
-             * in the generated LLVM IR. */
+            /* Look up in dump_anon_types by pointer identity first,
+             * then by members pointer (clones from clone_type_for_chain
+             * share the members pointer but have a different IR_Type*).
+             * Emit the ORIGINAL's name so clones resolve to the same
+             * type. */
             int idx = -1;
+            IR_Type* orig = ty;
             for (int i = 0; i < dump_anon_count; i++) {
-                if (dump_anon_types[i] == ty) { idx = i; break; }
+                if (dump_anon_types[i] == ty) { idx = i; orig = ty; break; }
+            }
+            if (idx < 0) {
+                for (int i = 0; i < dump_anon_count; i++) {
+                    if (dump_anon_types[i]->members == ty->members) {
+                        idx = i; orig = dump_anon_types[i]; break;
+                    }
+                }
             }
             if (idx >= 0)
-                fprintf(out, "%%struct.anon.%d", idx);
+                fprintf(out, "%%struct.anon.%d.p%p", idx, (void*)orig);
             else
                 fprintf(out, "{}");
         } else
@@ -94,7 +101,7 @@ void dump_value(FILE* out, IR_Value* val)
 
     switch (val->kind) {
     case VAL_CONST_INT:
-        fprintf(out, "%ld", val->body.int_val);
+        fprintf(out, "%lld", val->body.int_val);
         break;
 
     case VAL_CONST_FLOAT:
@@ -135,6 +142,27 @@ void dump_value(FILE* out, IR_Value* val)
 
     case VAL_UNDEF:
         fprintf(out, "undef");
+        break;
+
+    case VAL_CONST_AGGREGATE:
+        /* emit values with per-element types (no outer type).
+         * arrays: [T v0, T v1, ...]
+         * structs: {T v0, T v1, ...}
+         * the type is provided by the caller (global line or parent). */
+        if (val->body.aggregate.count == 0) {
+            fprintf(out, "zeroinitializer");
+        } else {
+            fprintf(out, val->type->kind == IR_STRUCT ||
+                    val->type->kind == IR_UNION ? "{" : "[");
+            for (int i = 0; i < val->body.aggregate.count; i++) {
+                if (i > 0) fprintf(out, ", ");
+                dump_type(out, val->body.aggregate.elems[i]->type);
+                fprintf(out, " ");
+                dump_value(out, val->body.aggregate.elems[i]);
+            }
+            fprintf(out, val->type->kind == IR_STRUCT ||
+                    val->type->kind == IR_UNION ? "}" : "]");
+        }
         break;
 
     default: fprintf(out, "?"); break;

@@ -10,15 +10,18 @@
 #include "arena.h"
 
 /* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
-typedef struct { IR_Builder* b; HashMap syms; HashMap* sig_map; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; } GenCtx;
+typedef struct { IR_Builder* b; HashMap syms; HashMap* sig_map; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; struct SymSave* scope_top; } GenCtx;
 
 /* from ir_gen.c and ir_gen_expr.c */
 extern IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
 extern IR_Value* sym_lookup(GenCtx* ctx, String name);
 extern void      sym_add(GenCtx* ctx, String name, IR_Value* alloca);
+extern void      sym_scope_push(GenCtx* ctx);
+extern void      sym_scope_pop(GenCtx* ctx);
 
 /* forward: defined below (used by gen_stmt_if/while/for) */
 void gen_stmt(GenCtx* ctx, AST_Node* n);
+static void gen_stmt_switch(GenCtx* ctx, AST_Node* n);
 
 /* check if an opcode is a terminator (nothing can follow it in a block) */
 static int is_terminator(IR_Opcode op)
@@ -92,6 +95,86 @@ static void gen_stmt_if(GenCtx* ctx, AST_Node* n)
     ir_builder_set_block(b, mb);
 }
 
+static void gen_stmt_switch(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
+    IR_Value* cond = gen_expr(ctx, n->body.switch_stmt.condition);
+
+    AST_Node* cases = n->body.switch_stmt.body ?
+        n->body.switch_stmt.body->body.block.stmts : NULL;
+    AST_Node* default_node = NULL;
+
+    /* collect case nodes and default */
+    int n_cases = 0;
+    for (AST_Node* c = cases; c; c = c->next) {
+        if (c->type == AST_CASE) n_cases++;
+        else if (c->type == AST_DEFAULT) default_node = c;
+    }
+
+    /* create one test block + body block per case (dispatch order),
+     * then the default block and merge block last. */
+    IR_Block* test_blks[64];
+    IR_Block* body_blks[64];
+    AST_Node* case_nodes[64];
+    int ci = 0;
+    for (AST_Node* c = cases; c && ci < 64; c = c->next) {
+        if (c->type != AST_CASE) continue;
+        case_nodes[ci] = c;
+        test_blks[ci] = ir_builder_new_block(b, "case.test");
+        body_blks[ci] = ir_builder_new_block(b, "case");
+        link_blocks(b->cur_func, test_blks[ci]);
+        link_blocks(b->cur_func, body_blks[ci]);
+        ci++;
+    }
+    IR_Block* def_blk = NULL;
+    if (default_node) {
+        def_blk = ir_builder_new_block(b, "default");
+        link_blocks(b->cur_func, def_blk);
+    }
+    IR_Block* merge = ir_builder_new_block(b, "switch.end");
+    link_blocks(b->cur_func, merge);
+    b->cur_func->last_block = merge;
+
+    /* branch from the current block into the first test (or default/merge) */
+    if (ci > 0)
+        ir_build_br(b, test_blks[0]);
+    else if (def_blk)
+        ir_build_br(b, def_blk);
+
+    /* dispatch: chain of comparisons */
+    for (int i = 0; i < ci; i++) {
+        IR_Block* next = (i + 1 < ci) ? test_blks[i + 1] :
+                         (def_blk ? def_blk : merge);
+        ir_builder_set_block(b, test_blks[i]);
+        IR_Value* case_val = gen_expr(ctx, case_nodes[i]->body.case_stmt.value);
+        IR_Value* cmp = ir_build_icmp(b, IR_COND_EQ, cond, case_val);
+        ir_build_cond_br(b, cmp, body_blks[i], next);
+    }
+
+    /* case bodies */
+    IR_Block* save_brk = ctx->break_blk;
+    ctx->break_blk = merge;
+    for (int i = 0; i < ci; i++) {
+        ir_builder_set_block(b, body_blks[i]);
+        for (AST_Node* s = case_nodes[i]->body.case_stmt.stmt; s; s = s->next)
+            gen_stmt(ctx, s);
+        if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode))
+            ir_build_br(b, merge);
+    }
+    ctx->break_blk = save_brk;
+
+    /* default body */
+    if (def_blk) {
+        ir_builder_set_block(b, def_blk);
+        for (AST_Node* s = default_node->body.case_stmt.stmt; s; s = s->next)
+            gen_stmt(ctx, s);
+        if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode))
+            ir_build_br(b, merge);
+    }
+
+    ir_builder_set_block(b, merge);
+}
+
 static void gen_stmt_while(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
@@ -152,7 +235,9 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
 
     switch (n->type) {
     case AST_BLOCK:
+        sym_scope_push(ctx);
         for (AST_Node* s = n->body.block.stmts; s; s = s->next) gen_stmt(ctx, s);
+        sym_scope_pop(ctx);
         break;
     case AST_EXPR_STMT: gen_expr(ctx, n->body.expr_stmt.expr); break;
     case AST_RETURN:
@@ -193,25 +278,38 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
     case AST_BREAK: if (ctx->break_blk) ir_build_br(b, ctx->break_blk); break;
     case AST_CONTINUE: if (ctx->cont_blk) ir_build_br(b, ctx->cont_blk); break;
     case AST_VAR_DECL:
-    { IR_Type* vt = ir_type_from_ast(b->arena, n->body.var_decl.var_type, ctx->is_device);
+    { IR_Type* vt = ir_type_from_ast(b->arena, n->body.var_decl.var_type);
       if (!vt || vt->kind == IR_VOID) vt = t_i8;
-      /* evaluate init before creating alloca — init type may reveal
-       * that an unresolved typedef is actually a fn ptr */
-      IR_Value* init = NULL;
-      if (n->body.var_decl.init)
-          init = gen_expr(ctx, n->body.var_decl.init);
-      if (init && vt == t_i32 &&
-          n->body.var_decl.var_type &&
-          n->body.var_decl.var_type->kind == TYPE_NAMED &&
-          !n->body.var_decl.var_type->inner &&
-          init->type && init->type->kind == IR_PTR)
-          vt = ir_ptr_type(b->arena, t_i8, 0);
       IR_Value* al = ir_build_alloca(b, vt);
       sym_add(ctx, n->body.var_decl.name, al);
-      if (init) ir_build_store(b, init, al);
+      if (n->body.var_decl.init &&
+          n->body.var_decl.init->type == AST_INIT_LIST) {
+          /* array initializer: store each element via GEP */
+          int idx = 0;
+          for (AST_Node* e = n->body.var_decl.init->body.init_list.elems;
+               e; e = e->next, idx++) {
+              IR_Value* ev = gen_expr(ctx, e);
+              if (!ev) continue;
+              IR_Value* gep = ir_build_gep(b, al,
+                  ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, idx));
+              ir_build_store(b, ev, gep);
+          }
+      } else if (n->body.var_decl.init) {
+          IR_Value* init = gen_expr(ctx, n->body.var_decl.init);
+          if (init && vt == t_i32 &&
+              n->body.var_decl.var_type &&
+              n->body.var_decl.var_type->kind == TYPE_NAMED &&
+              !n->body.var_decl.var_type->inner &&
+              init->type && init->type->kind == IR_PTR)
+              vt = ir_ptr_type(b->arena, t_i8, 0);
+          if (init) ir_build_store(b, init, al);
+      }
       break; }
-    case AST_SWITCH: gen_stmt(ctx, n->body.switch_stmt.body); break;
-    case AST_CASE: case AST_DEFAULT: gen_stmt(ctx, n->body.case_stmt.stmt); break;
+    case AST_SWITCH: gen_stmt_switch(ctx, n); break;
+    case AST_CASE: case AST_DEFAULT:
+        for (AST_Node* s = n->body.case_stmt.stmt; s; s = s->next)
+            gen_stmt(ctx, s);
+        break;
     default: break;
     }
 }

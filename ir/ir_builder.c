@@ -101,7 +101,7 @@ append_instr(IR_Builder* b, IR_Instr* inst)
  * --------------------------------------------------------------- */
 
 IR_Value*
-ir_const_int(IR_Builder* b, IR_Type* ty, long val)
+ir_const_int(IR_Builder* b, IR_Type* ty, long long val)
 {
     IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
     v->kind = VAL_CONST_INT;
@@ -126,6 +126,17 @@ ir_const_null(Arena* a, IR_Type* ty)
     IR_Value* v = arena_alloc(a, sizeof(IR_Value));
     v->kind = VAL_CONST_NULL;
     v->type = ty;
+    return v;
+}
+
+IR_Value*
+ir_const_aggregate(Arena* a, IR_Type* ty, IR_Value** elems, int count)
+{
+    IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+    v->kind = VAL_CONST_AGGREGATE;
+    v->type = ty;
+    v->body.aggregate.elems = elems;
+    v->body.aggregate.count = count;
     return v;
 }
 
@@ -213,6 +224,21 @@ ir_build_load(IR_Builder* b, IR_Value* ptr)
 IR_Value*
 ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr)
 {
+    /* If the value is a larger integer than the pointee, truncate it.
+     * This fixes ptr-ptr subtraction producing i64 stored into i32 alloca,
+     * and any other implicit narrowing conversion.
+     * Only applies to integer types — struct/ptr narrowing uses bitcast. */
+    if (val && val->type && ptr && ptr->type &&
+        ptr->type->kind == IR_PTR && ptr->type->inner) {
+        int val_sz = ir_type_size(val->type);
+        int elem_sz = ir_type_size(ptr->type->inner);
+        int val_int = (val->type->kind >= IR_I1 && val->type->kind <= IR_I64);
+        int elem_int = (ptr->type->inner->kind >= IR_I1 &&
+                        ptr->type->inner->kind <= IR_I64);
+        if (val_int && elem_int && val_sz > elem_sz && elem_sz > 0)
+            val = ir_build_trunc(b, val, ptr->type->inner);
+    }
+
     IR_Instr* inst = make_instr(b, IROP_STORE, t_void);
     inst->operands[0] = val;
     inst->operands[1] = ptr;

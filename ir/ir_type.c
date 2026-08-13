@@ -170,11 +170,12 @@ ir_array_type(Arena* a, IR_Type* elem, int size)
 }
 
 IR_Type*
-ir_func_type(Arena* a, IR_Type* ret, IR_Type* params)
+ir_func_type(Arena* a, IR_Type* ret, IR_Type* params, int is_variadic)
 {
     IR_Type* t = ir_type_new(a, IR_FUNC);
     t->inner = ret;
     t->members = params;
+    t->is_variadic = is_variadic;
     return t;
 }
 
@@ -240,7 +241,7 @@ ast_to_ir_type(Arena* a, Type* ast)
             *tail = clone_type_for_chain(a, pt);
             tail = &(*tail)->next;
         }
-        IR_Type* ft = ir_func_type(a, ret, params);
+        IR_Type* ft = ir_func_type(a, ret, params, ast->is_variadic);
         while (n_ptr-- > 0)
             ft = ir_ptr_type(a, ft, 0);
         return ft;

@@ -34,6 +34,7 @@ struct IR_Type {
     IR_Type*    inner;       /* pointee / array elem / return type */
     int         size;        /* array element count */
     int         addrspace;   /* 0=host, 1=device global, 2=shared, 3=constant */
+    int         is_variadic; /* function type has ... */
     String      name;        /* struct tag */
     IR_Type*    members;     /* struct fields / func params (linked via next) */
     IR_Type*    next;        /* chain for members / named_types list */
@@ -48,6 +49,7 @@ typedef enum {
     VAL_CONST_FLOAT,
     VAL_CONST_NULL,
     VAL_CONST_STRING,
+    VAL_CONST_AGGREGATE,
     VAL_PARAM,
     VAL_INSTR,
     VAL_GLOBAL,
@@ -66,10 +68,14 @@ struct IR_Value {
     int          id;          /* auto-increment numeric ID */
     IR_Value*    next;        /* chain for global list */
     union {
-        long       int_val;
+        long long  int_val;
         double     float_val;
         String     str_val;
         IR_Value*  init_val;  /* global initializer */
+        struct {
+            IR_Value** elems;
+            int        count;
+        } aggregate;
     } body;
     int          linkage;    /* for globals: 0=internal(static), 1=external */
     IR_Instr*    def_instr;   /* instruction that defines this value (or NULL) */
@@ -123,6 +129,7 @@ struct IR_Instr {
     IR_Value*    operands[3];
     IR_Cond      cond;          /* for IROP_ICMP / IROP_FCMP */
     String       callee;        /* for IROP_CALL, optional IROP_GEP */
+    IR_Type*     func_type;     /* declared function type (for variadic check) */
     int          n_call_args;
     IR_Value**   call_args;     /* dynamic array for call args */
     /* phi-specific */

@@ -68,7 +68,7 @@ read_ident_or_keyword(Lexer* lex)
     }
     int len = (int)(lex->cur - start);
 
-    Keyword key = {.name = NULL};
+    Keyword key = {NULL, 0};
     char    name_buf[128];
 
     memcpy(name_buf, start, len);

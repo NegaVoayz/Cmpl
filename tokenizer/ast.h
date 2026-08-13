@@ -34,6 +34,7 @@ struct Type {
     int       arr_size;   /* array size, 0 if unsized like int[] */
     int       is_const;
     int       is_volatile;
+    int       is_variadic; /* function type has ... */
     String    size_name;  /* unresolved size identifier (enum constant / macro) */
 };
 

@@ -19,7 +19,7 @@ struct AST_Node {
     union {
         /* literals -- all six share one sub-struct */
         struct {
-            long   int_val;
+            long long int_val;
             char   char_val;
             double float_val;
             String str_val;
@@ -107,6 +107,9 @@ struct AST_Node {
         /* expression statement */
         struct { AST_Node* expr; } expr_stmt;
 
+        /* initializer list {a, b, c} */
+        struct { AST_Node* elems; AST_Node* last_elem; } init_list;
+
         /* variable declaration */
         struct { Type* var_type; String name; AST_Node* init; int addr_space; int linkage; } var_decl;
 
@@ -119,6 +122,7 @@ struct AST_Node {
             AST_Node* body;
             int       linkage;       /* 0=host, 1=device, 2=global, 3=host_device */
             int       is_constructor; /* __attribute__((constructor)) */
+            int       is_variadic;    /* function has ... */
         } func_def;
 
         /* struct / union definition */
