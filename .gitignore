@@ -1,1 +1,6 @@
 build/
+build2/
+*.o
+*.exe
+*.ll
+*.spv
