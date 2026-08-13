@@ -1,0 +1,23 @@
+# Normalize line endings to LF for all text files.
+# This overrides core.autocrlf / core.eol on every platform, so
+# CRLF/LF churn never shows up in diffs again.
+* text=auto eol=lf
+
+# Explicit binary types (text=auto skips NUL-containing files anyway,
+# but list them so no text conversion can ever touch them).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.bmp binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.o binary
+*.obj binary
+*.a binary
+*.so binary
