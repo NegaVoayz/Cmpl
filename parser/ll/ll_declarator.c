@@ -15,7 +15,7 @@
 extern Type* ll_parse_type_specs(LR1_Parser* p);
 
 /* forward: defined below */
-static AST_Node* ll_parse_params(LR1_Parser* p);
+static AST_Node* ll_parse_params(LR1_Parser* p, int* is_variadic);
 
 /* ---------------------------------------------------------------
  *  Declarator
@@ -145,8 +145,9 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
             p->tok = p->tok->next;
 
             Type* func = type_new(p->arena, TYPE_FUNC);
-
-            func->params = ll_parse_params(p);
+            { int is_variadic = 0;
+              func->params = ll_parse_params(p, &is_variadic);
+              func->is_variadic = is_variadic; }
             func->inner = result;
             result = func;
             has_func = 1;
@@ -186,8 +187,9 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
  *  Returns a linked list of AST_PARAM_DECL nodes.
  * --------------------------------------------------------------- */
 
-static AST_Node* ll_parse_params(LR1_Parser* p)
+static AST_Node* ll_parse_params(LR1_Parser* p, int* is_variadic)
 {
+    *is_variadic = 0;
     /* (void) or () -- empty parameter list */
     if (p->tok->kind == TOK_VOID) {
         Token* next = p->tok->next;
@@ -204,6 +206,7 @@ static AST_Node* ll_parse_params(LR1_Parser* p)
     /* variadic: (..., ...) or just (...) */
     if (p->tok->kind == TOK_ELLIPSIS) {
         p->tok = p->tok->next;
+        *is_variadic = 1;
         return NULL;
     }
 
@@ -234,6 +237,7 @@ static AST_Node* ll_parse_params(LR1_Parser* p)
             /* variadic after last param: (type name, ...) */
             if (p->tok->kind == TOK_ELLIPSIS) {
                 p->tok = p->tok->next;
+                *is_variadic = 1;
                 break;
             }
         } else

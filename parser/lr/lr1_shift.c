@@ -25,6 +25,10 @@ static LR_Action do_shift(LR1_Parser* p, int target)
         return LR_ERROR;
     }
 
+    /* track paren depth: entering ( or [ opens a new nesting level */
+    if (p->tok->kind == TOK_LPAREN || p->tok->kind == TOK_LBRACKET)
+        p->paren_depth++;
+
     p->sp++;
     p->stack[p->sp].state = target;
     p->stack[p->sp].token = p->tok;

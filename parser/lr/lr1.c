@@ -76,6 +76,17 @@ static int is_cast_start(Token* tok)
     return 0;
 }
 
+/* check if token kind is a postfix operator (binds tighter than cast) */
+static int is_postfix_token(TokenKind k)
+{
+    return k == TOK_LPAREN    /* func(args) */
+        || k == TOK_LBRACKET  /* arr[idx]   */
+        || k == TOK_DOT       /* obj.member */
+        || k == TOK_ARROW     /* ptr->member*/
+        || k == TOK_PLUSPLUS  /* expr++     */
+        || k == TOK_MINUSMINUS;/* expr--     */
+}
+
 /* states at or below cast-expr level -- where a pending cast should wrap */
 static int is_cast_level(int s)
 {
@@ -150,6 +161,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
     p->stack[0].node = NULL;
     p->pending_cast = 0;
     p->cast_type = NULL;
+    p->paren_depth = 0;
 
     while (1) {
         TokenKind next = p->tok->kind;
@@ -164,7 +176,8 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
         if (p->stop_at_comma && next == TOK_COMMA &&
             p->stack[p->sp].node) {
             AST_Node* result = p->stack[p->sp].node;
-            if (p->pending_cast && result) {
+            if (p->pending_cast && result &&
+                p->paren_depth <= p->cast_paren_depth) {
                 AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                               p->cast_loc.line, p->cast_loc.col);
                 cast->body.cast.type_expr = p->cast_type;
@@ -280,6 +293,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                     p->pending_cast = 1;
                     p->cast_type = ct;
                     p->cast_loc = peek->loc;
+                    p->cast_paren_depth = p->paren_depth;
                     continue;
                 }
             }
@@ -307,9 +321,20 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
         case LR_SHIFT:
             continue;
 
-        case LR_REDUCE:
-            /* apply pending cast at the earliest point (primary through cast-expr) */
-            if (p->pending_cast && is_cast_level(p->stack[p->sp].state)) {
+        case LR_REDUCE: {
+            /* apply pending cast at the earliest point (primary through cast-expr).
+             * defer if a postfix operator follows — postfix binds tighter than cast:
+             *   (int)strlen(x)  →  (int)(strlen(x)), not ((int)strlen)(x)
+             *   (int)arr[i]     →  (int)(arr[i]),    not ((int)arr)[i]
+             * also defer if we're inside parens/brackets opened after the cast:
+             *   (int)(p - q)    →  cast wraps (p-q), not p
+             *   (int)strlen(x)  →  cast wraps strlen(x), not x */
+            int defer_for_postfix = (p->pending_cast &&
+                                     is_postfix_token(p->tok->kind));
+            int in_nested_parens = (p->pending_cast &&
+                                    p->paren_depth > p->cast_paren_depth);
+            if (p->pending_cast && !defer_for_postfix && !in_nested_parens &&
+                is_cast_level(p->stack[p->sp].state)) {
                 AST_Node* inner = p->stack[p->sp].node;
 
                 if (inner) {
@@ -323,6 +348,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                 p->pending_cast = 0;
             }
             continue;
+        }
 
         case LR_ERROR:
             fprintf(stderr, "lr1: syntax error at line %d col %d, token %d\n",

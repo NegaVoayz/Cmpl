@@ -136,6 +136,8 @@ struct LR1_Parser {
     int        pending_cast;            /* cast prefix was detected; wrap result */
     Type*      cast_type;              /* parsed cast target type */
     SourceLoc  cast_loc;               /* location of the cast for AST_CAST node */
+    int        cast_paren_depth;       /* paren depth when cast was set */
+    int        paren_depth;            /* current ()/[] nesting depth */
     Arena*     arena;                  /* arena for AST node allocations */
 };
 

@@ -113,7 +113,9 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
 
     ll_expect(p, TOK_RBRACE);
 
-    /* check for declarators after enum body, e.g. enum { A, B } x; */
+    /* check for declarators after enum body, e.g. enum { A, B } x;
+     * if there's a name (typedef enum {..} Name), create a typedef
+     * entry so Name resolves to the enum type during IR gen. */
     if (p->tok->kind == TOK_IDENT || p->tok->kind == TOK_STAR) {
         Type* etype = type_new(p->arena, TYPE_ENUM);
 
@@ -123,7 +125,13 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
         Type* full = ll_parse_declarator(p, etype, &dname, 0);
 
         (void)full;
-        (void)dname;
+        if (dname.data) {
+            AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
+                                        n->loc.line, n->loc.col);
+            td->body.typedef_decl.aliased_type = etype;
+            td->body.typedef_decl.name = dname;
+            n->next = td;
+        }
     }
 
     ll_expect(p, TOK_SEMI);

@@ -94,7 +94,10 @@ void lr1_table_init_reds(void)
     for (int t = 0; t < NUM_TOKENS; t++)
         if (is_assign_op(t) || is_terminator(t))
             set_cell(S_BINARY_RHS, t, reduce_binary_op);
-    set_cell(S_BINARY_RHS, TOK_QUESTION, shift_ternary_q);
+    /* ? has lower precedence than binary ops: reduce the binary
+     * op first (a == b ? c : d → (a==b) ? c : d), then the goto
+     * lands in a have-expr state where ? shifts the ternary. */
+    set_cell(S_BINARY_RHS, TOK_QUESTION, reduce_binary_op);
     for (int t = 0; t < NUM_TOKENS; t++)
         if (t == TOK_COLON) set_cell(S_BINARY_RHS, t, reduce_binary_op);
 

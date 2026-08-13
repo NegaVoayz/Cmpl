@@ -7,6 +7,7 @@
 #include "ll.h"
 #include "cuda.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* helpers from ll.c */
@@ -68,6 +69,73 @@ int is_type_start(Token* tok)
 /* ---------------------------------------------------------------
  *  parse_var_list_decl -- declarator list (var decls, func defs)
  * --------------------------------------------------------------- */
+
+/* parse an initializer list {elem, elem, ...} recursively.
+ * called when p->tok points to TOK_LBRACE.  advances past the
+ * closing TOK_RBRACE and returns an AST_INIT_LIST node. */
+AST_Node*
+parse_init_list(LR1_Parser* p)
+{
+    Token* start = p->tok;
+
+    p->tok = p->tok->next;  /* skip { */
+
+    AST_Node* head = NULL;
+    AST_Node** tail = &head;
+
+    while (p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
+        AST_Node* elem = NULL;
+
+        if (p->tok->kind == TOK_LBRACE) {
+            elem = parse_init_list(p);
+        } else {
+            /* parse one expression element.
+             * scan ahead for the next top-level comma or }
+             * so the LR parser treats comma as terminator. */
+            { int depth = 0;
+              Token* comma = NULL;
+              for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
+                  if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
+                      t->kind == TOK_LBRACE) depth++;
+                  else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
+                           t->kind == TOK_RBRACE) depth--;
+                  else if (depth == 0 && t->kind == TOK_COMMA)
+                      { comma = t; break; }
+                  else if (depth == 0 && t->kind == TOK_RBRACE)
+                      break;
+              }
+              if (comma) {
+                  TokenKind saved = comma->kind;
+                  comma->kind = TOK_SEMI;
+                  elem = ll_parse_expr(p);
+                  comma->kind = saved;
+              } else {
+                  elem = ll_parse_expr(p);
+              }
+            }
+        }
+
+        if (elem) {
+            *tail = elem;
+            tail = &elem->next;
+        }
+
+        if (p->tok->kind == TOK_COMMA)
+            p->tok = p->tok->next;
+        else if (p->tok->kind != TOK_RBRACE)
+            break;
+    }
+
+    ll_expect(p, TOK_RBRACE);
+
+    AST_Node* n = ast_node_new(p->arena, AST_INIT_LIST, start->loc.line, start->loc.col);
+    n->body.init_list.elems = head;
+    /* walk to last element for last_elem */
+    { AST_Node* last = head;
+      while (last && last->next) last = last->next;
+      n->body.init_list.last_elem = last; }
+    return n;
+}
 
 static AST_Node*
 parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
@@ -142,6 +210,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                 fn->body.func_def.params = params;
                 fn->body.func_def.linkage = linkage;
                 fn->body.func_def.is_constructor = is_constructor;
+                fn->body.func_def.is_variadic = scan->is_variadic;
                 fn->body.func_def.body = ll_parse_stmt(p);
                 *tail = fn;
                 return head ? head : fn;
@@ -155,6 +224,7 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             fd->body.func_def.params = params;
             fd->body.func_def.linkage = linkage;
             fd->body.func_def.is_constructor = 0;
+            fd->body.func_def.is_variadic = scan->is_variadic;
             fd->body.func_def.body = NULL;
             *tail = fd;
             return head ? head : fd;
@@ -175,43 +245,36 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
 
             if (p->tok->kind == TOK_LBRACE) {
                 /* count initializer elements for array size inference */
-                int depth = 1, elem_count = 0, has_elem = 0;
-                Token* init_tok = p->tok->next;
-                while (init_tok->kind != TOK_EOF && depth > 0) {
-                    if (init_tok->kind == TOK_LBRACE) {
-                        depth++;
-                        if (depth == 2) has_elem = 1;
-                    }
-                    if (init_tok->kind == TOK_RBRACE) depth--;
-                    if (depth == 1 && init_tok->kind == TOK_COMMA) {
-                        elem_count++; has_elem = 0;
-                    }
-                    if (depth == 1 && init_tok->kind != TOK_COMMA &&
-                        init_tok->kind != TOK_LBRACE &&
-                        init_tok->kind != TOK_RBRACE)
-                        has_elem = 1;
-                    if (depth > 0) init_tok = init_tok->next;
+                { int depth = 1, elem_count = 0, has_elem = 0;
+                  Token* init_tok = p->tok->next;
+                  while (init_tok->kind != TOK_EOF && depth > 0) {
+                      if (init_tok->kind == TOK_LBRACE) {
+                          depth++;
+                          if (depth == 2) has_elem = 1;
+                      }
+                      if (init_tok->kind == TOK_RBRACE) depth--;
+                      if (depth == 1 && init_tok->kind == TOK_COMMA) {
+                          elem_count++; has_elem = 0;
+                      }
+                      if (depth == 1 && init_tok->kind != TOK_COMMA &&
+                          init_tok->kind != TOK_LBRACE &&
+                          init_tok->kind != TOK_RBRACE)
+                          has_elem = 1;
+                      if (depth > 0) init_tok = init_tok->next;
+                  }
+                  if (has_elem) elem_count++;
+                  /* set array size from initializer count */
+                  if (elem_count > 0) {
+                      Type* scan = full;
+                      while (scan && scan->kind == TYPE_PTR)
+                          scan = scan->inner;
+                      if (scan && scan->kind == TYPE_ARRAY &&
+                          scan->arr_size == 0)
+                          scan->arr_size = elem_count;
+                  }
                 }
-                if (has_elem) elem_count++;
-                /* skip the initializer (advance p->tok past it) */
-                depth = 1;
-                p->tok = p->tok->next;
-                while (p->tok->kind != TOK_EOF && depth > 0) {
-                    if (p->tok->kind == TOK_LBRACE) depth++;
-                    if (p->tok->kind == TOK_RBRACE) depth--;
-                    if (depth > 0) p->tok = p->tok->next;
-                }
-                if (p->tok->kind == TOK_RBRACE)
-                    p->tok = p->tok->next;
-                /* set array size from initializer count */
-                if (elem_count > 0) {
-                    Type* scan = full;
-                    while (scan && scan->kind == TYPE_PTR)
-                        scan = scan->inner;
-                    if (scan && scan->kind == TYPE_ARRAY &&
-                        scan->arr_size == 0)
-                        scan->arr_size = elem_count;
-                }
+                /* parse the initializer into an AST_INIT_LIST */
+                vd->body.var_decl.init = parse_init_list(p);
             } else {
                 /* Scan ahead to find the terminating comma or semicolon
                  * at the top level (outside parens/brackets/braces).
@@ -355,8 +418,23 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
         return n;
     }
 
-    if (p->tok->kind == TOK_ENUM)
-        return ll_parse_enum_def(p);
+    if (p->tok->kind == TOK_ENUM) {
+        AST_Node* n = ll_parse_enum_def(p);
+
+        /* typedef enum {..} Name — register Name as a typedef so it
+         * resolves to the enum type during IR gen (otherwise the
+         * TYPE_NAMED → ptr heuristic fires). */
+        if (is_typedef && n && n->type == AST_ENUM_DEF && n->body.enum_def.name.data) {
+            AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
+                                        n->loc.line, n->loc.col);
+            Type* etype = type_new(p->arena, TYPE_ENUM);
+            etype->name = n->body.enum_def.name;
+            td->body.typedef_decl.aliased_type = etype;
+            td->body.typedef_decl.name = n->body.enum_def.name;
+            n->next = td;
+        }
+        return n;
+    }
 
     Type* base = ll_parse_type_specs(p);
     if (!base) { p->tok = p->tok->next; return NULL; }

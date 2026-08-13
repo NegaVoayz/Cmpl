@@ -90,7 +90,20 @@ AST_Node* ll_parse_case(LR1_Parser* p)
 
     n->body.case_stmt.value = ll_parse_expr(p);
     ll_expect(p, TOK_COLON);
-    n->body.case_stmt.stmt = ll_parse_stmt(p);
+
+    /* parse all statements until next case/default/closing brace.
+     * chain them via ->next (a single stmt field holds the head). */
+    { AST_Node* head = NULL;
+      AST_Node** tail = &head;
+      while (p->tok->kind != TOK_CASE && p->tok->kind != TOK_DEFAULT &&
+             p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
+          AST_Node* stmt = ll_parse_stmt(p);
+          if (!stmt) break;
+          *tail = stmt;
+          tail = &stmt->next;
+      }
+      n->body.case_stmt.stmt = head;
+    }
 
     return n;
 }
@@ -104,7 +117,19 @@ AST_Node* ll_parse_default(LR1_Parser* p)
     AST_Node* n = ast_node_new(p->arena, AST_DEFAULT, tok->loc.line, tok->loc.col);
 
     ll_expect(p, TOK_COLON);
-    n->body.case_stmt.stmt = ll_parse_stmt(p);
+
+    /* parse all statements until next case/default/closing brace */
+    { AST_Node* head = NULL;
+      AST_Node** tail = &head;
+      while (p->tok->kind != TOK_CASE && p->tok->kind != TOK_DEFAULT &&
+             p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
+          AST_Node* stmt = ll_parse_stmt(p);
+          if (!stmt) break;
+          *tail = stmt;
+          tail = &stmt->next;
+      }
+      n->body.case_stmt.stmt = head;
+    }
 
     return n;
 }

@@ -81,6 +81,20 @@ LR_Action reduce_primary_paren_close(LR1_Parser* p)
 {
     AST_Node* inner = p->stack[p->sp].node;
 
+    /* apply pending cast to the parenthesised expr if the cast was set
+     * at or inside this paren level. e.g. ((T)a) -> cast wraps a, and
+     * (T)(p-q) -> cast wraps (p-q). */
+    if (p->pending_cast && inner &&
+        p->paren_depth >= p->cast_paren_depth) {
+        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
+                                      p->cast_loc.line, p->cast_loc.col);
+        cast->body.cast.type_expr = p->cast_type;
+        cast->body.cast.cast_expr = inner;
+        p->pending_cast = 0;
+        inner = cast;
+    }
+
+    p->paren_depth--;
     p->sp -= 2;
     p->tok = p->tok->next;
     goto_push(p, inner, SYM_PRIMARY);
@@ -91,12 +105,18 @@ LR_Action reduce_call_close(LR1_Parser* p)
 {
     int lparen_idx = p->sp - 1;
 
+    p->paren_depth--;
+
     while (lparen_idx >= 0 && p->stack[lparen_idx].state != S_POSTFIX_LPAREN)
         lparen_idx--;
     if (lparen_idx < 0) return LR_ERROR;
 
-    /* consume pending cast on last argument: call((type)expr) */
-    if (p->pending_cast && p->stack[p->sp].node) {
+    /* consume pending cast on last argument: call((type)expr).
+     * only if the cast was set INSIDE this call (paren_depth > cast_depth);
+     * if set OUTSIDE (e.g. (int)strlen(x)), defer — the cast wraps the
+     * entire call result, not the last argument. */
+    if (p->pending_cast && p->stack[p->sp].node &&
+        p->paren_depth > p->cast_paren_depth) {
         AST_Node* last = p->stack[p->sp].node;
         AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                       p->cast_loc.line, p->cast_loc.col);

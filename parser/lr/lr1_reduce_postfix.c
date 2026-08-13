@@ -14,6 +14,7 @@ LR_Action reduce_index(LR1_Parser* p)
 
     n->body.subscript.array = array;
     n->body.subscript.index = idx;
+    p->paren_depth--;
     p->sp -= 3;
     p->tok = p->tok->next;
     goto_push(p, n, SYM_POSTFIX);
@@ -27,6 +28,7 @@ LR_Action reduce_call_empty(LR1_Parser* p)
 
     n->body.call.callee = callee;
     n->body.call.args = NULL;
+    p->paren_depth--;
     p->sp -= 3;
     goto_push(p, n, SYM_POSTFIX);
     return LR_REDUCE;
@@ -40,6 +42,7 @@ LR_Action reduce_call_args(LR1_Parser* p)
 
     n->body.call.callee = callee;
     n->body.call.args = args;
+    p->paren_depth--;
     p->sp -= 4;
     goto_push(p, n, SYM_POSTFIX);
     return LR_REDUCE;

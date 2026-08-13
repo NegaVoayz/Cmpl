@@ -7,6 +7,8 @@
 
 #include "parse.h"
 
+#include <stdio.h>
+
 AST_Node* parse_program(const char* code, Arena* a)
 {
     Token* tokens = parse(code, a);

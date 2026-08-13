@@ -124,9 +124,13 @@ LR_Action lr1_ternary_rhs_colon(LR1_Parser* p)
     return LR_ERROR;
 }
 
-/* Ternary RHS: binary ops always bind tighter, so shift */
+/* Ternary RHS: comma has lower precedence than ternary,
+ * reduce the ternary before processing the comma.
+ * other binary ops bind tighter than ternary — shift them. */
 LR_Action lr1_ternary_rhs_action(LR1_Parser* p)
 {
+    if (p->tok->kind == TOK_COMMA)
+        return reduce_ternary(p);
     return shift_binary_op(p);
 }
 

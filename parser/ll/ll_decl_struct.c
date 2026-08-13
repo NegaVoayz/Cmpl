@@ -5,6 +5,7 @@
 /* from ll.c and ll_decl.c */
 extern void ll_expect(LR1_Parser* p, TokenKind k);
 extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
+extern AST_Node* parse_init_list(LR1_Parser* p);
 
 /* ---------------------------------------------------------------
  *  parse_struct_union_decl -- struct/union definition or declaration
@@ -110,13 +111,7 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
         if (p->tok->kind == TOK_EQ) {
             p->tok = p->tok->next;
             if (p->tok->kind == TOK_LBRACE) {
-                int depth = 1;
-                p->tok = p->tok->next;
-                while (p->tok->kind != TOK_EOF && depth > 0) {
-                    if (p->tok->kind == TOK_LBRACE) depth++;
-                    if (p->tok->kind == TOK_RBRACE) depth--;
-                    if (depth > 0) p->tok = p->tok->next;
-                }
+                vd->body.var_decl.init = parse_init_list(p);
             } else {
                 /* scan for top-level comma and replace with semicolon
                  * so multi-declarator init exprs parse correctly */
