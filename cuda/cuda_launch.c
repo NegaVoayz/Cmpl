@@ -119,6 +119,12 @@ walk_launches(AST_Node* node, KernelLaunch** buf, int* count, int* cap)
         walk_launches(node->body.case_stmt.stmt, buf, count, cap);
         break;
 
+    case AST_INIT_LIST:
+        { AST_Node* e;
+          for (e = node->body.init_list.elems; e; e = e->next)
+              walk_launches(e, buf, count, cap); }
+        break;
+
     default:
         break;
     }

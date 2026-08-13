@@ -10,6 +10,10 @@
  * Returns the root node. */
 AST_Node* optimize(AST_Node* root);
 
+/* Enum constant resolution -- replaces AST_IDENT with AST_INT_LIT.
+ * Runs once before the fixed-point loop (not iterative). */
+int opt_enum(AST_Node* root);
+
 /* Internal pass functions -- each returns 1 if anything changed */
 int opt_fold(AST_Node* root);
 int opt_propagate(AST_Node* root);

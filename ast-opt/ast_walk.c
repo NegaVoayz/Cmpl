@@ -33,6 +33,10 @@ static int walk_children(AST_Node* n, AST_Walker pre, AST_Walker post,
         if (n->body.compound_lit.init)
             ch |= ast_walk(n->body.compound_lit.init, pre, post, ctx);
         break;
+    case AST_INIT_LIST:
+        for (AST_Node* e = n->body.init_list.elems; e; e = e->next)
+            ch |= ast_walk(e, pre, post, ctx);
+        break;
     case AST_CALL:
         ch |= ast_walk(n->body.call.callee, pre, post, ctx);
         ch |= ast_walk(n->body.call.args, pre, post, ctx); break;
