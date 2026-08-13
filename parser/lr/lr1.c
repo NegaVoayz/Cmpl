@@ -109,6 +109,50 @@ static int is_have_expr_state(LR1_State s)
            s == S_UNARY_RHS || s == S_ASSIGN_RHS || s == S_TERNARY_RHS;
 }
 
+/* Parse a type name inside a cast or sizeof: type specifiers followed by
+ * pointer/array declarator suffixes.  Leaves p->tok just past the type
+ * (before the closing ')') and returns the wrapped Type tree. */
+static Type* ll_parse_type_name(LR1_Parser* p)
+{
+    Type* ct = ll_parse_type_specs(p);
+
+    /* consume pointer declarator: (int*), (void**), etc. */
+    while (p->tok->kind == TOK_STAR ||
+           p->tok->kind == TOK_CONST ||
+           p->tok->kind == TOK_VOLATILE) {
+        if (p->tok->kind == TOK_STAR) {
+            Type* ptr = type_new(p->arena, TYPE_PTR);
+            ptr->inner = ct;
+            ct = ptr;
+        }
+        p->tok = p->tok->next;
+    }
+
+    /* consume array declarator: (int[]), (int[N]), (IR_Value*[]), etc. */
+    while (p->tok->kind == TOK_LBRACKET) {
+        p->tok = p->tok->next;
+
+        Type* arr = type_new(p->arena, TYPE_ARRAY);
+        arr->arr_size = 0;
+
+        if (p->tok->kind == TOK_INT_LIT) {
+            arr->arr_size = (int)p->tok->body.int_val;
+            p->tok = p->tok->next;
+        } else if (p->tok->kind == TOK_IDENT) {
+            arr->size_name = p->tok->body.ident;
+            p->tok = p->tok->next;
+        }
+
+        if (p->tok->kind == TOK_RBRACKET)
+            p->tok = p->tok->next;
+
+        arr->inner = ct;
+        ct = arr;
+    }
+
+    return ct;
+}
+
 LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a)
 {
     LR1_Parser* p = arena_alloc(a, sizeof(LR1_Parser));
@@ -207,10 +251,10 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                 }
 
                 if (inside_sizeof) {
-                    /* sizeof(type): skip (type) and reduce sizeof */
+                    /* sizeof(type): parse the type, then reduce sizeof */
                     p->tok = peek;
-                    while (p->tok->kind != TOK_RPAREN && p->tok->kind != TOK_EOF)
-                        p->tok = p->tok->next;
+                    Type* ct = ll_parse_type_name(p);
+
                     if (p->tok->kind == TOK_RPAREN)
                         p->tok = p->tok->next;
 
@@ -218,51 +262,13 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                     Token* tok = p->stack[p->sp].token;
                     AST_Node* n = ast_node_new(p->arena, AST_SIZEOF_TYPE,
                                                 tok->loc.line, tok->loc.col);
+                    n->body.sizeof_type.type_expr = ct;
                     p->sp--;
                     goto_push(p, n, SYM_UNARY);
                     continue;
                 } else {
                     p->tok = peek;
-                    Type* ct = ll_parse_type_specs(p);
-
-                    /* consume pointer declarator in cast: (int*), (void**), etc.
-                     * ll_parse_type_specs only eats type keywords, so we must
-                     * also consume stars and qualifiers and wrap ct with
-                     * TYPE_PTR layers so the cast resolves to the pointer type. */
-                    while (p->tok->kind == TOK_STAR ||
-                           p->tok->kind == TOK_CONST ||
-                           p->tok->kind == TOK_VOLATILE) {
-                        if (p->tok->kind == TOK_STAR) {
-                            Type* ptr = type_new(p->arena, TYPE_PTR);
-                            ptr->inner = ct;
-                            ct = ptr;
-                        }
-                        p->tok = p->tok->next;
-                    }
-
-                    /* consume array declarator: (int[]), (int[N]),
-                     * (IR_Value*[]), etc.  Wrap ct with TYPE_ARRAY
-                     * so compound literals like (IR_Value*[]){d} work. */
-                    while (p->tok->kind == TOK_LBRACKET) {
-                        p->tok = p->tok->next;
-
-                        Type* arr = type_new(p->arena, TYPE_ARRAY);
-                        arr->arr_size = 0;
-
-                        if (p->tok->kind == TOK_INT_LIT) {
-                            arr->arr_size = (int)p->tok->body.int_val;
-                            p->tok = p->tok->next;
-                        } else if (p->tok->kind == TOK_IDENT) {
-                            arr->size_name = p->tok->body.ident;
-                            p->tok = p->tok->next;
-                        }
-
-                        if (p->tok->kind == TOK_RBRACKET)
-                            p->tok = p->tok->next;
-
-                        arr->inner = ct;
-                        ct = arr;
-                    }
+                    Type* ct = ll_parse_type_name(p);
 
                     if (p->tok->kind == TOK_RPAREN)
                         p->tok = p->tok->next;
