@@ -56,6 +56,8 @@ Dispatches by type-start token and optional keywords:
 |---|---|
 | `type name;` | `AST_VAR_DECL` |
 | `type name(params) { body }` | `AST_FUNC_DEF` |
+| `type name(params);` | `AST_FUNC_DEF` (prototype, `body = NULL`) |
+| `struct T *name(params);` | `AST_FUNC_DEF` (prototype with struct/union return type) |
 | `struct name { fields };` | `AST_STRUCT_DEF` |
 | `union name { fields };` | `AST_UNION_DEF` |
 | `enum name { enumerators };` | `AST_ENUM_DEF` |

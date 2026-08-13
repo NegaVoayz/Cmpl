@@ -216,6 +216,79 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
 }
 
 /* ---------------------------------------------------------------
+ *  Logical && and || with short-circuit evaluation
+ * --------------------------------------------------------------- */
+
+/* forward: gen_expr is defined later in this file */
+IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
+
+/* coerce a value to i1 for use as a branch condition */
+static IR_Value*
+coerce_to_bool(IR_Builder* b, IR_Value* v)
+{
+    if (!v) return NULL;
+    if (v->type && v->type->kind == IR_I1) return v;
+    if (v->type && v->type->kind == IR_PTR) {
+        IR_Value* nv = arena_alloc(b->arena, sizeof(IR_Value));
+        nv->kind = VAL_CONST_NULL; nv->type = v->type;
+        return ir_build_icmp(b, IR_COND_NE, v, nv);
+    }
+    if (v->type && (v->type->kind == IR_F32 || v->type->kind == IR_F64)) {
+        IR_Value* zero = ir_const_float(b->arena, v->type, 0.0);
+        return ir_build_fcmp(b, IR_COND_NE, v, zero);
+    }
+    IR_Value* zero = ir_const_int(b, v->type ? v->type : t_i32, 0);
+    return ir_build_icmp(b, IR_COND_NE, v, zero);
+}
+
+/* Emit short-circuit `a && b` / `a || b`.
+ * Returns an i1 value without evaluating the right operand when the
+ * result is already determined by the left operand. */
+static IR_Value*
+gen_logical(GenCtx* ctx, AST_Node* n, TokenKind op)
+{
+    IR_Builder* b = ctx->b;
+
+    IR_Value* l = gen_expr(ctx, n->body.binary.left);
+    IR_Value* lc = coerce_to_bool(b, l);
+
+    IR_Block* rhs_blk = ir_builder_new_block(b, "logical.rhs");
+    IR_Block* short_blk = ir_builder_new_block(b, "logical.short");
+    IR_Block* merge_blk = ir_builder_new_block(b, "logical.end");
+
+    /* link the three new blocks into the function's block list */
+    if (b->cur_func->last_block)
+        b->cur_func->last_block->next = rhs_blk;
+    else
+        b->cur_func->blocks = rhs_blk;
+    rhs_blk->next = short_blk;
+    short_blk->next = merge_blk;
+    b->cur_func->last_block = merge_blk;
+
+    IR_Value* slot = ir_build_alloca(b, t_i1);
+
+    if (op == TOK_AMPAMP)
+        ir_build_cond_br(b, lc, rhs_blk, short_blk);
+    else
+        ir_build_cond_br(b, lc, short_blk, rhs_blk);
+
+    /* short-circuit block: result is the constant (0 for &&, 1 for ||) */
+    ir_builder_set_block(b, short_blk);
+    ir_build_store(b, ir_const_int(b, t_i1, op == TOK_PIPEPIPE ? 1 : 0), slot);
+    ir_build_br(b, merge_blk);
+
+    /* right-operand block */
+    ir_builder_set_block(b, rhs_blk);
+    IR_Value* r = gen_expr(ctx, n->body.binary.right);
+    IR_Value* rc = coerce_to_bool(b, r);
+    ir_build_store(b, rc, slot);
+    ir_build_br(b, merge_blk);
+
+    ir_builder_set_block(b, merge_blk);
+    return ir_build_load(b, slot);
+}
+
+/* ---------------------------------------------------------------
  *  Store-target pointer for assignment LHS
  * --------------------------------------------------------------- */
 
@@ -257,6 +330,23 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
                 if (struct_ptr && struct_ptr->type &&
                     struct_ptr->type->kind == IR_PTR)
                     struct_ty = struct_ptr->type->inner;
+            }
+            if (!struct_ptr) {
+                /* nested member lvalue (e.g. root->body.program.last_decl):
+                 * recurse to obtain the record's address so a later store
+                 * reaches the original object instead of a discarded temp.
+                 * Without this, `obj.union.member.field = x` writes into a
+                 * local alloca and the assignment is silently lost. */
+                struct_ptr = gen_store_ptr(ctx, n->body.member.record);
+                if (struct_ptr && struct_ptr->type &&
+                    struct_ptr->type->kind == IR_PTR) {
+                    struct_ty = struct_ptr->type->inner;
+                    if (!struct_ty || (struct_ty->kind != IR_STRUCT &&
+                                       struct_ty->kind != IR_UNION))
+                        struct_ptr = NULL;
+                } else {
+                    struct_ptr = NULL;
+                }
             }
             if (!struct_ptr) {
                 IR_Value* record_val = gen_expr(ctx,
@@ -370,6 +460,8 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
 
     case AST_BINARY:
     { TokenKind op = n->body.binary.op;
+      if (op == TOK_AMPAMP || op == TOK_PIPEPIPE)
+          return gen_logical(ctx, n, op);
       int is_cmpd = (op == TOK_PLUSEQ || op == TOK_MINUSEQ ||
                      op == TOK_STAREQ || op == TOK_SLASHEQ ||
                      op == TOK_PERCENTEQ || op == TOK_AMPEQ ||
@@ -748,15 +840,19 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     { IR_Value* arr = gen_expr(ctx, n->body.subscript.array);
       IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
       /* detect if base is a pointer to an array (outer dim of 2D array).
-       * In that case, GEP + decay but don't load — let outer index load. */
+       * In that case, the first index selects a whole ROW, so GEP with a
+       * single pointer-level index (idx as idx0, no element idx1), then
+       * decay the row to a pointer to its first element.  The outer index
+       * then loads the final element. */
       int base_is_array = (arr && arr->type && arr->type->kind == IR_PTR &&
                            arr->type->inner &&
                            arr->type->inner->kind == IR_ARRAY);
-      IR_Value* gep = ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
       if (base_is_array) {
-          return ir_build_gep(b, gep, ir_const_int(b, t_i32, 0),
+          IR_Value* row = ir_build_gep(b, arr, idx, NULL);
+          return ir_build_gep(b, row, ir_const_int(b, t_i32, 0),
                               ir_const_int(b, t_i32, 0));
       }
+      IR_Value* gep = ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
       return ir_build_load(b, gep); }
 
     case AST_MEMBER:
@@ -867,17 +963,23 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     case AST_SIZEOF_EXPR:
     { int sz = 4;
       /* sizeof(array) must not decay the array to a pointer.
-       * if the operand is an ident resolving to a global array,
-       * use the array type for the size. */
+       * Check both global and local arrays so sizeof(buf) yields the
+       * full array size, not the pointer size. */
       if (n->body.sizeof_expr.expr &&
           n->body.sizeof_expr.expr->type == AST_IDENT) {
-          IR_Value* gv = global_lookup(ctx->mod,
-              n->body.sizeof_expr.expr->body.ident.name);
-          if (gv && gv->type && gv->type->kind == IR_ARRAY)
+          String nm = n->body.sizeof_expr.expr->body.ident.name;
+          IR_Value* gv = global_lookup(ctx->mod, nm);
+          if (gv && gv->type && gv->type->kind == IR_ARRAY) {
               sz = ir_type_size(gv->type);
-          else {
-              IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);
-              sz = sub ? ir_type_size(sub->type) : 4;
+          } else {
+              IR_Value* lv = sym_lookup(ctx, nm);
+              if (lv && lv->type && lv->type->kind == IR_PTR &&
+                  lv->type->inner && lv->type->inner->kind == IR_ARRAY) {
+                  sz = ir_type_size(lv->type->inner);
+              } else {
+                  IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);
+                  sz = sub ? ir_type_size(sub->type) : 4;
+              }
           }
       } else {
           IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);

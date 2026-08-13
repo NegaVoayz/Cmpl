@@ -110,7 +110,7 @@ The `base/` module provides shared infrastructure used by all other modules:
 
 | Directory | Purpose |
 |---|---|
-| `include/` | Stub C standard headers (`stdio.h`, `stdlib.h`, `string.h`, `ctype.h`, `stdint.h`, `stddef.h`) for self-hosting compilation. Extended with `printf`, `fflush`, `fputs`, `fgets`, `fseek`, `ftell`, `remove`, `getenv`, `bsearch`, `SEEK_*` constants. |
+| `include/` | Stub C standard headers (`stdio.h`, `stdlib.h`, `string.h`, `ctype.h`, `stdint.h`, `stddef.h`, `dirent.h`) for self-hosting compilation. Extended with `printf`, `fflush`, `fputs`, `fgets`, `fseek`, `ftell`, `remove`, `getenv`, `bsearch`, `SEEK_*` constants, plus `strtod`/`strtol`/`strtoull`, `isxdigit`, and `opendir`/`readdir`/`closedir`. |
 | `test/` | Regression and unit tests: `test.c`, `test_full.c`, `test_ir.c`, `test_pp.c`, `test_optimize.c`, `test_kernel.c`, `test_gpu.c`, `test_lr1_edge.c`, `test_cast.c`, `test_enum.c`, etc. |
 | `doc/` | Design documentation (these files) |
 | `rt/` | Companion Vulkan runtime library (linked separately by users, not built by Cmpl) |

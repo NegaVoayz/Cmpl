@@ -101,6 +101,22 @@ while (action = action_table[stack[sp].state][tok->kind])
 - **Accept**: return the final AST node
 - **Error**: set `p->error = 1`, return NULL
 
+### Cast precedence (`(T)expr`)
+
+A `(` at a non-operand state is disambiguated by `is_cast_start()`; when it starts a
+type, the parser consumes `(T)` and records a *pending cast*, which wraps the next
+unary/postfix expression when it is reduced to `HS_UNARY` / `HS_CAST_EXPR`.
+
+Two cases are deliberately **deferred**:
+
+- **Postfix binds tighter** — `(int)strlen(x)` is `(int)(strlen(x))`, not `((int)strlen)(x)`.
+- **Prefix unary binds tighter** — `(int)sizeof(x)` is `(int)(sizeof(x))`, not
+  `sizeof((int)x)`. `reduce_primary_paren_close()` skips the pending cast when the
+  `(` being closed is the operand of `sizeof`/a unary op, so the cast is applied
+  after the unary reduction instead.
+- **Call arguments** — `f((T)x)` wraps the argument `x` in the cast
+  (`reduce_call_close`, `lr1_handle_comma`).
+
 ## Public API
 
 ```c

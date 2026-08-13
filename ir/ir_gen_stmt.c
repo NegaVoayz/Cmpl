@@ -151,15 +151,20 @@ static void gen_stmt_switch(GenCtx* ctx, AST_Node* n)
         ir_build_cond_br(b, cmp, body_blks[i], next);
     }
 
-    /* case bodies */
+    /* case bodies -- preserve C fall-through semantics: a case whose
+     * body does not end in a terminator (break/return/etc.) falls
+     * through to the next case body (or default/merge for the last). */
     IR_Block* save_brk = ctx->break_blk;
     ctx->break_blk = merge;
     for (int i = 0; i < ci; i++) {
         ir_builder_set_block(b, body_blks[i]);
         for (AST_Node* s = case_nodes[i]->body.case_stmt.stmt; s; s = s->next)
             gen_stmt(ctx, s);
-        if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode))
-            ir_build_br(b, merge);
+        if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode)) {
+            IR_Block* fallthrough = (i + 1 < ci) ? body_blks[i + 1] :
+                                     (def_blk ? def_blk : merge);
+            ir_build_br(b, fallthrough);
+        }
     }
     ctx->break_blk = save_brk;
 

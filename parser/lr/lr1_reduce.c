@@ -83,8 +83,19 @@ LR_Action reduce_primary_paren_close(LR1_Parser* p)
 
     /* apply pending cast to the parenthesised expr if the cast was set
      * at or inside this paren level. e.g. ((T)a) -> cast wraps a, and
-     * (T)(p-q) -> cast wraps (p-q). */
-    if (p->pending_cast && inner &&
+     * (T)(p-q) -> cast wraps (p-q).
+     * BUT defer when the '(' being closed is the operand of a prefix
+     * unary operator (sizeof, -, +, !, ~, *): (T)sizeof(x) must wrap the
+     * sizeof result, not the inner x.  In that case the unary reduction
+     * below will land in HS_UNARY and apply the cast there. */
+    int paren_is_unary_operand = 0;
+    if (p->sp >= 2) {
+        int below = p->stack[p->sp - 2].state;
+        paren_is_unary_operand = (below == S_SIZEOF || below == S_UNARY_OP ||
+                                  below == S_PREFIX_INC || below == S_PREFIX_DEC);
+    }
+
+    if (p->pending_cast && inner && !paren_is_unary_operand &&
         p->paren_depth >= p->cast_paren_depth) {
         AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                       p->cast_loc.line, p->cast_loc.col);
@@ -105,18 +116,17 @@ LR_Action reduce_call_close(LR1_Parser* p)
 {
     int lparen_idx = p->sp - 1;
 
-    p->paren_depth--;
-
     while (lparen_idx >= 0 && p->stack[lparen_idx].state != S_POSTFIX_LPAREN)
         lparen_idx--;
     if (lparen_idx < 0) return LR_ERROR;
 
     /* consume pending cast on last argument: call((type)expr).
-     * only if the cast was set INSIDE this call (paren_depth > cast_depth);
-     * if set OUTSIDE (e.g. (int)strlen(x)), defer — the cast wraps the
+     * Apply only if the cast was set INSIDE this call — i.e. at or
+     * after the call's '(' was shifted (cast_paren_depth >= paren_depth).
+     * If set OUTSIDE (e.g. (int)strlen(x)), defer — the cast wraps the
      * entire call result, not the last argument. */
     if (p->pending_cast && p->stack[p->sp].node &&
-        p->paren_depth > p->cast_paren_depth) {
+        p->cast_paren_depth >= p->paren_depth) {
         AST_Node* last = p->stack[p->sp].node;
         AST_Node* cast = ast_node_new(p->arena, AST_CAST,
                                       p->cast_loc.line, p->cast_loc.col);
@@ -125,6 +135,8 @@ LR_Action reduce_call_close(LR1_Parser* p)
         p->pending_cast = 0;
         p->stack[p->sp].node = cast;
     }
+
+    p->paren_depth--;
 
     AST_Node* args = NULL;
     AST_Node** tail = &args;

@@ -18,4 +18,9 @@ char* getenv(const char* name);
 void* bsearch(const void* key, const void* base, size_t nmemb, size_t size,
               int (*cmp)(const void*, const void*));
 
+/* numeric conversion (used by the tokenizer) */
+double             strtod(const char* nptr, char** endptr);
+long               strtol(const char* nptr, char** endptr, int base);
+unsigned long long strtoull(const char* nptr, char** endptr, int base);
+
 #endif

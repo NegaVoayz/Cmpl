@@ -63,7 +63,9 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
         String dname = {NULL, 0};
         Type* full = ll_parse_declarator(p, stype, &dname, 0);
 
-        /* function definition: struct Token* func(...) { ... } */
+        /* function definition / prototype:
+         *   struct Token* func(...) { ... }
+         *   struct Token* func(...);        */
         {
             Type* scan = full;
             int n_ptr = 0;
@@ -73,8 +75,7 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
                 scan = scan->inner;
             }
 
-            if (scan && scan->kind == TYPE_FUNC &&
-                p->tok->kind == TOK_LBRACE) {
+            if (scan && scan->kind == TYPE_FUNC) {
                 AST_Node* params = scan->params;
                 Type* ret_type;
 
@@ -96,7 +97,15 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
                 fn->body.func_def.name = dname;
                 fn->body.func_def.params = params;
                 fn->body.func_def.linkage = linkage;
-                fn->body.func_def.body = ll_parse_stmt(p);
+                fn->body.func_def.is_constructor = 0;
+                fn->body.func_def.is_variadic = scan->is_variadic;
+
+                if (p->tok->kind == TOK_LBRACE) {
+                    fn->body.func_def.body = ll_parse_stmt(p);
+                } else {
+                    fn->body.func_def.body = NULL;
+                    ll_expect(p, TOK_SEMI);
+                }
                 *var_tail = fn;
                 return var_head ? var_head : fn;
             }

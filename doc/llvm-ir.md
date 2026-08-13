@@ -389,6 +389,22 @@ For global variables with array type (e.g., `@str_table = external global [64 x 
 `ir_build_load` treats the global's non-pointer type as the pointee and applies
 array decay, producing a GEP to the first element.
 
+### Multi-dimensional Array Indexing
+
+`a[i][j]` (a 2D array) is lowered in two steps. The inner index selects a whole
+**row**, so it uses a single pointer-level GEP index (not `0, i`):
+
+```c
+// a[i]      → getelementptr [M x T], ptr %a, i32 %i   (row select, no load)
+// a[i][j]   → getelementptr T,       ptr %row, i32 %j (element, then load)
+```
+
+`gen_expr`'s `AST_INDEX` detects a pointer-to-array base (`IR_PTR` → `IR_ARRAY`)
+and emits the row GEP with `idx` as `idx0` and no `idx1`, then decays the row to
+a pointer to its first element so the outer index loads the final element. This
+keeps the row stride (`sizeof([M x T])`) correct; using `0, i` would index the
+first row's *elements* instead of selecting row `i`.
+
 ### Indirect Calls
 
 When the callee is not a simple `AST_IDENT` (e.g., a struct member access like
@@ -476,23 +492,33 @@ switch/case dispatch and comparison logic throughout the self-compiled binary.
 
 ### Logical AND / OR (`&&`, `||`)
 
-`gen_binary_op` handles `TOK_AMPAMP` (&&) and `TOK_PIPEPIPE` (||) by coercing
-both operands to `i1` (using the same rules as `coerce_to_i1` in `ir_gen_stmt.c`),
-then emitting `and i1` or `or i1`:
+`gen_expr` handles `TOK_AMPAMP` (&&) and `TOK_PIPEPIPE` (||) with a dedicated
+`gen_logical()` helper that emits **short-circuit** control flow. The left operand
+is coerced to `i1` (same rules as `coerce_to_i1` in `ir_gen_stmt.c`) and used as a
+branch condition; the right operand is only evaluated in the taken branch:
 
-```c
-if (op == TOK_AMPAMP || op == TOK_PIPEPIPE) {
-    /* coerce lhs to i1 (ptr→icmp ne null, float→fcmp ne 0.0, int→icmp ne 0) */
-    /* coerce rhs to i1 */
-    return (op == TOK_AMPAMP) ? ir_build_and(b, li, ri)
-                               : ir_build_or(b, li, ri);
-}
+```
+%l = <left operand>
+%lc = icmp ne ... %l, 0          ; coerce left to i1
+br i1 %lc, label %rhs, label %short     ; && — swap for ||
+
+%rhs:
+  %r = <right operand>
+  %rc = icmp ne ... %r, 0        ; coerce right to i1
+  store i1 %rc, %slot
+  br label %end
+
+%short:
+  store i1 <0 for &&, 1 for ||>, %slot
+  br label %end
+
+%end:
+  %result = load i1, %slot
 ```
 
-This does **not** short-circuit — both operands are always evaluated. NULL-guard
-patterns like `if (p && p->field)` must be restructured at source level to avoid
-dereferencing NULL when the left side is false. In practice, the cmpl source code
-avoids this pattern in performance-critical paths.
+The result is stored in a per-expression alloca so both paths merge without a
+PHI node. This means NULL-guard patterns like `if (p && p->field)` are safe —
+the field dereference is skipped when `p` is NULL.
 
 ### CRT Interaction: stdout / stderr / stdin
 
