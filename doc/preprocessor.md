@@ -55,8 +55,10 @@ sets the value to NULL. No explicit `free()` calls needed.
 **Function-like**: `#define MAX(a,b) ((a)>(b)?(a):(b))` — argument expansion then substitution.
 
 Expansion uses **fixed-point iteration**: `expand_line()` repeatedly scans for macro invocations
-until no macro remains. A **persistent scratch Buffer** (reused across iterations by resetting
-`scratch.len = 0`) avoids repeated `malloc`/`free` cycles. Work buffers are arena-allocated.
+until no macro remains. A **persistent scratch Buffer** (reused across iterations and across
+`pp_preprocess` calls by resetting `scratch.len = 0`) avoids repeated `malloc`/`free` cycles.
+Work buffers and temporary strings are arena-allocated. The `Buffer` struct supports
+`buffer_append_str` and `buffer_append_fmt` with exponential-growth reallocation.
 
 ## Conditional Compilation
 
@@ -82,8 +84,23 @@ and macro expansion within `#if` conditions.
 
 ## Include Resolution
 
-`#include <file>` searches `-I` paths. `#include "file"` searches the source file's directory first,
-then `-I` paths. A `seen[]` array prevents infinite recursion from circular includes.
+The include resolver (`pp_include.c`) performs a multi-stage search for each `#include`:
+
+**Quoted includes (`#include "file"`)** search in order:
+1. Relative to the current file's directory (`ctx->base_dir`)
+2. Directly in each `-I` path
+3. **Subdirectory search**: recursively scan subdirectories of each `-I` path (max depth 3)
+4. **Upward tree walk**: walk up from `base_dir`, trying subdirectories at each level
+
+**System includes (`#include <file>`)** search:
+1. Directly in each `-I` path
+2. System directories: `/usr/include`, `/usr/local/include`, `C:/MinGW/include`, etc.
+3. `C_INCLUDE_PATH` environment variable (colon/semicolon-separated)
+
+A `seen[]` array (tracked per path) prevents infinite recursion from circular includes.
+This non-standard subdirectory search is critical for self-hosting — source files use
+bare includes like `#include "parse.h"` (in `parser/`) and `#include "ir.h"` (in `ir/`)
+without path prefixes, relying on the subdirectory search to locate them from `-I.`.
 
 ## File Layout
 

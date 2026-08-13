@@ -96,19 +96,24 @@ Removes instructions whose results are never used.
 ### Algorithm (mark-sweep, def-use chain accelerated)
 
 1. **Build use lists**: `build_use_lists(func, arena)` walks all instructions and
-   populates `IR_Value.uses` arrays (dynamic, grow from 4 slots).
+   populates `IR_Value.uses` arrays (dynamic, grow from 4 slots, 2x factor).
 2. Mark all instructions as dead (arena-allocated `marked[]` array).
 3. Walk from "roots" (side-effecting instructions: store, call, ret, br, cond_br,
    unreachable, alloca), recursively mark operand-defining instructions via
    **O(1) `v->def_instr`** lookup (previously O(n) linear scan over `all[]`).
 4. Sweep: remove all unmarked instructions from block chains.
 
-**Alloca preservation.** Allocas are treated as side-effecting so they survive DCE even
-when mem2reg has promoted their loads/stores away.  Keeping the alloca ensures every
-referenced `%id` has a definition.
+**Alloca preservation.** Allocas with the `IR_ALLOCA_PHI` flag are treated as
+side-effecting so they survive DCE even when mem2reg has promoted their loads/stores
+away. Keeping the alloca ensures every referenced `%id` has a definition. Regular
+allocas without this flag are removed when dead.
 
 **Dynamic buffer:** DCE counts instructions first, then allocates exact-sized `all[]`
 and `marked[]` arrays from the module arena — no fixed limit.
+
+**Safety limits:** The fixed-point loop has a hard iteration cap (max 8 iterations
+across all passes). Individual passes like `meet()` for type lattice operations
+include step counters to prevent infinite loops on degenerate inputs.
 
 ```c
 int opt_dce(IR_Module* mod)

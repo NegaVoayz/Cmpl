@@ -14,4 +14,8 @@ void* calloc(size_t nmemb, size_t size);
 void* realloc(void* ptr, size_t size);
 void  free(void* ptr);
 
+char* getenv(const char* name);
+void* bsearch(const void* key, const void* base, size_t nmemb, size_t size,
+              int (*cmp)(const void*, const void*));
+
 #endif

@@ -29,11 +29,15 @@ Cmpl IR tree → ir_dump_module() → .ll file → clang -c/-S → .o/.s
 
 For object and assembly modes:
 
-1. Write the IR module to a temporary `.ll` file
-2. Build argument list: `clang -c (or -S) -O<N> tmp.ll -o <outfile>`
-3. Spawn clang as a child process, capturing stderr
-4. On success, clean up the temp file; on failure, print stderr and keep the `.ll`
-   for debugging
+1. Write the IR module to a temporary `.ll` file (in `$TEMP` or `$TMP`, fallback `.`)
+2. Build command line: `clang -c (or -S) [-O<N>] -x ir tmp.ll -o <outfile>`
+3. Execute via `popen(cmd, "r")` — captures both stdout and stderr
+4. On success, clean up the temp file with `remove()`
+5. On failure, print captured clang output to stderr and return error code
+
+This uses the C standard library's `popen` (not a direct `fork`/`exec`) for
+portability. The temp file uses a rotating name pattern (`cmpl_tmp_%04d.ll`)
+to avoid collisions with concurrent compilations.
 
 ## File Layout
 

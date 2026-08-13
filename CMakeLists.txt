@@ -4,6 +4,14 @@ project(cmpl C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+if(NOT MSVC)
+    add_compile_options(
+        -Wno-incompatible-library-redeclaration
+        -Wno-implicit-function-declaration
+        -Wno-int-conversion
+    )
+endif()
+
 add_subdirectory(base)
 add_subdirectory(tokenizer)
 add_subdirectory(pp)
@@ -15,7 +23,7 @@ add_subdirectory(vulkan)
 add_subdirectory(ir-opt)
 add_subdirectory(llvm-codegen)
 
-add_executable(cmpl main.c dump_ast.c)
+add_executable(cmpl main.c dump_ast.c build/self_new/crt_shim.c)
 target_link_libraries(cmpl base tokenizer pp parser cuda ast_opt ir vulkan ir-opt llvm-codegen)
 
 add_executable(cmpl-pp main_pp.c)
