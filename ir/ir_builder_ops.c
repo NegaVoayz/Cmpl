@@ -25,6 +25,8 @@ BINOP_BUILDER(ir_build_sub,  IROP_SUB)
 BINOP_BUILDER(ir_build_mul,  IROP_MUL)
 BINOP_BUILDER(ir_build_sdiv, IROP_SDIV)
 BINOP_BUILDER(ir_build_srem, IROP_SREM)
+BINOP_BUILDER(ir_build_udiv, IROP_UDIV)
+BINOP_BUILDER(ir_build_urem, IROP_UREM)
 
 BINOP_BUILDER(ir_build_fadd, IROP_FADD)
 BINOP_BUILDER(ir_build_fsub, IROP_FSUB)
@@ -36,6 +38,7 @@ BINOP_BUILDER(ir_build_or,  IROP_OR)
 BINOP_BUILDER(ir_build_xor, IROP_XOR)
 BINOP_BUILDER(ir_build_shl, IROP_SHL)
 BINOP_BUILDER(ir_build_ashr, IROP_ASHR)
+BINOP_BUILDER(ir_build_lshr, IROP_LSHR)
 
 #undef BINOP_BUILDER
 

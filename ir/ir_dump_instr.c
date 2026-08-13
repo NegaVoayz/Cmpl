@@ -59,8 +59,9 @@ void dump_instr(FILE* out, IR_Instr* inst)
 
     case IROP_ADD: case IROP_SUB: case IROP_MUL:
     case IROP_SDIV: case IROP_SREM:
+    case IROP_UDIV: case IROP_UREM:
     {
-        const char* op_names[] = {"add","sub","mul","sdiv","srem"};
+        const char* op_names[] = {"add","sub","mul","sdiv","srem","udiv","urem"};
         int idx = inst->opcode - IROP_ADD;
         fprintf(out, "%s ", op_names[idx]);
         dump_type(out, inst->type);

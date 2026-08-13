@@ -10,10 +10,14 @@ enum {
     SpvOpLoad = 61, SpvOpStore = 62, SpvOpInBoundsAccessChain = 65,
     SpvOpIAdd = 128, SpvOpISub = 130, SpvOpIMul = 132,
     SpvOpSDiv = 143, SpvOpSRem = 145, SpvOpShiftLeftLogical = 138,
+    SpvOpUDiv = 144, SpvOpUMod = 146,
+    SpvOpShiftRightLogical = 139, SpvOpShiftRightArithmetic = 140,
     SpvOpBitwiseAnd = 198, SpvOpBitwiseOr = 199, SpvOpBitwiseXor = 200,
     SpvOpIEqual = 176, SpvOpINotEqual = 177,
     SpvOpSGreaterThan = 181, SpvOpSGreaterThanEqual = 183,
     SpvOpSLessThan = 179, SpvOpSLessThanEqual = 185,
+    SpvOpUGreaterThan = 182, SpvOpUGreaterThanEqual = 184,
+    SpvOpULessThan = 180, SpvOpULessThanEqual = 186,
     SpvOpSelect = 169, SpvOpBitcast = 124, SpvOpPhi = 245,
     SpvOpConvertSToF = 137, SpvOpConvertFToS = 148,
     SpvOpBranch = 249, SpvOpBranchConditional = 250,
@@ -90,10 +94,14 @@ static int emit_arith(SPV_Writer* w, IR_Instr* inst, int rid, int v0, int v1, Id
     case IROP_MUL: E4(SpvOpIMul, ty, rid, v0, v1); break;
     case IROP_SDIV:E4(SpvOpSDiv, ty, rid, v0, v1); break;
     case IROP_SREM:E4(SpvOpSRem, ty, rid, v0, v1); break;
+    case IROP_UDIV:E4(SpvOpUDiv, ty, rid, v0, v1); break;
+    case IROP_UREM:E4(SpvOpUMod, ty, rid, v0, v1); break;
     case IROP_AND: E4(SpvOpBitwiseAnd, ty, rid, v0, v1); break;
     case IROP_OR:  E4(SpvOpBitwiseOr,  ty, rid, v0, v1); break;
     case IROP_XOR: E4(SpvOpBitwiseXor, ty, rid, v0, v1); break;
     case IROP_SHL: E4(SpvOpShiftLeftLogical, ty, rid, v0, v1); break;
+    case IROP_LSHR:E4(SpvOpShiftRightLogical, ty, rid, v0, v1); break;
+    case IROP_ASHR:E4(SpvOpShiftRightArithmetic, ty, rid, v0, v1); break;
     default: return 0;
     }
     return 1;
@@ -135,8 +143,11 @@ void emit_instr(SPV_Writer* w, IR_Instr* inst, IdMap* tm, int tn, IdMap* vm, int
     case IROP_LOAD:   E3(SpvOpLoad, find_id(tm, tn, inst->type), rid, v0); break;
     case IROP_STORE:  E2(SpvOpStore, v1, v0); break;
     case IROP_ICMP: {
-        static const int cmps[] = {SpvOpIEqual, SpvOpINotEqual, 0,0,0,0,
-            SpvOpSGreaterThan, SpvOpSGreaterThanEqual, SpvOpSLessThan, SpvOpSLessThanEqual};
+        static const int cmps[] = {SpvOpIEqual, SpvOpINotEqual,
+            SpvOpUGreaterThan, SpvOpUGreaterThanEqual,
+            SpvOpULessThan, SpvOpULessThanEqual,
+            SpvOpSGreaterThan, SpvOpSGreaterThanEqual,
+            SpvOpSLessThan, SpvOpSLessThanEqual};
         E4(cmps[inst->cond], find_id(tm, tn, t_i1), rid, v0, v1);
     } break;
     case IROP_GEP: {

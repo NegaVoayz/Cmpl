@@ -35,6 +35,7 @@ struct IR_Type {
     int         size;        /* array element count */
     int         addrspace;   /* 0=host, 1=device global, 2=shared, 3=constant */
     int         is_variadic; /* function type has ... */
+    int         is_unsigned; /* integer type is unsigned (0 = signed) */
     String      name;        /* struct tag */
     IR_Type*    members;     /* struct fields / func params (linked via next) */
     IR_Type*    next;        /* chain for members / named_types list */
@@ -92,6 +93,7 @@ typedef enum {
     IROP_ALLOCA, IROP_LOAD, IROP_STORE,
     /* arithmetic */
     IROP_ADD,  IROP_SUB,  IROP_MUL,  IROP_SDIV, IROP_SREM,
+    IROP_UDIV, IROP_UREM,
     IROP_FADD, IROP_FSUB, IROP_FMUL, IROP_FDIV,
     /* bitwise */
     IROP_SHL, IROP_LSHR, IROP_ASHR, IROP_AND, IROP_OR, IROP_XOR,
@@ -216,6 +218,7 @@ typedef struct {
 #define IR_MAX_ANON_TYPES 256
 
 extern IR_Type *t_void, *t_i1, *t_i8, *t_i16, *t_i32, *t_i64;
+extern IR_Type *t_u8, *t_u16, *t_u32, *t_u64;
 extern IR_Type *t_f32, *t_f64;
 
 #include "ir_api.h"

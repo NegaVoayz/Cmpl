@@ -289,6 +289,12 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
     int is_float = (lhs && lhs->type &&
         (lhs->type->kind == IR_F32 || lhs->type->kind == IR_F64));
 
+    /* unsigned operands force the unsigned variant of div/rem/cmp/shift.
+     * read AFTER the coercion fixup so post-fixup operand types are seen. */
+    int is_unsigned = (lhs && rhs && lhs->type && rhs->type &&
+        (lhs->type->is_unsigned || rhs->type->is_unsigned));
+    int lhs_unsigned = (lhs && lhs->type && lhs->type->is_unsigned);
+
     switch (op) {
     case TOK_PLUS:  case TOK_PLUSEQ:
         return is_float ? ir_build_fadd(b, lhs, rhs) : ir_build_add(b, lhs, rhs);
@@ -297,9 +303,12 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
     case TOK_STAR:  case TOK_STAREQ:
         return is_float ? ir_build_fmul(b, lhs, rhs) : ir_build_mul(b, lhs, rhs);
     case TOK_SLASH: case TOK_SLASHEQ:
-        return is_float ? ir_build_fdiv(b, lhs, rhs) : ir_build_sdiv(b, lhs, rhs);
+        return is_float ? ir_build_fdiv(b, lhs, rhs)
+                        : (is_unsigned ? ir_build_udiv(b, lhs, rhs)
+                                       : ir_build_sdiv(b, lhs, rhs));
     case TOK_PERCENT: case TOK_PERCENTEQ:
-        return ir_build_srem(b, lhs, rhs);
+        return is_unsigned ? ir_build_urem(b, lhs, rhs)
+                           : ir_build_srem(b, lhs, rhs);
     case TOK_AMP:   case TOK_AMPEQ:
         return ir_build_and(b, lhs, rhs);
     case TOK_PIPE:  case TOK_PIPEEQ:
@@ -309,13 +318,14 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
     case TOK_LTLT:  case TOK_LTLTEQ:
         return ir_build_shl(b, lhs, rhs);
     case TOK_GTGT:  case TOK_GTGTEQ:
-        return ir_build_ashr(b, lhs, rhs);
+        return lhs_unsigned ? ir_build_lshr(b, lhs, rhs)
+                            : ir_build_ashr(b, lhs, rhs);
     case TOK_EQEQ:     return is_float ? ir_build_fcmp(b, IR_COND_EQ, lhs, rhs) : ir_build_icmp(b, IR_COND_EQ, lhs, rhs);
     case TOK_BANGEQ:   return is_float ? ir_build_fcmp(b, IR_COND_NE, lhs, rhs) : ir_build_icmp(b, IR_COND_NE, lhs, rhs);
-    case TOK_LT:       return is_float ? ir_build_fcmp(b, IR_COND_SLT, lhs, rhs) : ir_build_icmp(b, IR_COND_SLT, lhs, rhs);
-    case TOK_GT:       return is_float ? ir_build_fcmp(b, IR_COND_SGT, lhs, rhs) : ir_build_icmp(b, IR_COND_SGT, lhs, rhs);
-    case TOK_LTEQ:     return is_float ? ir_build_fcmp(b, IR_COND_SLE, lhs, rhs) : ir_build_icmp(b, IR_COND_SLE, lhs, rhs);
-    case TOK_GTEQ:     return is_float ? ir_build_fcmp(b, IR_COND_SGE, lhs, rhs) : ir_build_icmp(b, IR_COND_SGE, lhs, rhs);
+    case TOK_LT:       return is_float ? ir_build_fcmp(b, IR_COND_SLT, lhs, rhs) : ir_build_icmp(b, is_unsigned ? IR_COND_ULT : IR_COND_SLT, lhs, rhs);
+    case TOK_GT:       return is_float ? ir_build_fcmp(b, IR_COND_SGT, lhs, rhs) : ir_build_icmp(b, is_unsigned ? IR_COND_UGT : IR_COND_SGT, lhs, rhs);
+    case TOK_LTEQ:     return is_float ? ir_build_fcmp(b, IR_COND_SLE, lhs, rhs) : ir_build_icmp(b, is_unsigned ? IR_COND_ULE : IR_COND_SLE, lhs, rhs);
+    case TOK_GTEQ:     return is_float ? ir_build_fcmp(b, IR_COND_SGE, lhs, rhs) : ir_build_icmp(b, is_unsigned ? IR_COND_UGE : IR_COND_SGE, lhs, rhs);
     default:           return lhs;
     }
 }

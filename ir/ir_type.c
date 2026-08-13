@@ -14,6 +14,7 @@
  * --------------------------------------------------------------- */
 
 IR_Type *t_void, *t_i1, *t_i8, *t_i16, *t_i32, *t_i64;
+IR_Type *t_u8, *t_u16, *t_u32, *t_u64;
 IR_Type *t_f32, *t_f64;
 
 static int singletons_inited = 0;
@@ -113,6 +114,14 @@ make_singleton(IR_TypeKind kind)
     return t;
 }
 
+static IR_Type*
+make_singleton_unsigned(IR_TypeKind kind)
+{
+    IR_Type* t = make_singleton(kind);
+    t->is_unsigned = 1;
+    return t;
+}
+
 static void
 init_singletons(void)
 {
@@ -124,6 +133,10 @@ init_singletons(void)
     t_i16  = make_singleton(IR_I16);
     t_i32  = make_singleton(IR_I32);
     t_i64  = make_singleton(IR_I64);
+    t_u8   = make_singleton_unsigned(IR_I8);
+    t_u16  = make_singleton_unsigned(IR_I16);
+    t_u32  = make_singleton_unsigned(IR_I32);
+    t_u64  = make_singleton_unsigned(IR_I64);
     t_f32  = make_singleton(IR_F32);
     t_f64  = make_singleton(IR_F64);
     singletons_inited = 1;
@@ -192,6 +205,19 @@ static IR_Type* clone_type_for_chain(Arena* a, IR_Type* src)
     return cp;
 }
 
+/* signed -> unsigned singleton counterpart (identity for non-integer kinds) */
+static IR_Type*
+unsigned_of(IR_Type* t)
+{
+    switch (t->kind) {
+    case IR_I8:  return t_u8;
+    case IR_I16: return t_u16;
+    case IR_I32: return t_u32;
+    case IR_I64: return t_u64;
+    default:     return t;
+    }
+}
+
 /* ---------------------------------------------------------------
  *  AST-to-IR type conversion
  * --------------------------------------------------------------- */
@@ -212,9 +238,10 @@ ast_to_ir_type(Arena* a, Type* ast)
     case TYPE_ENUM:   return t_i32;
 
     case TYPE_SIGNED:
-    case TYPE_UNSIGNED:
         if (ast->next) return ast_to_ir_type(a, ast->next);
         return t_i32;
+    case TYPE_UNSIGNED:
+        return ast->next ? unsigned_of(ast_to_ir_type(a, ast->next)) : t_u32;
     case TYPE_PTR:
     { IR_Type* inner = ast_to_ir_type(a, ast->inner); int as = 0;
       return ir_ptr_type(a, inner, as); }

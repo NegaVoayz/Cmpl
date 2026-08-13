@@ -18,6 +18,7 @@ typedef struct Type     Type;
 /* --- Common type singletons (defined in ir_type.c) --- */
 
 extern IR_Type *t_void, *t_i1, *t_i8, *t_i16, *t_i32, *t_i64;
+extern IR_Type *t_u8, *t_u16, *t_u32, *t_u64;
 extern IR_Type *t_f32, *t_f64;
 
 /* --- Type API (ir_type.c) --- */
@@ -57,6 +58,8 @@ IR_Value*   ir_build_sub(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_mul(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_sdiv(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_srem(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_udiv(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_urem(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_fadd(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_fsub(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_fmul(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
@@ -66,6 +69,7 @@ IR_Value*   ir_build_or(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_xor(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_shl(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_ashr(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
+IR_Value*   ir_build_lshr(IR_Builder* b, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_icmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_fcmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs);
 IR_Value*   ir_build_call(IR_Builder* b, const char* callee, IR_Type* ret_ty,
