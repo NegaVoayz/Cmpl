@@ -7,6 +7,7 @@ extern int prec_of(TokenKind k);
 
 /* from lr1_shift.c (used by binary/ternary/context handlers) */
 LR_Action shift_binary_op(LR1_Parser* p);
+LR_Action shift_assign_op(LR1_Parser* p);
 LR_Action shift_ternary_colon(LR1_Parser* p);
 
 /* from lr1_reduce_postfix.c */
@@ -86,7 +87,7 @@ LR_Action lr1_handle_comma(LR1_Parser* p)
             return LR_REDUCE;
         }
     }
-    return shift_binary_op(p);
+    return shift_assign_op(p);
 }
 
 /* ---------------------------------------------------------------
