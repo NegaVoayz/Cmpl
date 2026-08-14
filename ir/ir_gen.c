@@ -264,6 +264,47 @@ static int was_visited(AST_Node** v, int n, AST_Node* node)
     return 0;
 }
 
+/* resolve `struct X` refs (TYPE_STRUCT with name but no params) inside
+ * function bodies: local variable declarations and for-init decls need
+ * the struct's fields attached from struct_map, exactly like the
+ * top-level decls handled by resolve_struct_refs_type.  Without this,
+ * `struct S s;` in a function produces an unsized IR_STRUCT (no members)
+ * and member access fails. */
+static void
+resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map)
+{
+    if (!n) return;
+
+    switch (n->type) {
+    case AST_VAR_DECL:
+        resolve_struct_refs_type(n->body.var_decl.var_type, struct_map);
+        break;
+    case AST_BLOCK:
+        for (AST_Node* s = n->body.block.stmts; s; s = s->next)
+            resolve_struct_refs_stmt(s, struct_map);
+        break;
+    case AST_IF:
+        resolve_struct_refs_stmt(n->body.if_stmt.then_branch, struct_map);
+        resolve_struct_refs_stmt(n->body.if_stmt.else_branch, struct_map);
+        break;
+    case AST_WHILE: case AST_DO_WHILE:
+        resolve_struct_refs_stmt(n->body.loop.body, struct_map);
+        break;
+    case AST_FOR:
+        resolve_struct_refs_stmt(n->body.for_stmt.init, struct_map);
+        resolve_struct_refs_stmt(n->body.for_stmt.body, struct_map);
+        break;
+    case AST_SWITCH:
+        resolve_struct_refs_stmt(n->body.switch_stmt.body, struct_map);
+        break;
+    case AST_CASE: case AST_DEFAULT:
+        for (AST_Node* s = n->body.case_stmt.stmt; s; s = s->next)
+            resolve_struct_refs_stmt(s, struct_map);
+        break;
+    default: break;
+    }
+}
+
 static void resolve_ast_node(AST_Node* n, TypedefEntry* table);
 
 /* statement node types: nodes that can appear in a block stmt chain */
@@ -585,6 +626,14 @@ ir_gen_module_ex(AST_Node* root, int is_device)
                         resolve_struct_refs_type(p->body.param_decl.param_type, &struct_map);
                 } else if (decl->type == AST_TYPEDEF)
                     resolve_struct_refs_type(decl->body.typedef_decl.aliased_type, &struct_map);
+            }
+
+            /* local variable declarations inside function bodies
+             * (struct X v; without a typedef) */
+            for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+                if (decl->type == AST_FUNC_DEF && decl->body.func_def.body)
+                    resolve_struct_refs_stmt(decl->body.func_def.body,
+                                             &struct_map);
             }
         }
 

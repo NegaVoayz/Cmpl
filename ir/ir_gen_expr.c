@@ -369,9 +369,13 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
                 if (!struct_ptr)
                     struct_ptr = global_lookup(ctx->mod,
                         n->body.member.record->body.ident.name);
-                if (struct_ptr && struct_ptr->type &&
-                    struct_ptr->type->kind == IR_PTR)
-                    struct_ty = struct_ptr->type->inner;
+                if (struct_ptr) {
+                    /* locals are allocas (ptr to struct); globals carry
+                     * the struct type directly — handle both */
+                    struct_ty = struct_ptr->type;
+                    if (struct_ty && struct_ty->kind == IR_PTR)
+                        struct_ty = struct_ty->inner;
+                }
             }
             if (!struct_ptr) {
                 /* nested lvalue (a.b.c, arr[i].x, p->q.r): get the
@@ -421,6 +425,14 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
 
         if (ast_struct && ast_struct->kind == TYPE_UNION) {
             /* union: all fields at offset 0 — bitcast */
+            if (struct_ptr->type && struct_ptr->type->kind != IR_PTR) {
+                /* global variable: GEP to get its address (bitcast
+                 * needs a pointer operand; globals carry the type
+                 * directly) */
+                struct_ptr = ir_build_gep(b, struct_ptr,
+                    ir_const_int(b, t_i32, 0),
+                    ir_const_int(b, t_i32, 0));
+            }
             return ir_build_bitcast(b, struct_ptr,
                 ir_ptr_type(ctx->b->arena, field_ty,
                     struct_ptr->type ? struct_ptr->type->addrspace : 0));
@@ -584,9 +596,12 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
                       if (!struct_ptr)
                           struct_ptr = global_lookup(ctx->mod,
                               opnd->body.member.record->body.ident.name);
-                      if (struct_ptr && struct_ptr->type &&
-                          struct_ptr->type->kind == IR_PTR)
-                          struct_ty = struct_ptr->type->inner;
+                      if (struct_ptr) {
+                          /* globals carry the struct type directly */
+                          struct_ty = struct_ptr->type;
+                          if (struct_ty && struct_ty->kind == IR_PTR)
+                              struct_ty = struct_ty->inner;
+                      }
                   }
               }
 
@@ -1078,6 +1093,12 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
 
         if (ast_struct && ast_struct->kind == TYPE_UNION) {
             /* union: all fields at offset 0 — bitcast pointer, then load */
+            if (struct_ptr->type && struct_ptr->type->kind != IR_PTR) {
+                /* global variable: GEP to get its address first */
+                struct_ptr = ir_build_gep(b, struct_ptr,
+                    ir_const_int(b, t_i32, 0),
+                    ir_const_int(b, t_i32, 0));
+            }
             IR_Value* cast_ptr = ir_build_bitcast(b, struct_ptr,
                 ir_ptr_type(ctx->b->arena, field_ty, struct_ptr->type ?
                     struct_ptr->type->addrspace : 0));
