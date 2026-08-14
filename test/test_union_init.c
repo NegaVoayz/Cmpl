@@ -23,7 +23,10 @@ int main(void)
     union U3 u3 = {.b = 7};          /* same-type */
     if (u3.b != 7) { printf("u3\n"); rc |= 4; }
 
-    if (gu.b != 9) { printf("gu\n"); rc |= 8; }
+    union U2 u2pos = {7};            /* positional: first member a (int) */
+    if (u2pos.a != 7) { printf("u2pos\n"); rc |= 8; }
+
+    if (gu.b != 9) { printf("gu\n"); rc |= 16; }
 
     if (!rc) printf("union init OK\n");
     return rc;

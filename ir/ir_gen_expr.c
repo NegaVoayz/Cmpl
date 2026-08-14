@@ -506,10 +506,16 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                 pos = top_idx + 1;
             } else {
                 child = init_child_type(ty, pos);
-                if (child)
+                if (child) {
                     slot = ir_build_gep(b, dst,
                         ir_const_int(b, t_i32, 0),
                         ir_const_int(b, t_i32, pos));
+                    /* union slot is emitted as the largest member; bitcast
+                     * to the first member's type for a positional init */
+                    if (ty->kind == IR_UNION)
+                        slot = ir_build_bitcast(b, slot,
+                            ir_ptr_type(b->arena, child, 0));
+                }
             }
 
             if (val->type != AST_INIT_LIST && child &&
@@ -579,11 +585,13 @@ ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty)
             ir_gen_zero_fill(ctx, slot, ty->inner);
         }
     } else if (ty->kind == IR_UNION) {
-        /* union emits a single largest-member slot at offset 0 */
+        /* union emits a single largest-member slot at offset 0; the GEP
+         * gives the first member's pointer, so bitcast to the largest */
         IR_Type* largest = ir_union_largest_member(ty);
         if (largest) {
             IR_Value* slot = ir_build_gep(b, dst,
                 ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, 0));
+            slot = ir_build_bitcast(b, slot, ir_ptr_type(b->arena, largest, 0));
             ir_gen_zero_fill(ctx, slot, largest);
         }
     } else if (ty->kind == IR_STRUCT) {
