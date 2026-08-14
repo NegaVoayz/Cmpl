@@ -54,6 +54,7 @@ long fold_binary_int(TokenKind op, long a, long b,
             case TOK_GTEQ:     return ua >= ub;
             case TOK_AMPAMP:   return ua && ub;
             case TOK_PIPEPIPE: return ua || ub;
+            case TOK_COMMA:    return b;
             default:           return 0;
             }
             return (long)r;
@@ -81,6 +82,7 @@ long fold_binary_int(TokenKind op, long a, long b,
         case TOK_GTEQ:     return ua >= ub;
         case TOK_AMPAMP:   return ua && ub;
         case TOK_PIPEPIPE: return ua || ub;
+        case TOK_COMMA:    return b;
         default:           return 0;
         }
         return (long)r;
@@ -105,6 +107,7 @@ long fold_binary_int(TokenKind op, long a, long b,
     case TOK_CARET:    return a ^ b;
     case TOK_LTLT:     return a << b;
     case TOK_GTGT:     return a >> b;
+    case TOK_COMMA:    return b;
     default:           return 0;
     }
 }
@@ -116,6 +119,7 @@ double fold_binary_float(TokenKind op, double a, double b)
     case TOK_MINUS: return a - b;
     case TOK_STAR:  return a * b;
     case TOK_SLASH: return b ? a / b : 0.0;
+    case TOK_COMMA: return b;
     default:        return 0.0;
     }
 }

@@ -348,6 +348,9 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
     case TOK_GT:       return is_float ? ir_build_fcmp(b, IR_COND_SGT, lhs, rhs) : ir_build_icmp(b, is_unsigned ? IR_COND_UGT : IR_COND_SGT, lhs, rhs);
     case TOK_LTEQ:     return is_float ? ir_build_fcmp(b, IR_COND_SLE, lhs, rhs) : ir_build_icmp(b, is_unsigned ? IR_COND_ULE : IR_COND_SLE, lhs, rhs);
     case TOK_GTEQ:     return is_float ? ir_build_fcmp(b, IR_COND_SGE, lhs, rhs) : ir_build_icmp(b, is_unsigned ? IR_COND_UGE : IR_COND_SGE, lhs, rhs);
+    case TOK_COMMA:    /* value of a comma expression is its RIGHT operand
+                        * (left was already evaluated for side effects) */
+        return rhs;
     default:           return lhs;
     }
 }
@@ -532,6 +535,26 @@ init_cont_advance(ContLevel* cont, int* depth)
  * brace-elided sub-aggregates (scalar into an array/struct member,
  * C99 6.7.8p20) absorb the following list elements.  shared with
  * ir_gen_stmt.c (var-decl brace inits). */
+/* char a[N] = "s": copy the string's BYTES into the array element by
+ * element, zero-padding the remainder and truncating at N (C11 6.7.9p14,
+ * p21).  A string operand is a pointer — storing it directly would write
+ * the pointer value into the array slot. */
+void
+gen_string_array_init(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
+{
+    IR_Builder* b = ctx->b;
+    String st = e->body.literal.str_val;
+    long n = ty->size;
+
+    for (long i = 0; i < n; i++) {
+        long byte = (i < (long)st.length)
+            ? (unsigned char)st.data[i] : 0;
+        IR_Value* p = ir_build_gep(b, dst, ir_const_int(b, t_i32, 0),
+                                   ir_const_int(b, t_i32, i));
+        ir_build_store(b, ir_const_int(b, t_i8, byte), p);
+    }
+}
+
 void
 ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
 {
@@ -572,7 +595,30 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                     sub = sub->next;
                     continue;
                 }
+                /* a string literal directly inside a char array's brace
+                 * list fills the WHOLE array (C11 6.7.9p14); the cursor
+                 * jumps past it */
+                if (val->type == AST_STRING_LIT && ty->kind == IR_ARRAY &&
+                    ty->size > 0 && ty->inner &&
+                    ty->inner->kind == IR_I8) {
+                    gen_string_array_init(ctx, dst, val, ty);
+                    pos += ty->size;
+                    sub = sub->next;
+                    continue;
+                }
                 child = init_child_type(ty, pos);
+                if ((ty->kind == IR_ARRAY || ty->kind == IR_STRUCT ||
+                     ty->kind == IR_UNION) &&
+                    (!child || (ty->kind == IR_ARRAY &&
+                                pos >= ty->size))) {
+                    /* excess initializer beyond the aggregate's capacity:
+                     * gcc ignores it (with a warning).  Scalars have no
+                     * capacity — (int){9} still stores its single
+                     * element. */
+                    pos++;
+                    sub = sub->next;
+                    continue;
+                }
                 if (child) {
                     slot = ir_build_gep(b, dst,
                         ir_const_int(b, t_i32, 0),
@@ -585,13 +631,16 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                 }
             }
 
-            if (val->type != AST_INIT_LIST && child &&
+            if (val->type != AST_INIT_LIST &&
+                val->type != AST_STRING_LIT && child &&
                 (child->kind == IR_ARRAY || child->kind == IR_STRUCT ||
                  child->kind == IR_UNION)) {
                 /* brace-elided sub-aggregate: this and the next (up to
                  * capacity, stopping at a designator — C99 6.7.8p20: a
                  * designator targets the enclosing aggregate) elements
-                 * initialize the child. */
+                 * initialize the child.  A string literal initializing
+                 * a char array fills the WHOLE array (6.7.9p14), so it
+                 * absorbs no following elements. */
                 int cap = (child->kind == IR_ARRAY) ? child->size : 0;
                 if (child->kind != IR_ARRAY)
                     for (IR_Type* m = child->members; m; m = m->next) cap++;
@@ -634,7 +683,13 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
         return;
     }
 
-    IR_Value* v = gen_expr(ctx, e);
+    IR_Value* v;
+    if (e->type == AST_STRING_LIT && ty && ty->kind == IR_ARRAY &&
+        ty->size > 0) {
+        gen_string_array_init(ctx, dst, e, ty);
+        return;
+    }
+    v = gen_expr(ctx, e);
     if (!v) return;
     if (ty && v->type && !ir_type_eq(v->type, ty))
         v = coerce_to(b, v, ty);

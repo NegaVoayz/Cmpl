@@ -24,6 +24,9 @@ extern void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst,
                                  AST_Node* e, IR_Type* ty);
 /* zero-fill aggregate slots not covered by a brace init (C99) */
 extern void      ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty);
+/* char a[N] = "s": copy string bytes into the array (not the pointer) */
+extern void      gen_string_array_init(GenCtx* ctx, IR_Value* dst,
+                                       AST_Node* e, IR_Type* ty);
 
 /* forward: defined below (used by gen_stmt_if/while/for) */
 void gen_stmt(GenCtx* ctx, AST_Node* n);
@@ -340,14 +343,21 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
               ir_gen_zero_fill(ctx, al, vt);
           ir_gen_init_one(ctx, al, n->body.var_decl.init, vt);
       } else if (n->body.var_decl.init) {
-          IR_Value* init = gen_expr(ctx, n->body.var_decl.init);
-          if (init && vt == t_i32 &&
-              n->body.var_decl.var_type &&
-              n->body.var_decl.var_type->kind == TYPE_NAMED &&
-              !n->body.var_decl.var_type->inner &&
-              init->type && init->type->kind == IR_PTR)
-              vt = ir_ptr_type(b->arena, t_i8, 0);
-          if (init) ir_build_store(b, init, al);
+          AST_Node* initn = n->body.var_decl.init;
+          if (initn->type == AST_STRING_LIT && vt &&
+              vt->kind == IR_ARRAY && vt->size > 0) {
+              /* char a[N] = "s": copy bytes, not the pointer */
+              gen_string_array_init(ctx, al, initn, vt);
+          } else {
+              IR_Value* init = gen_expr(ctx, initn);
+              if (init && vt == t_i32 &&
+                  n->body.var_decl.var_type &&
+                  n->body.var_decl.var_type->kind == TYPE_NAMED &&
+                  !n->body.var_decl.var_type->inner &&
+                  init->type && init->type->kind == IR_PTR)
+                  vt = ir_ptr_type(b->arena, t_i8, 0);
+              if (init) ir_build_store(b, init, al);
+          }
       }
       break; }
     case AST_SWITCH: gen_stmt_switch(ctx, n); break;

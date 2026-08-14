@@ -1304,9 +1304,19 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
         int idx = pos;
         IR_Type* ct = gen_const_child_type(target_type, idx);
 
-        if (idx >= 0 && idx < slots && e->type != AST_INIT_LIST && ct &&
+        /* a string literal directly inside a char array's brace list
+         * fills the WHOLE array (C11 6.7.9p14) */
+        if (e->type == AST_STRING_LIT && target_type->kind == IR_ARRAY &&
+            target_type->size > 0 && target_type->inner &&
+            target_type->inner->kind == IR_I8)
+            return gen_const_init(a, e, target_type, enum_vals);
+
+        if (idx >= 0 && idx < slots && e->type != AST_INIT_LIST &&
+            e->type != AST_STRING_LIT && ct &&
             (ct->kind == IR_ARRAY || ct->kind == IR_STRUCT ||
              ct->kind == IR_UNION)) {
+            /* A string literal initializing a char array fills the WHOLE
+             * array (6.7.9p14) — it absorbs no following elements. */
             int cap = (ct->kind == IR_ARRAY) ? ct->size : 0;
             if (ct->kind != IR_ARRAY)
                 for (IR_Type* m = ct->members; m; m = m->next) cap++;
@@ -1393,7 +1403,25 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
     }
 
     case AST_STRING_LIT:
-    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+    {   String st = init->body.literal.str_val;
+        if (target_type && target_type->kind == IR_ARRAY &&
+            target_type->size > 0) {
+            /* char a[N] = "s" at file scope: byte array constant,
+             * zero-padded / truncated to N (C11 6.7.9p14/p21). */
+            int n = target_type->size;
+            IR_Value** elems = arena_alloc(a, sizeof(IR_Value*) * n);
+            for (int i = 0; i < n; i++) {
+                long byte = (i < (int)st.length)
+                    ? (unsigned char)st.data[i] : 0;
+                IR_Value* ev = arena_alloc(a, sizeof(IR_Value));
+                ev->kind = VAL_CONST_INT;
+                ev->type = t_i8;
+                ev->body.int_val = byte;
+                elems[i] = ev;
+            }
+            return ir_const_aggregate(a, target_type, elems, n);
+        }
+        IR_Value* v = arena_alloc(a, sizeof(IR_Value));
         v->kind = VAL_CONST_STRING;
         v->type = target_type;
         v->body.str_val = init->body.literal.str_val;

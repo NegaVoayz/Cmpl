@@ -354,6 +354,20 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                 /* parse the initializer into an AST_INIT_LIST */
                 vd->body.var_decl.init = parse_init_list(p);
             } else {
+                /* char a[] = "s": infer the array size from the string
+                 * literal (chars + NUL), like the brace-count path above. */
+                if (p->tok->kind == TOK_STRING_LIT) {
+                    Type* scan = full;
+                    while (scan && scan->kind == TYPE_PTR)
+                        scan = scan->inner;
+                    if (scan && scan->kind == TYPE_ARRAY &&
+                        scan->arr_size == 0 && scan->inner &&
+                        scan->inner->kind == TYPE_CHAR) {
+                        scan->arr_size =
+                            (int)(p->tok->body.str_val.length + 1);
+                        scan->size_inferred = 1;
+                    }
+                }
                 /* Scan ahead to find the terminating comma or semicolon
                  * at the top level (outside parens/brackets/braces).
                  * Replace a top-level comma with semicolon so the LR
