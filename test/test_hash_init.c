@@ -1,4 +1,6 @@
+#include <stddef.h>
 #include "hash.h"
+#include "arena.h"
 int main(void) {
     Arena* a = arena_new();
     HashMap m;

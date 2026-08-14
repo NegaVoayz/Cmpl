@@ -2,12 +2,16 @@
 
 #include "lr1.h"
 #include "arena.h"
+#include "ast_walk.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 
 /* from parser/ll/ll_type.c -- parse type specifiers for cast detection */
 extern Type* ll_parse_type_specs(LR1_Parser* p);
+
+/* from parser/ll/ll_decl.c -- parse {elem,...} into an AST_INIT_LIST */
+extern AST_Node* parse_init_list(LR1_Parser* p);
 
 extern LR_Action lr1_error(LR1_Parser* p);
 
@@ -68,7 +72,8 @@ static int is_cast_start(Token* tok)
                           after->kind == TOK_MINUSMINUS ||
                           after->kind == TOK_BANG ||
                           after->kind == TOK_TILDE ||
-                          after->kind == TOK_SIZEOF))
+                          after->kind == TOK_SIZEOF ||
+                          after->kind == TOK_LBRACE))
                 return 1;
         }
     }
@@ -196,7 +201,7 @@ void goto_passthru(LR1_Parser* p, int lhs_sym)
     p->stack[p->sp].state = target;
 }
 
-AST_Node* lr1_parse_expr(LR1_Parser* p)
+static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
 {
     /* reset for a fresh expression */
     p->sp = 0;
@@ -273,7 +278,11 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                     if (p->tok->kind == TOK_RPAREN)
                         p->tok = p->tok->next;
 
-                    /* C99 compound literal: (type){init} */
+                    /* C99 compound literal: (type){init}.
+                     * Record the '{' token and skip the initializer —
+                     * it is re-parsed by resolve_compound_lits() after
+                     * this LR expression completes (parse_init_list
+                     * re-enters lr1_parse_expr, so it cannot run here). */
                     if (p->tok->kind == TOK_LBRACE) {
                         Token* start = p->tok;
                         int depth = 1;
@@ -291,6 +300,7 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
                                                     start->loc.line, start->loc.col);
                         n->body.compound_lit.type_expr = ct;
                         n->body.compound_lit.init = NULL;
+                        n->body.compound_lit.init_start = start;
                         goto_push(p, n, SYM_PRIMARY);
                         continue;
                     }
@@ -363,4 +373,43 @@ AST_Node* lr1_parse_expr(LR1_Parser* p)
             return NULL;
         }
     }
+}
+
+/* ---------------------------------------------------------------
+ *  Compound-literal initializers (deferred parse)
+ *
+ *  The LR loop skips (type){...} and records the '{' token because
+ *  parse_init_list() re-enters lr1_parse_expr() (per element), which
+ *  resets the LR stack.  Once the outer LR expression is complete the
+ *  stack no longer matters, so we replay the initializer here.
+ * --------------------------------------------------------------- */
+
+static int resolve_compound_lit_cb(AST_Node* n, void* ctx)
+{
+    if (n && n->type == AST_COMPOUND_LIT &&
+        !n->body.compound_lit.init &&
+        n->body.compound_lit.init_start) {
+        LR1_Parser* p = ctx;
+        Token* save = p->tok;
+
+        p->tok = n->body.compound_lit.init_start;
+        n->body.compound_lit.init = parse_init_list(p);
+        p->tok = save;
+    }
+    return 0;
+}
+
+static void resolve_compound_lits(AST_Node* root, LR1_Parser* p)
+{
+    if (p->error || !root) return;
+
+    ast_walk(root, resolve_compound_lit_cb, NULL, p);
+}
+
+AST_Node* lr1_parse_expr(LR1_Parser* p)
+{
+    AST_Node* result = lr1_parse_expr_inner(p);
+
+    resolve_compound_lits(result, p);
+    return result;
 }

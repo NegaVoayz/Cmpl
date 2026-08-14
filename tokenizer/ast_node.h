@@ -47,8 +47,10 @@ struct AST_Node {
         /* cast (type)expr */
         struct { Type* type_expr; AST_Node* cast_expr; } cast;
 
-        /* compound literal (type){init} */
-        struct { Type* type_expr; AST_Node* init; } compound_lit;
+        /* compound literal (type){init} -- init_start remembers the
+         * '{' token; the initializer is re-parsed after the LR
+         * expression completes (lr1.c resolve_compound_lits) */
+        struct { Type* type_expr; AST_Node* init; Token* init_start; } compound_lit;
 
         /* function call */
         struct { AST_Node* callee; AST_Node* args; AST_Node* last_arg; } call;

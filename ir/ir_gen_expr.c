@@ -331,6 +331,80 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
 }
 
 /* ---------------------------------------------------------------
+ *  Scalar coercion for initializer stores
+ * --------------------------------------------------------------- */
+
+/* coerce any scalar/pointer value to 'target' (mirrors AST_CAST). */
+static IR_Value*
+coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target)
+{
+    if (!v || !v->type || !target) return v;
+    if (ir_type_eq(v->type, target)) return v;
+
+    /* int ↔ ptr: bitcast */
+    if (v->type->kind == IR_PTR || target->kind == IR_PTR)
+        return ir_build_bitcast(b, v, target);
+    /* float ↔ float: bitcast (dumper emits fpext/fptrunc) */
+    if ((v->type->kind == IR_F32 || v->type->kind == IR_F64) &&
+        (target->kind == IR_F32 || target->kind == IR_F64))
+        return ir_build_bitcast(b, v, target);
+    /* int → float */
+    if (v->type->kind >= IR_I1 && v->type->kind <= IR_I64 &&
+        (target->kind == IR_F32 || target->kind == IR_F64))
+        return ir_build_sitofp(b, v, target);
+    /* float → int */
+    if ((v->type->kind == IR_F32 || v->type->kind == IR_F64) &&
+        target->kind >= IR_I1 && target->kind <= IR_I64)
+        return ir_build_fptosi(b, v, target);
+    /* int widening / narrowing */
+    if (ir_type_size(v->type) < ir_type_size(target))
+        return ir_build_zext(b, v, target);
+    if (ir_type_size(v->type) > ir_type_size(target))
+        return ir_build_trunc(b, v, target);
+    return ir_build_bitcast(b, v, target);
+}
+
+/* ---------------------------------------------------------------
+ *  Initializer-list stores into a temp (compound literals)
+ * --------------------------------------------------------------- */
+
+/* store one initializer element into dst; nested lists recurse into
+ * the corresponding sub-slot (arrays/structs) of the aggregate. */
+static void
+gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
+{
+    IR_Builder* b = ctx->b;
+
+    if (e->type == AST_INIT_LIST) {
+        int idx = 0;
+
+        for (AST_Node* sub = e->body.init_list.elems;
+             sub; sub = sub->next, idx++) {
+            IR_Type* child = NULL;
+            IR_Value* slot = dst;
+
+            if (ty && ty->kind == IR_ARRAY) {
+                child = ty->inner;
+            } else if (ty && (ty->kind == IR_STRUCT || ty->kind == IR_UNION)) {
+                child = ty->members;
+                for (int i = 0; child && i < idx; i++) child = child->next;
+            }
+            if (child)
+                slot = ir_build_gep(b, dst,
+                    ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, idx));
+            gen_init_one(ctx, slot, sub, child);
+        }
+        return;
+    }
+
+    IR_Value* v = gen_expr(ctx, e);
+    if (!v) return;
+    if (ty && v->type && !ir_type_eq(v->type, ty))
+        v = coerce_to(b, v, ty);
+    ir_build_store(b, v, dst);
+}
+
+/* ---------------------------------------------------------------
  *  Store-target pointer for assignment LHS
  * --------------------------------------------------------------- */
 
@@ -347,6 +421,17 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
         IR_Value* ptr = sym_lookup(ctx, n->body.ident.name);
         if (ptr) return ptr;
         return global_lookup(ctx->mod, n->body.ident.name);
+    }
+    case AST_COMPOUND_LIT: {
+        /* lvalue: allocate a fresh temp and store the initializer */
+        Type* ct = n->body.compound_lit.type_expr;
+        IR_Type* ir_t = ct ? ir_type_from_ast(ctx->b->arena, ct) : NULL;
+        IR_Value* alloca_ptr = ir_build_alloca(b, ir_t ? ir_t : t_i8);
+
+        if (n->body.compound_lit.init)
+            gen_init_one(ctx, alloca_ptr,
+                         n->body.compound_lit.init, ir_t);
+        return alloca_ptr;
     }
     case AST_MEMBER: {
         TokenKind op = n->body.member.op;
@@ -954,30 +1039,15 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       /* same-size int conversion, or struct→struct: bitcast */
       return ir_build_bitcast(b, cv, target); }
     case AST_COMPOUND_LIT:
-    { /* (type){init} — allocate a temporary, store the value, return ptr.
-         * For array types like (T[]){e1,e2}, each element is a separate
-         * store to the alloca'd space.  The init is currently skipped by
-         * the parser for non-empty initializers, so we handle the common
-         * single-element case heuristically: if the type is an array or
-         * pointer, alloca one element and store the (already evaluated)
-         * init expression. */
-        Type* ct = n->body.compound_lit.type_expr;
-        IR_Type* ir_t = ct ? ir_type_from_ast(ctx->b->arena, ct) : NULL;
+    { /* (type){init} — temp lvalue: alloca + initializer stores.
+         * Array types decay to a pointer; scalar/struct values load. */
+        IR_Value* ptr = gen_store_ptr(ctx, n);
+        if (!ptr) return NULL;
 
-        /* Alloca space for the compound literal */
-        IR_Value* alloca_ptr = ir_build_alloca(b, ir_t ? ir_t : t_i8);
-
-        /* If there is an init expression, store it */
-        if (n->body.compound_lit.init) {
-            IR_Value* init_val = gen_expr(ctx, n->body.compound_lit.init);
-            if (init_val) {
-                /* Store directly — for array types the init may need
-                 * to be stored element-by-element, but single-element
-                 * arrays decay to pointer and store works. */
-                ir_build_store(b, init_val, alloca_ptr);
-            }
-        }
-        return alloca_ptr; }
+        if (ptr->type && ptr->type->kind == IR_PTR &&
+            ptr->type->inner && ptr->type->inner->kind == IR_ARRAY)
+            return ptr;
+        return ir_build_load(b, ptr); }
 
     case AST_INDEX:
     { /* Get the base address via gen_store_ptr, which does NOT decay a

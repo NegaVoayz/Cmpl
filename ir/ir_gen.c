@@ -8,6 +8,7 @@
 
 #include "ast.h"
 #include "hash.h"
+#include "ast_walk.h"
 
 /* ---------------------------------------------------------------
  *  Typedef table entry (for resolving TYPE_NAMED during IR gen)
@@ -209,6 +210,13 @@ static void resolve_expr_types(AST_Node* e, TypedefEntry* table)
          * a cast-to-struct-pointer — resolve its type so field
          * lookup works during IR gen. */
         resolve_expr_types(e->body.member.record, table); break;
+    case AST_COMPOUND_LIT:
+        /* (Type){init}: typedef names need inner resolution like
+         * AST_CAST; the initializer elements are expressions. */
+        resolve_type_tree(e->body.compound_lit.type_expr, table);
+        if (e->body.compound_lit.init)
+            resolve_expr_types(e->body.compound_lit.init, table);
+        break;
     case AST_INIT_LIST:
         for (AST_Node* elem = e->body.init_list.elems;
              elem; elem = elem->next)
@@ -303,6 +311,33 @@ resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map)
         break;
     default: break;
     }
+}
+
+/* ast_walk callback: attach struct fields to compound-literal type
+ * expressions.  (type){init} parses `struct S` inside the LR cast
+ * branch, which resolve_struct_refs_stmt never reaches (it only walks
+ * statements, not expressions), so without this the IR struct type
+ * would have no members and initializer stores would collapse. */
+static int resolve_compound_lit_type_cb(AST_Node* n, void* ctx)
+{
+    if (n && n->type == AST_COMPOUND_LIT &&
+        n->body.compound_lit.type_expr) {
+        Type* t = n->body.compound_lit.type_expr;
+
+        resolve_struct_refs_type(t, ctx);
+        /* infer array size from initializer count: (int[]){1,2,3} */
+        { Type* scan = t;
+          while (scan && scan->kind == TYPE_PTR) scan = scan->inner;
+          if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0 &&
+              n->body.compound_lit.init) {
+              int count = 0;
+              for (AST_Node* e = n->body.compound_lit.init->body.init_list.elems;
+                   e; e = e->next) count++;
+              if (count > 0) scan->arr_size = count;
+          }
+        }
+    }
+    return 0;
 }
 
 static void resolve_ast_node(AST_Node* n, TypedefEntry* table);
@@ -631,9 +666,13 @@ ir_gen_module_ex(AST_Node* root, int is_device)
             /* local variable declarations inside function bodies
              * (struct X v; without a typedef) */
             for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
-                if (decl->type == AST_FUNC_DEF && decl->body.func_def.body)
+                if (decl->type == AST_FUNC_DEF && decl->body.func_def.body) {
                     resolve_struct_refs_stmt(decl->body.func_def.body,
                                              &struct_map);
+                    ast_walk(decl->body.func_def.body,
+                             resolve_compound_lit_type_cb, NULL,
+                             &struct_map);
+                }
             }
         }
 
