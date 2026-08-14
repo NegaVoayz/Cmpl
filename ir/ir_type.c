@@ -306,8 +306,13 @@ ast_to_ir_type(Arena* a, Type* ast)
                   IR_Type* sc = struct_cache[i];
                   if (sc->name.length == ast->name.length &&
                       memcmp(sc->name.data, ast->name.data,
-                             ast->name.length) == 0)
-                      return sc;
+                             ast->name.length) == 0) {
+                      /* A forward-declared (incomplete) struct must not
+                       * shadow its later complete definition of the same
+                       * tag: keep scanning for a complete cached entry. */
+                      if (sc->members || !ast->params)
+                          return sc;
+                  }
               }
           } else {
               for (int i = 0; i < n_struct_cache; i++)
