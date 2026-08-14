@@ -18,6 +18,7 @@
 
 static String  str_table[MAX_STR_CONSTS];
 static int     str_count = 0;
+static int     str_emitted_count = 0;  /* strings emitted as globals so far */
 
 /* --- forward --- */
 
@@ -29,6 +30,7 @@ void
 dump_str_reset(void)
 {
     str_count = 0;
+    str_emitted_count = 0;
 }
 
 void
@@ -59,6 +61,7 @@ dump_str_globals(FILE* out)
         }
         fprintf(out, "\\00\", align 1\n");
     }
+    str_emitted_count = str_count;
 }
 
 static void collect_from_value(IR_Value* val)
@@ -88,27 +91,20 @@ dump_str_collect_module(IR_Module* mod)
 
         for (IR_Block* blk = f->blocks; blk; blk = blk->next) {
             for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
-                /* collect from call args */
+                /* collect from call args (recursing into aggregates) */
                 if (inst->opcode == IROP_CALL) {
-                    for (int i = 0; i < inst->n_call_args; i++) {
-                        IR_Value* arg = inst->call_args[i];
-                        if (arg && arg->kind == VAL_CONST_STRING)
-                            str_index_of(arg->body.str_val);
-                    }
+                    for (int i = 0; i < inst->n_call_args; i++)
+                        collect_from_value(inst->call_args[i]);
                 }
-                /* collect from fixed operands (e.g. select with strings) */
-                for (int i = 0; i < 3; i++) {
-                    IR_Value* op = inst->operands[i];
-                    if (op && op->kind == VAL_CONST_STRING)
-                        str_index_of(op->body.str_val);
-                }
+                /* collect from fixed operands (store/return/select/etc.),
+                 * recursing into VAL_CONST_AGGREGATE so a string nested in
+                 * a stored/returned struct literal is not missed */
+                for (int i = 0; i < 3; i++)
+                    collect_from_value(inst->operands[i]);
                 /* collect from phi incoming values (ternary merges) */
                 if (inst->opcode == IROP_PHI) {
-                    for (int i = 0; i < inst->n_incoming; i++) {
-                        IR_Value* op = inst->in_vals[i];
-                        if (op && op->kind == VAL_CONST_STRING)
-                            str_index_of(op->body.str_val);
-                    }
+                    for (int i = 0; i < inst->n_incoming; i++)
+                        collect_from_value(inst->in_vals[i]);
                 }
             }
         }
@@ -118,7 +114,13 @@ dump_str_collect_module(IR_Module* mod)
 int
 dump_str_index(String s)
 {
-    return str_index_of(s);
+    int idx = str_index_of(s);
+    /* a string appended after the globals were emitted means the collector
+     * missed it — the reference would be a dangling @.str.N */
+    if (idx >= str_emitted_count)
+        fprintf(stderr, "cmpl: internal error: string constant not collected"
+                " before emission\n");
+    return idx;
 }
 
 /* --- internal --- */
@@ -131,8 +133,16 @@ str_index_of(String s)
             memcmp(str_table[i].data, s.data, s.length) == 0)
             return i;
     }
-    if (str_count >= MAX_STR_CONSTS)
+    if (str_count >= MAX_STR_CONSTS) {
+        static int warned = 0;
+        if (!warned) {
+            fprintf(stderr, "cmpl: error: string constant table overflow"
+                    " (>%d distinct strings); later strings emitted as null\n",
+                    MAX_STR_CONSTS);
+            warned = 1;
+        }
         return -1;
+    }
 
     str_table[str_count++] = s;
     return str_count - 1;
