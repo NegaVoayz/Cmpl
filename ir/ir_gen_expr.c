@@ -419,7 +419,8 @@ init_child_type(IR_Type* ty, int idx)
  * field name or out-of-range [i].  mirrors gen_const_desig in ir_gen.c. */
 static IR_Value*
 desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
-                AST_Node* steps, IR_Type** final_ty, int* top_idx)
+                AST_Node* steps, IR_Type** final_ty, int* top_idx,
+                ContLevel* cont, int* depth)
 {
     IR_Builder* b = ctx->b;
     IR_Value* slot = dst;
@@ -428,6 +429,7 @@ desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
 
     *final_ty = NULL;
     *top_idx = -1;
+    if (depth) *depth = 0;
 
     for (AST_Node* s = steps; s; s = s->next) {
         String fn = s->body.desig_step.field_name;
@@ -441,6 +443,11 @@ desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                 return NULL;
             }
             if (first) *top_idx = fi;
+            if (cont && *depth < CONT_MAX) {
+                cont[*depth].agg = cur;
+                cont[*depth].idx = fi;
+                (*depth)++;
+            }
             int is_union = (cur && cur->kind == IR_UNION);
             int gep = is_union ? 0 : fi;
             slot = ir_build_gep(b, slot,
@@ -465,6 +472,11 @@ desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                 return NULL;
             }
             if (first) *top_idx = (int)ii;
+            if (cont && *depth < CONT_MAX) {
+                cont[*depth].agg = cur;
+                cont[*depth].idx = (int)ii;
+                (*depth)++;
+            }
             slot = ir_build_gep(b, slot,
                 ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, (int)ii));
             cur = cur->inner;
@@ -474,6 +486,45 @@ desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
 
     *final_ty = cur;
     return slot;
+}
+
+/* descend a continuation path (built by desig_walk_slot) emitting GEPs
+ * into the innermost slot; sets *child to that slot's type. */
+static IR_Value*
+cont_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
+               ContLevel* cont, int depth, IR_Type** child)
+{
+    IR_Builder* b = ctx->b;
+    IR_Value* slot = dst;
+    IR_Type* cur = ty;
+
+    for (int i = 0; i < depth; i++) {
+        int idx = cont[i].idx;
+        int is_union = (cur && cur->kind == IR_UNION);
+        int gep = is_union ? 0 : idx;
+        slot = ir_build_gep(b, slot,
+            ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, gep));
+        cur = init_child_type(cur, idx);
+        if (is_union && cur)
+            slot = ir_build_bitcast(b, slot, ir_ptr_type(b->arena, cur, 0));
+    }
+    *child = cur;
+    return slot;
+}
+
+/* advance a continuation path past its current (just-filled) slot: bump
+ * the deepest index; on overflow pop and increment the parent.  leaves
+ * *depth at its post-advance value (the caller drops back to the plain
+ * top-level cursor once depth < 2). */
+static void
+init_cont_advance(ContLevel* cont, int* depth)
+{
+    while (*depth > 0) {
+        ContLevel* L = &cont[*depth - 1];
+        L->idx++;
+        if (L->idx < ir_agg_count(L->agg)) return;
+        (*depth)--;
+    }
 }
 
 /* store one initializer element into dst; nested lists recurse into
@@ -488,6 +539,8 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
 
     if (e->type == AST_INIT_LIST) {
         int pos = 0;
+        ContLevel cont[CONT_MAX];
+        int depth = 0;
         AST_Node* sub = e->body.init_list.elems;
 
         while (sub) {
@@ -498,12 +551,17 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
 
             if (is_desig) {
                 int top_idx = -1;
+                depth = 0;
                 val = sub->body.designator.value;
                 slot = desig_walk_slot(ctx, dst, ty,
                                        sub->body.designator.steps,
-                                       &child, &top_idx);
-                if (!slot) { sub = sub->next; continue; }
+                                       &child, &top_idx, cont, &depth);
+                if (!slot) { depth = 0; sub = sub->next; continue; }
+                if (depth < 2) depth = 0;   /* single-step: no continuation */
                 pos = top_idx + 1;
+            } else if (depth >= 2) {
+                /* continue inside the innermost designated subobject */
+                slot = cont_walk_slot(ctx, dst, ty, cont, depth, &child);
             } else {
                 /* a union has a single slot: only the first positional
                  * element initializes it; later ones are excess elements
@@ -560,15 +618,18 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                 last->next = saved;
                 if (is_desig) val->next = old_vnext;
 
-                if (!is_desig) pos++;
                 sub = saved;
-                continue;
+            } else {
+                ir_gen_init_one(ctx, slot, val, child);
+                sub = sub->next;
             }
 
-            ir_gen_init_one(ctx, slot, val, child);
-
-            if (!is_desig) pos++;
-            sub = sub->next;
+            if (depth >= 2) {
+                init_cont_advance(cont, &depth);
+                if (depth < 2) depth = 0;
+            } else if (!is_desig) {
+                pos++;
+            }
         }
         return;
     }

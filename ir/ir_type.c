@@ -457,6 +457,23 @@ ir_union_largest_member(IR_Type* t)
     return best;
 }
 
+/* number of child slots an aggregate occupies: array element count,
+ * struct member count, or 1 for a union (single largest-member slot).
+ * 0 for non-aggregates. */
+int
+ir_agg_count(IR_Type* t)
+{
+    if (!t) return 0;
+    if (t->kind == IR_ARRAY) return t->size;
+    if (t->kind == IR_UNION) return 1;
+    if (t->kind == IR_STRUCT) {
+        int n = 0;
+        for (IR_Type* m = t->members; m; m = m->next) n++;
+        return n;
+    }
+    return 0;
+}
+
 int
 ir_type_eq(IR_Type* a, IR_Type* b)
 {

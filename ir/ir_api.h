@@ -15,6 +15,12 @@
 typedef struct AST_Node AST_Node;
 typedef struct Type     Type;
 
+/* continuation-path level for a multi-step designator initializer:
+ * one aggregate type plus the child index the cursor is at.  depth >= 2
+ * only — single-step designators fall back to the plain top-level cursor. */
+#define CONT_MAX 8
+typedef struct ContLevel { IR_Type* agg; int idx; } ContLevel;
+
 /* --- Common type singletons (defined in ir_type.c) --- */
 
 extern IR_Type *t_void, *t_i1, *t_i8, *t_i16, *t_i32, *t_i64;
@@ -37,6 +43,7 @@ int         ir_type_eq(IR_Type* a, IR_Type* b);
 const char* ir_type_name(IR_Type* t);
 Type*       ir_struct_ast_lookup(IR_Type* t);
 int         ir_struct_field_index(Type* ast_struct, String field_name);
+int         ir_agg_count(IR_Type* t);
 
 /* --- Builder API (ir_builder.c) --- */
 
