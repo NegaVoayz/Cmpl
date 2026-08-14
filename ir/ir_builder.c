@@ -233,8 +233,8 @@ ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr)
 {
     /* Coerce the stored value to the pointee type:
      *   - larger int  -> truncate (i64 -> i32 alloca, ptr-ptr sub)
-     *   - smaller int -> zext (i1/i8/i16 -> i32/i64, e.g. `x = (a==b)`)
-     *   - int <-> float via sitofp/fptosi (e.g. `double x = 3;`)
+     *   - smaller int -> zext (unsigned) or sext (signed)
+     *   - int <-> float via sitofp/uitofp, fptosi/fptoui
      *   - float widening via bitcast (dumper emits fpext)
      * Struct/ptr narrowing uses bitcast. */
     if (val && val->type && ptr && ptr->type &&
@@ -251,11 +251,18 @@ ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr)
             if (val_sz > elem_sz && elem_sz > 0)
                 val = ir_build_trunc(b, val, ptr->type->inner);
             else if (val->type->kind != ptr->type->inner->kind)
-                val = ir_build_zext(b, val, ptr->type->inner);
+                /* booleans (i1) and unsigned types zero-extend */
+                val = (val->type->kind == IR_I1 || val->type->is_unsigned)
+                    ? ir_build_zext(b, val, ptr->type->inner)
+                    : ir_build_sext(b, val, ptr->type->inner);
         } else if (val_int && elem_fp)
-            val = ir_build_sitofp(b, val, ptr->type->inner);
+            val = (val->type->kind == IR_I1 || val->type->is_unsigned)
+                ? ir_build_uitofp(b, val, ptr->type->inner)
+                : ir_build_sitofp(b, val, ptr->type->inner);
         else if (val_fp && elem_int)
-            val = ir_build_fptosi(b, val, ptr->type->inner);
+            val = ptr->type->inner->is_unsigned
+                ? ir_build_fptoui(b, val, ptr->type->inner)
+                : ir_build_fptosi(b, val, ptr->type->inner);
         else if (val_fp && elem_fp && val_sz < elem_sz)
             val = ir_build_bitcast(b, val, ptr->type->inner);
     }

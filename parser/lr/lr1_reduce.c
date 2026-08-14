@@ -51,7 +51,8 @@ LR_Action reduce_primary_lit(LR1_Parser* p)
 
     switch (t->kind) {
     case TOK_INT_LIT:  case TOK_LONG_LIT:
-        n->body.literal.int_val = t->body.int_val;   break;
+        n->body.literal.int_val = t->body.int_val;
+        n->body.literal.is_unsigned = t->is_unsigned;   break;
     case TOK_CHAR_LIT:
         n->body.literal.char_val = t->body.char_val; break;
     case TOK_FLOAT_LIT: case TOK_DOUBLE_LIT:

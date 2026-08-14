@@ -20,8 +20,72 @@ int is_int_literal_kind(AST_Type t)
  *  Integer binary folding
  * --------------------------------------------------------------- */
 
-long fold_binary_int(TokenKind op, long a, long b)
+/* C usual arithmetic conversions for constant folding: when either
+ * operand is unsigned, the operation happens in the unsigned domain
+ * (32-bit int or 64-bit long).  Comparisons must then be unsigned and
+ * div/rem/shift must use unsigned semantics. */
+long fold_binary_int(TokenKind op, long a, long b,
+                     int unsigned_any, int is_long)
 {
+    if (unsigned_any) {
+        if (is_long) {
+            unsigned long ua = (unsigned long)a;
+            unsigned long ub = (unsigned long)b;
+            unsigned long r;
+
+            /* NOTE: no parenthesized 'a * b' here — the LR parser's
+             * (IDENT*) cast heuristic misfires on (a * b) (see is_cast_start) */
+            switch (op) {
+            case TOK_PLUS:     r = ua + ub; break;
+            case TOK_MINUS:    r = ua - ub; break;
+            case TOK_STAR:     r = ua * ub; break;
+            case TOK_SLASH:    r = ub ? ua / ub : 0; break;
+            case TOK_PERCENT:  r = ub ? ua % ub : 0; break;
+            case TOK_AMP:      r = ua & ub; break;
+            case TOK_PIPE:     r = ua | ub; break;
+            case TOK_CARET:    r = ua ^ ub; break;
+            case TOK_LTLT:     r = ua << (ub & 63); break;
+            case TOK_GTGT:     r = ua >> (ub & 63); break;
+            case TOK_EQEQ:     return ua == ub;
+            case TOK_BANGEQ:   return ua != ub;
+            case TOK_LT:       return ua < ub;
+            case TOK_GT:       return ua > ub;
+            case TOK_LTEQ:     return ua <= ub;
+            case TOK_GTEQ:     return ua >= ub;
+            case TOK_AMPAMP:   return ua && ub;
+            case TOK_PIPEPIPE: return ua || ub;
+            default:           return 0;
+            }
+            return (long)r;
+        }
+        unsigned int ua = (unsigned int)a;
+        unsigned int ub = (unsigned int)b;
+        unsigned int r;
+
+        switch (op) {
+        case TOK_PLUS:     r = ua + ub; break;
+        case TOK_MINUS:    r = ua - ub; break;
+        case TOK_STAR:     r = ua * ub; break;
+        case TOK_SLASH:    r = ub ? ua / ub : 0; break;
+        case TOK_PERCENT:  r = ub ? ua % ub : 0; break;
+        case TOK_AMP:      r = ua & ub; break;
+        case TOK_PIPE:     r = ua | ub; break;
+        case TOK_CARET:    r = ua ^ ub; break;
+        case TOK_LTLT:     r = ua << (ub & 31); break;
+        case TOK_GTGT:     r = ua >> (ub & 31); break;
+        case TOK_EQEQ:     return ua == ub;
+        case TOK_BANGEQ:   return ua != ub;
+        case TOK_LT:       return ua < ub;
+        case TOK_GT:       return ua > ub;
+        case TOK_LTEQ:     return ua <= ub;
+        case TOK_GTEQ:     return ua >= ub;
+        case TOK_AMPAMP:   return ua && ub;
+        case TOK_PIPEPIPE: return ua || ub;
+        default:           return 0;
+        }
+        return (long)r;
+    }
+
     switch (op) {
     case TOK_PLUS:     return a + b;
     case TOK_MINUS:    return a - b;

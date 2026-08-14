@@ -4,7 +4,8 @@
 
 /* from opt_fold.c */
 extern int    is_int_literal_kind(AST_Type t);
-extern long   fold_binary_int(TokenKind op, long a, long b);
+extern long   fold_binary_int(TokenKind op, long a, long b,
+                              int unsigned_any, int is_long);
 extern double fold_binary_float(TokenKind op, double a, double b);
 
 /* (make_* helpers defined static in opt_fold.c -- duplicated here) */
@@ -62,11 +63,17 @@ int try_fold_binary(AST_Node* n)
     if (is_int_literal_kind(left->type) && is_int_literal_kind(right->type)) {
         long a = left->body.literal.int_val;
         long b = right->body.literal.int_val;
-        long result = fold_binary_int(op, a, b);
-        if (left->type == AST_LONG_LIT || right->type == AST_LONG_LIT)
+        int unsigned_any = left->body.literal.is_unsigned
+                        || right->body.literal.is_unsigned;
+        int is_long = (left->type == AST_LONG_LIT ||
+                       right->type == AST_LONG_LIT);
+        long result = fold_binary_int(op, a, b, unsigned_any, is_long);
+
+        if (is_long)
             make_long_lit(n, result);
         else
             make_int_lit(n, result);
+        n->body.literal.is_unsigned = unsigned_any;
         return 1;
     }
 
@@ -97,15 +104,34 @@ int try_fold_unary(AST_Node* n)
     if (is_int_literal_kind(operand->type)) {
         long v = operand->body.literal.int_val;
         int is_long = operand->type == AST_LONG_LIT;
+        int is_unsigned = operand->body.literal.is_unsigned;
 
         switch (op) {
         case TOK_MINUS:
-            if (is_long) make_long_lit(n, -v); else make_int_lit(n, -v); return 1;
+            if (is_unsigned) {
+                if (is_long)
+                    make_long_lit(n, (long)(0UL - (unsigned long)v));
+                else
+                    make_int_lit(n, (long)(0U - (unsigned int)v));
+            } else if (is_long) make_long_lit(n, -v);
+            else make_int_lit(n, -v);
+            n->body.literal.is_unsigned = is_unsigned;
+            return 1;
         case TOK_BANG: make_int_lit(n, v ? 0 : 1); return 1;
         case TOK_TILDE:
-            if (is_long) make_long_lit(n, ~v); else make_int_lit(n, ~v); return 1;
+            if (is_unsigned) {
+                if (is_long)
+                    make_long_lit(n, (long)~(unsigned long)v);
+                else
+                    make_int_lit(n, (long)(unsigned)~v);
+            } else if (is_long) make_long_lit(n, ~v);
+            else make_int_lit(n, ~v);
+            n->body.literal.is_unsigned = is_unsigned;
+            return 1;
         case TOK_PLUS:
-            if (is_long) make_long_lit(n, v); else make_int_lit(n, v); return 1;
+            if (is_long) make_long_lit(n, v); else make_int_lit(n, v);
+            n->body.literal.is_unsigned = is_unsigned;
+            return 1;
         default: return 0;
         }
     }

@@ -131,6 +131,13 @@ gen_logical(GenCtx* ctx, TokenKind op, AST_Node* l, AST_Node* r)
  *  Ternary helpers
  * --------------------------------------------------------------- */
 
+/* int widening: booleans (i1) and unsigned types zero-extend;
+ * signed char/short sign-extend. */
+static int widen_zext(IR_Type* t)
+{
+    return t->kind == IR_I1 || t->is_unsigned;
+}
+
 /* Coerce a ternary branch value to the common branch type.
  * Called with the builder pointed at the branch's OWN block, so the
  * result is defined there and dominates the merge block. */
@@ -147,14 +154,20 @@ ternary_coerce(IR_Builder* b, IR_Value* v, IR_Type* ct)
     if (v->type->kind == IR_PTR || ct->kind == IR_PTR)
         return ir_build_bitcast(b, v, ct);
     if (v_int && ct_fp)
-        return ir_build_sitofp(b, v, ct);
+        return widen_zext(v->type)
+            ? ir_build_uitofp(b, v, ct)
+            : ir_build_sitofp(b, v, ct);
     if (v_fp && ct_int)
-        return ir_build_fptosi(b, v, ct);
+        return ct->is_unsigned
+            ? ir_build_fptoui(b, v, ct)
+            : ir_build_fptosi(b, v, ct);
     if (v_fp && ct_fp)
         return ir_build_bitcast(b, v, ct);      /* dumper emits fpext */
     if (v_int && ct_int) {
         if (ir_type_size(v->type) < ir_type_size(ct))
-            return ir_build_zext(b, v, ct);
+            return widen_zext(v->type)
+                ? ir_build_zext(b, v, ct)
+                : ir_build_sext(b, v, ct);
         return ir_build_trunc(b, v, ct);
     }
     return ir_build_bitcast(b, v, ct);
@@ -264,16 +277,25 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
                             rhs->type->kind == IR_F64);
 
                 if (l_int && r_int) {
-                    /* both integers of different sizes — widen smaller */
+                    /* both integers of different sizes — widen smaller
+                     * (zext for unsigned/i1, sext for signed) */
                     if (ir_type_size(lhs->type) < ir_type_size(rhs->type))
-                        lhs = ir_build_zext(b, lhs, rhs->type);
+                        lhs = widen_zext(lhs->type)
+                            ? ir_build_zext(b, lhs, rhs->type)
+                            : ir_build_sext(b, lhs, rhs->type);
                     else
-                        rhs = ir_build_zext(b, rhs, lhs->type);
+                        rhs = widen_zext(rhs->type)
+                            ? ir_build_zext(b, rhs, lhs->type)
+                            : ir_build_sext(b, rhs, lhs->type);
                 } else if (l_int && r_fp) {
-                    /* int + float: sitofp the int operand */
-                    lhs = ir_build_sitofp(b, lhs, rhs->type);
+                    /* int + float: sitofp/uitofp the int operand */
+                    lhs = widen_zext(lhs->type)
+                        ? ir_build_uitofp(b, lhs, rhs->type)
+                        : ir_build_sitofp(b, lhs, rhs->type);
                 } else if (l_fp && r_int) {
-                    rhs = ir_build_sitofp(b, rhs, lhs->type);
+                    rhs = widen_zext(rhs->type)
+                        ? ir_build_uitofp(b, rhs, lhs->type)
+                        : ir_build_sitofp(b, rhs, lhs->type);
                 } else if (l_fp && r_fp) {
                     /* float widening: bitcast (dumper emits fpext) */
                     if (ir_type_size(lhs->type) < ir_type_size(rhs->type))
@@ -566,8 +588,8 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
     IR_Builder* b = ctx->b;
 
     switch (n->type) {
-    case AST_INT_LIT:   return ir_const_int(b, t_i32, n->body.literal.int_val);
-    case AST_LONG_LIT:  return ir_const_int(b, t_i64, n->body.literal.int_val);
+    case AST_INT_LIT:   return ir_const_int(b, n->body.literal.is_unsigned ? t_u32 : t_i32, n->body.literal.int_val);
+    case AST_LONG_LIT:  return ir_const_int(b, n->body.literal.is_unsigned ? t_u64 : t_i64, n->body.literal.int_val);
     case AST_CHAR_LIT:  return ir_const_int(b, t_i8, n->body.literal.char_val);
     case AST_FLOAT_LIT: return ir_const_float(ctx->b->arena, t_f32, n->body.literal.float_val);
     case AST_DOUBLE_LIT:return ir_const_float(ctx->b->arena, t_f64, n->body.literal.float_val);
@@ -842,18 +864,24 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
                   int at_sz = ir_type_size(at);
                   int ex_sz = ir_type_size(expected);
                   if (at_sz < ex_sz)
-                      arg_buf[i] = ir_build_zext(b, arg_buf[i], expected);
+                      arg_buf[i] = widen_zext(at)
+                          ? ir_build_zext(b, arg_buf[i], expected)
+                          : ir_build_sext(b, arg_buf[i], expected);
                   else if (at_sz > ex_sz)
                       arg_buf[i] = ir_build_trunc(b, arg_buf[i], expected);
               } else if (at_int &&
                          (expected->kind == IR_F32 ||
                           expected->kind == IR_F64)) {
-                  /* int arg → float param: sitofp */
-                  arg_buf[i] = ir_build_sitofp(b, arg_buf[i], expected);
+                  /* int arg → float param: sitofp/uitofp */
+                  arg_buf[i] = at->is_unsigned
+                      ? ir_build_uitofp(b, arg_buf[i], expected)
+                      : ir_build_sitofp(b, arg_buf[i], expected);
               } else if ((at->kind == IR_F32 || at->kind == IR_F64) &&
                          ex_int) {
-                  /* float arg → int param: fptosi */
-                  arg_buf[i] = ir_build_fptosi(b, arg_buf[i], expected);
+                  /* float arg → int param: fptosi/fptoui */
+                  arg_buf[i] = expected->is_unsigned
+                      ? ir_build_fptoui(b, arg_buf[i], expected)
+                      : ir_build_fptosi(b, arg_buf[i], expected);
               } else if (at->kind != expected->kind) {
                   arg_buf[i] = ir_build_bitcast(b, arg_buf[i], expected);
               }
@@ -869,7 +897,9 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
               if (!arg_buf[i] || !arg_buf[i]->type) continue;
               IR_Type* at = arg_buf[i]->type;
               if (at->kind == IR_I8 || at->kind == IR_I16)
-                  arg_buf[i] = ir_build_zext(b, arg_buf[i], t_i32);
+                  arg_buf[i] = widen_zext(at)
+                      ? ir_build_zext(b, arg_buf[i], t_i32)
+                      : ir_build_sext(b, arg_buf[i], t_i32);
               else if (at->kind == IR_F32)
                   arg_buf[i] = ir_build_bitcast(b, arg_buf[i], t_f64);
           }
@@ -1022,17 +1052,23 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
           (target->kind == IR_F32 || target->kind == IR_F64))
           return ir_build_bitcast(b, cv, target);
-      /* int → float: sitofp (zext/trunc are invalid across int/float) */
+      /* int → float: sitofp/uitofp (zext/trunc are invalid across int/float) */
       if (cv->type->kind >= IR_I1 && cv->type->kind <= IR_I64 &&
           (target->kind == IR_F32 || target->kind == IR_F64))
-          return ir_build_sitofp(b, cv, target);
-      /* float → int: fptosi (truncates toward zero, as C requires) */
+          return widen_zext(cv->type)
+              ? ir_build_uitofp(b, cv, target)
+              : ir_build_sitofp(b, cv, target);
+      /* float → int: fptosi/fptoui (truncates toward zero, as C requires) */
       if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
           target->kind >= IR_I1 && target->kind <= IR_I64)
-          return ir_build_fptosi(b, cv, target);
-      /* int widening: zext (unsigned) or sext (signed) */
+          return target->is_unsigned
+              ? ir_build_fptoui(b, cv, target)
+              : ir_build_fptosi(b, cv, target);
+      /* int widening: zext (unsigned/i1) or sext (signed) */
       if (ir_type_size(cv->type) < ir_type_size(target))
-          return ir_build_zext(b, cv, target);
+          return widen_zext(cv->type)
+              ? ir_build_zext(b, cv, target)
+              : ir_build_sext(b, cv, target);
       /* int narrowing: trunc */
       if (ir_type_size(cv->type) > ir_type_size(target))
           return ir_build_trunc(b, cv, target);

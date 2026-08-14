@@ -12,6 +12,7 @@ read_number(Lexer* lex)
     int  len = 0;
     int  is_float = 0;
     TokenKind kind = TOK_INT_LIT;
+    int is_unsigned = 0;  /* integer literal u/U suffix */
 
     if (peek(lex) == '0' && (peek_next(lex) == 'x' || peek_next(lex) == 'X')) {
         buf[len++] = *lex->cur; advance(lex);
@@ -49,7 +50,6 @@ read_number(Lexer* lex)
         }
     } else {
         /* handle integer suffixes: U, L, UL, LU, LL, ULL, LLU */
-        int is_unsigned = 0;
         int is_long = 0;
         int is_long_long = 0;
 
@@ -76,6 +76,7 @@ read_number(Lexer* lex)
 
     buf[len] = '\0';
     Token* tok = token_new(lex,kind, line, col);
+    tok->is_unsigned = is_unsigned;
 
     if (is_float) {
         tok->body.float_val = strtod(buf, NULL);

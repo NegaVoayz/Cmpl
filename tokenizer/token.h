@@ -102,6 +102,7 @@ struct Token {
     TokenKind kind;
     SourceLoc loc;
     Token*    next;
+    int       is_unsigned;  /* integer literal had a u/U suffix */
 
     union {
         long long int_val;      // TOK_INT_LIT / TOK_LONG_LIT (64-bit)

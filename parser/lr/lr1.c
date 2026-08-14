@@ -54,7 +54,32 @@ static int is_cast_start(Token* tok)
                         next->kind == TOK_VOLATILE))
             next = next->next;
 
-        if (next && next->kind == TOK_STAR) return 1;
+        if (next && next->kind == TOK_STAR) {
+            /* (TypeName*) is a cast ONLY if the type ends at ')'.
+             * (ident * ident) is a parenthesized multiply — treating it
+             * as a cast broke every `(a * b)` expression.  Scan past
+             * the star chain and array dimensions: (T*)x, (T**)x and
+             * (T*[2])x end with ')', (a * b) does not. */
+            Token* s = next;
+
+            while (s && (s->kind == TOK_STAR ||
+                         s->kind == TOK_CONST ||
+                         s->kind == TOK_VOLATILE))
+                s = s->next;
+            while (s && s->kind == TOK_LBRACKET) {
+                int depth = 1;
+
+                s = s->next;
+                while (s && depth > 0) {
+                    if (s->kind == TOK_LBRACKET) depth++;
+                    if (s->kind == TOK_RBRACKET) depth--;
+                    if (depth > 0) s = s->next;
+                }
+                if (s && s->kind == TOK_RBRACKET) s = s->next;
+            }
+            if (s && s->kind == TOK_RPAREN)
+                return 1;
+        }
 
         /* (TypeName) — find closing ) and peek at what follows */
         if (next && next->kind == TOK_RPAREN) {

@@ -14,7 +14,8 @@ typedef struct {
 } ScanCtx;
 
 /* from opt_propagate.c */
-extern void add_entry(ConstEntry* map, int* count, String name, long value);
+extern void add_entry(ConstEntry* map, int* count, String name, long value,
+                      int is_unsigned);
 extern void kill_entry(ConstEntry* map, int count, String name);
 
 /* ---------------------------------------------------------------
@@ -30,7 +31,8 @@ static int scan_pre(AST_Node* n, void* ctx)
         if (n->body.var_decl.init
             && is_int_literal_kind(n->body.var_decl.init->type))
             add_entry(c->map, c->count, n->body.var_decl.name,
-                      n->body.var_decl.init->body.literal.int_val);
+                      n->body.var_decl.init->body.literal.int_val,
+                      n->body.var_decl.init->body.literal.is_unsigned);
         break;
 
     case AST_BINARY:

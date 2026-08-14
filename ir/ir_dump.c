@@ -108,10 +108,20 @@ void dump_value(FILE* out, IR_Value* val)
     case VAL_CONST_FLOAT:
         /* LLVM requires a decimal point or exponent in float literals.
          * %g prints integral values like 7.0 as "7", which clang
-         * rejects as an integer constant — append ".0" when needed. */
+         * rejects as an integer constant — append ".0" when needed.
+         * %g also prints 4e+09 for large values — clang's IR reader
+         * rejects an exponent without a decimal point ("4e+09" is
+         * lexed as an integer), so insert ".0" before the exponent. */
         {
             char buf[64];
             snprintf(buf, sizeof(buf), "%g", val->body.float_val);
+            char* e = strpbrk(buf, "eE");
+            if (e && !strchr(buf, '.')) {
+                size_t n = (size_t)(e - buf);
+                memmove(e + 2, e, strlen(e) + 1);
+                buf[n] = '.';
+                buf[n + 1] = '0';
+            }
             fprintf(out, "%s", buf);
             if (!strchr(buf, '.') && !strchr(buf, 'e') &&
                 !strchr(buf, 'E') && !strchr(buf, 'i') &&

@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-typedef struct { String name; long value; int active; } ConstEntry;
+typedef struct { String name; long value; int is_unsigned; int active; } ConstEntry;
 
 typedef struct {
     ConstEntry* map;
@@ -29,6 +29,7 @@ static int replace_pre(AST_Node* n, void* ctx)
         if (e) {
             n->type = AST_INT_LIT;
             n->body.literal.int_val = e->value;
+            n->body.literal.is_unsigned = e->is_unsigned;
             return 1;
         }
     }

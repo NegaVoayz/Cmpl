@@ -218,7 +218,9 @@ CAST_BUILDER(ir_build_trunc,   IROP_TRUNC)
 CAST_BUILDER(ir_build_zext,    IROP_ZEXT)
 CAST_BUILDER(ir_build_sext,    IROP_SEXT)
 CAST_BUILDER(ir_build_sitofp,  IROP_SITOFP)
+CAST_BUILDER(ir_build_uitofp,  IROP_UITOFP)
 CAST_BUILDER(ir_build_fptosi,  IROP_FPTOSI)
+CAST_BUILDER(ir_build_fptoui,  IROP_FPTOUI)
 
 #undef CAST_BUILDER
 
