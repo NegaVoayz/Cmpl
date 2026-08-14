@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full test-suite runner for Cmpl.
-#   Stage A: self-build validation (build_self_linux.sh)
+#   Stage A: self-build validation (scripts/build_self_linux.sh)
 #   Stage B: every test/*.c -> cmpl -emit-llvm -> clang -c
 #   Stage C: runnable tests (those with main) compiled + executed
 set -u
@@ -10,7 +10,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "########## Stage A: Self-build ##########"
-"$ROOT/build_self_linux.sh" 2>&1 | tail -6
+"$ROOT/scripts/build_self_linux.sh" 2>&1 | tail -6
 echo
 
 echo "########## Stage B: test/*.c IR validation ##########"

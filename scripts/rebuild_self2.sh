@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Rebuild cmpl_self2 from cmpl_self, then run the whole test corpus
+# through it.  Stage-2 emits NAME.c.ll (keeps the .c suffix) so
+# norm_diff.sh can pair each against the stage-1 NAME.ll.
+set -u
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+C="$ROOT/build/self/cmpl_self"
+OUT="$ROOT/build/self_stage2"
+mkdir -p "$OUT"
+
+SOURCES=(
+  main.c dump_ast.c
+  base/arena.c base/hash.c
+  tokenizer/parse.c tokenizer/lexer.c tokenizer/number.c tokenizer/ast.c
+  pp/pp.c pp/pp_expand.c pp/pp_if.c pp/pp_eval.c pp/pp_cond.c
+  pp/pp_macro.c pp/pp_directive.c pp/pp_include.c pp/pp_line.c
+  parser/lr/lr1.c parser/lr/lr1_shift.c parser/lr/lr1_table_goto.c
+  parser/lr/lr1_table_acts.c parser/lr/lr1_table_reds.c parser/lr/lr1_reduce.c
+  parser/lr/lr1_reduce_binary.c parser/lr/lr1_reduce_ctx.c
+  parser/lr/lr1_reduce_postfix.c parser/lr/lr1_reduce_passthrough.c
+  parser/lr/lr1_table.c
+  parser/ll/ll.c parser/ll/ll_stmt.c parser/ll/ll_stmt_ctrl.c
+  parser/ll/ll_stmt_ctrl_jump.c parser/ll/ll_type.c parser/ll/ll_declarator.c
+  parser/ll/ll_decl.c parser/ll/ll_decl_agg.c parser/ll/ll_decl_struct.c
+  parser/parse.c
+  ast-opt/optimize.c ast-opt/ast_walk.c ast-opt/opt_enum.c
+  ast-opt/opt_fold.c ast-opt/opt_fold_walk.c ast-opt/opt_fold_try.c
+  ast-opt/opt_propagate.c ast-opt/opt_propagate_scan.c
+  ast-opt/opt_propagate_replace.c ast-opt/opt_dead.c
+  ir/ir_type.c ir/ir_builder.c ir/ir_builder_ops.c ir/ir_gen.c
+  ir/ir_gen_expr.c ir/ir_gen_stmt.c ir/ir_gen_cuda.c ir/ir_dump.c
+  ir/ir_dump_instr.c ir/ir_dump_func.c ir/ir_dump_str.c
+  cuda/cuda_qual.c cuda/cuda_split.c cuda/cuda_launch.c
+  vulkan/vk_spirv.c vulkan/vk_spirv_collect.c vulkan/vk_spirv_emit.c
+  vulkan/vk_spirv_func.c vulkan/vk_mock.c
+  ir-opt/ir_opt.c ir-opt/ir_opt_mem2reg.c ir-opt/ir_opt_mem2reg_cfg.c
+  ir-opt/ir_opt_mem2reg_rename.c ir-opt/ir_opt_dce.c ir-opt/ir_opt_const.c
+  ir-opt/ir_opt_simplify.c ir-opt/ir_opt_gvn.c ir-opt/ir_opt_inline.c
+  llvm-codegen/llvm_cg.c
+)
+
+objfiles=()
+failed=0
+
+echo "=== Stage 2: cmpl_self -> .ll -> .o ==="
+for src in "${SOURCES[@]}"; do
+  base="${src//\//_}"
+  ll="$OUT/${base}.ll"
+  obj="$OUT/${base}.o"
+  objfiles+=("$obj")
+  if ! "$C" -emit-llvm -I./include -I./base -I. -o "$ll" "$src" >/dev/null 2>"$OUT/${base}.cmpl.err"; then
+    echo "  FAIL (cmpl): $src"
+    tail -3 "$OUT/${base}.cmpl.err" | sed 's/^/    /'
+    failed=$((failed+1))
+    continue
+  fi
+  if ! clang -c "$ll" -o "$obj" 2>"$OUT/${base}.clang.err"; then
+    echo "  FAIL (clang): $src"
+    failed=$((failed+1))
+  fi
+done
+
+echo "Passed: $(( ${#SOURCES[@]} - failed )) / ${#SOURCES[@]}"
+
+echo ""
+echo "=== Link cmpl_self2 ==="
+if ! clang -o "$OUT/cmpl_self2" "$OUT"/*.o 2>"$OUT/link.err"; then
+  echo "LINK FAILED"
+  head -20 "$OUT/link.err"
+  exit 1
+fi
+echo "SUCCESS: cmpl_self2 built"
+
+echo ""
+echo "=== corpus via cmpl_self2 ==="
+CPASS=0; CFAIL=0
+for t in test/*.c; do
+  b="$(basename "$t" .c)"
+  if "$OUT/cmpl_self2" -emit-llvm -Iinclude -I. -o /tmp/c2.ll "$t" >/dev/null 2>&1      && clang -c /tmp/c2.ll -o /dev/null >/dev/null 2>&1; then
+    CPASS=$((CPASS+1))
+  else
+    CFAIL=$((CFAIL+1)); echo "FAIL $b"
+  fi
+done
+echo "corpus via cmpl_self2: PASS=$CPASS FAIL=$CFAIL"

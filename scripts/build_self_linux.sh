@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Build ASAN-instrumented cmpl_self from already-generated .ll files.
+# Linux self-hosting build for Cmpl.
+# Stage 0: bootstrap cmpl already built at build/bootstrap/cmpl
+# Stage 1: cmpl -> .ll, clang -c -> .o for each source file
+# Stage 2: link all .o into build/self/cmpl_self
+# Stage 3: run cmpl_self on a test input
+
 set -u
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-OUT="$ROOT/build/self_asan"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CMPL="$ROOT/build/bootstrap/cmpl"
+OUT="$ROOT/build/self"
 mkdir -p "$OUT"
 
 SOURCES=(
@@ -36,16 +42,38 @@ SOURCES=(
   llvm-codegen/llvm_cg.c
 )
 
-objs=()
+objfiles=()
+failed=0
+
+echo "=== Stage 1: cmpl -> .ll -> .o ==="
 for src in "${SOURCES[@]}"; do
-  b="${src//\//_}"
-  b="${b%.c}"
-  ll="$ROOT/build/self/${b}.ll"
-  obj="$OUT/${b}.o"
-  objs+=("$obj")
-  clang -c -fsanitize=address -g "$ll" -o "$obj" 2>/dev/null || echo "FAIL cc $src"
+  base="${src//\//_}"
+  base="${base%.c}"
+  ll="$OUT/${base}.ll"
+  obj="$OUT/${base}.o"
+  objfiles+=("$obj")
+
+  if ! "$CMPL" -emit-llvm -I./include -I./base -I. -o "$ll" "$src" >/dev/null 2>"$OUT/${base}.cmpl.err"; then
+    echo "  FAIL (cmpl): $src"
+    tail -5 "$OUT/${base}.cmpl.err" | sed 's/^/    /'
+    failed=$((failed+1))
+    continue
+  fi
+
+  if ! clang -c "$ll" -o "$obj" 2>"$OUT/${base}.clang.err"; then
+    echo "  FAIL (clang): $src"
+    head -5 "$OUT/${base}.clang.err" | sed 's/^/    /'
+    failed=$((failed+1))
+  fi
 done
 
-clang -fsanitize=address -g -o "$OUT/cmpl_self" "${objs[@]}" 2>&1 | head -5
-echo "LINK done"
-ls -la "$OUT/cmpl_self" 2>&1
+echo "Passed: $(( ${#SOURCES[@]} - failed )) / ${#SOURCES[@]}"
+
+echo ""
+echo "=== Stage 2: Link cmpl_self ==="
+if ! clang -o "$OUT/cmpl_self" "${objfiles[@]}" 2>"$OUT/link.err"; then
+  echo "LINK FAILED"
+  head -30 "$OUT/link.err"
+  exit 1
+fi
+echo "SUCCESS: cmpl_self built at $OUT/cmpl_self"

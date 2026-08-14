@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# build_bootstrap.sh -- rebuild the stage-0 bootstrap compiler with gcc.
+# scripts/build_bootstrap.sh -- rebuild the stage-0 bootstrap compiler with gcc.
 #
-# build_self_linux.sh uses build/bootstrap/cmpl to compile every source
+# scripts/build_self_linux.sh uses build/bootstrap/cmpl to compile every source
 # file into build/self/cmpl_self.  After changing compiler sources, run
 # this script first: it rebuilds the bootstrap directly with gcc, which
 # is fast and deterministic (no self-hosting parser quirks).
 #
-# Usage: bash build_bootstrap.sh [output]
+# Usage: bash scripts/build_bootstrap.sh [output]
 #        (default output: build/bootstrap/cmpl)
 
 set -u
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-$ROOT/build/bootstrap/cmpl}"
 
 mkdir -p "$(dirname "$OUT")"

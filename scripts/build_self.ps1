@@ -3,7 +3,7 @@ $ErrorActionPreference = "Continue"
 $env:PATH = "C:\MinGW\bin;C:\Program Files\LLVM\bin;$env:PATH"
 # Force MinGW target so clang uses ld (not lld-link) and finds MinGW CRT libraries
 $CLANG_FLAGS = "--target=x86_64-w64-mingw32"
-Set-Location "D:\MyCodes\C\Cmpl"
+Set-Location "$PSScriptRoot\.."
 
 $sources = @(
     "main.c", "dump_ast.c",
