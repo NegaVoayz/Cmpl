@@ -1,5 +1,6 @@
 build/*
 !build/run_tests.sh
+!build/diff_gcc.sh
 build2/
 *.o
 *.exe
