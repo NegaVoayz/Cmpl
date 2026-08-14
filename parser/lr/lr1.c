@@ -166,6 +166,7 @@ LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a)
     p->sp = 0;
     p->error = 0;
     p->pending_cast = 0;
+    p->cast_sp = 0;
     p->arena = a;
     p->stack[0].state = S_ENTRY;
     p->stack[0].token = NULL;
@@ -211,6 +212,7 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
     p->pending_cast = 0;
     p->cast_type = NULL;
     p->paren_depth = 0;
+    p->cast_sp = 0;
 
     while (1) {
         TokenKind next = p->tok->kind;
@@ -310,6 +312,7 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
                     p->cast_type = ct;
                     p->cast_loc = peek->loc;
                     p->cast_paren_depth = p->paren_depth;
+                    p->cast_sp = p->sp;
                     continue;
                 }
             }
@@ -349,8 +352,11 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
                                      is_postfix_token(p->tok->kind));
             int in_nested_parens = (p->pending_cast &&
                                     p->paren_depth > p->cast_paren_depth);
+            int st = p->stack[p->sp].state;
+            int apply_at_unary_rhs = (st == S_UNARY_RHS &&
+                                      p->sp >= 1 && p->sp - 1 <= p->cast_sp);
             if (p->pending_cast && !defer_for_postfix && !in_nested_parens &&
-                is_cast_level(p->stack[p->sp].state)) {
+                (is_cast_level(st) || apply_at_unary_rhs)) {
                 AST_Node* inner = p->stack[p->sp].node;
 
                 if (inner) {

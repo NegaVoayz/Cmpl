@@ -137,6 +137,7 @@ struct LR1_Parser {
     Type*      cast_type;              /* parsed cast target type */
     SourceLoc  cast_loc;               /* location of the cast for AST_CAST node */
     int        cast_paren_depth;       /* paren depth when cast was set */
+    int        cast_sp;               /* stack depth when cast was set */
     int        paren_depth;            /* current ()/[] nesting depth */
     Arena*     arena;                  /* arena for AST node allocations */
 };
