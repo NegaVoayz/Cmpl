@@ -222,6 +222,8 @@ static void resolve_expr_types(AST_Node* e, TypedefEntry* table)
              elem; elem = elem->next)
             resolve_expr_types(elem, table);
         break;
+    case AST_DESIGNATOR:
+        resolve_expr_types(e->body.designator.value, table); break;
     default: break;
     }
 }
@@ -841,6 +843,30 @@ ir_gen_program(AST_Node* root)
  *  gen_const_init — recursive AST-to-IR constant initializer
  * --------------------------------------------------------------- */
 
+/* zero constant of the given type, used to fill unset slots of a
+ * designated/partial aggregate initializer */
+static IR_Value*
+gen_const_zero(Arena* a, IR_Type* ty)
+{
+    IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+    v->type = ty;
+    if (ty && (ty->kind == IR_STRUCT || ty->kind == IR_UNION ||
+               ty->kind == IR_ARRAY)) {
+        v->kind = VAL_CONST_AGGREGATE;
+        v->body.aggregate.elems = NULL;
+        v->body.aggregate.count = 0;
+    } else if (ty && (ty->kind == IR_F32 || ty->kind == IR_F64)) {
+        v->kind = VAL_CONST_FLOAT;
+        v->body.float_val = 0.0;
+    } else if (ty && ty->kind == IR_PTR) {
+        v->kind = VAL_CONST_NULL;
+    } else {
+        v->kind = VAL_CONST_INT;
+        v->body.int_val = 0;
+    }
+    return v;
+}
+
 static IR_Value*
 gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
                TypedefEntry* enum_vals)
@@ -849,39 +875,58 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
 
     switch (init->type) {
     case AST_INIT_LIST:
-    {   /* collect child values into an arena-allocated array */
-        int count = 0;
-        AST_Node* e;
-        for (e = init->body.init_list.elems; e; e = e->next) count++;
+    {   /* collect child values into an arena-allocated array.
+         * A designator (.field = v) targets its member index; positional
+         * elements fill the next slot (C99 cursor rule). */
+        int slots = 0;
+        if (target_type->kind == IR_STRUCT || target_type->kind == IR_UNION)
+            for (IR_Type* m = target_type->members; m; m = m->next) slots++;
+        if (slots == 0)
+            for (AST_Node* e = init->body.init_list.elems; e; e = e->next) slots++;
 
-        IR_Value** elems = arena_alloc(a, count * sizeof(IR_Value*));
-        int idx = 0;
-        IR_Type* child_type = NULL;
+        IR_Value** elems = arena_alloc(a, slots * sizeof(IR_Value*));
+        for (int i = 0; i < slots; i++) elems[i] = NULL;
 
-        if (target_type->kind == IR_ARRAY)
-            child_type = target_type->inner;
-        else if (target_type->kind == IR_STRUCT ||
-                 target_type->kind == IR_UNION)
-            child_type = target_type->members;
+        int pos = 0;
+        for (AST_Node* e = init->body.init_list.elems; e; e = e->next) {
+            int idx = pos;
+            AST_Node* val = e;
 
-        for (e = init->body.init_list.elems; e; e = e->next) {
-            IR_Type* ct = child_type;
-            /* advance child type through struct member chain */
-            if (target_type->kind == IR_STRUCT ||
-                target_type->kind == IR_UNION) {
-                ct = child_type;
-                /* each init element consumes one struct member */
-                IR_Type* m = target_type->members;
-                int mi = 0;
-                while (m && mi < idx) { m = m->next; mi++; }
-                ct = m;
-            } else if (target_type->kind == IR_ARRAY) {
-                ct = target_type->inner;
+            if (e->type == AST_DESIGNATOR) {
+                Type* ast = ir_struct_ast_lookup(target_type);
+                int fi = ast ? ir_struct_field_index(ast,
+                                e->body.designator.field_name) : -1;
+                if (fi >= 0) idx = fi;
+                val = e->body.designator.value;
             }
-            elems[idx++] = gen_const_init(a, e, ct ? ct : t_i32,
-                                          enum_vals);
+
+            /* child type at slot idx */
+            IR_Type* ct = t_i32;
+            if (target_type->kind == IR_ARRAY)
+                ct = target_type->inner;
+            else if (target_type->kind == IR_STRUCT ||
+                     target_type->kind == IR_UNION) {
+                ct = target_type->members;
+                for (int i = 0; ct && i < idx; i++) ct = ct->next;
+            }
+            if (idx >= 0 && idx < slots)
+                elems[idx] = gen_const_init(a, val, ct ? ct : t_i32, enum_vals);
+            pos = idx + 1;
         }
-        return ir_const_aggregate(a, target_type, elems, count);
+
+        /* zero-fill unset slots so the aggregate is fully initialized */
+        for (int i = 0; i < slots; i++)
+            if (!elems[i]) {
+                IR_Type* ct = t_i32;
+                if (target_type->kind == IR_ARRAY) ct = target_type->inner;
+                else if (target_type->kind == IR_STRUCT ||
+                         target_type->kind == IR_UNION) {
+                    ct = target_type->members;
+                    for (int j = 0; ct && j < i; j++) ct = ct->next;
+                }
+                elems[i] = gen_const_zero(a, ct ? ct : t_i32);
+            }
+        return ir_const_aggregate(a, target_type, elems, slots);
     }
 
     case AST_INT_LIT:

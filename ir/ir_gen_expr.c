@@ -398,10 +398,21 @@ gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
     IR_Builder* b = ctx->b;
 
     if (e->type == AST_INIT_LIST) {
-        int idx = 0;
+        int pos = 0;
 
         for (AST_Node* sub = e->body.init_list.elems;
-             sub; sub = sub->next, idx++) {
+             sub; sub = sub->next) {
+            int idx = pos;
+            AST_Node* val = sub;
+
+            if (sub->type == AST_DESIGNATOR) {
+                Type* ast = ir_struct_ast_lookup(ty);
+                int fi = ast ? ir_struct_field_index(ast,
+                                sub->body.designator.field_name) : -1;
+                if (fi >= 0) idx = fi;
+                val = sub->body.designator.value;
+            }
+
             IR_Type* child = NULL;
             IR_Value* slot = dst;
 
@@ -414,7 +425,9 @@ gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
             if (child)
                 slot = ir_build_gep(b, dst,
                     ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, idx));
-            gen_init_one(ctx, slot, sub, child);
+            gen_init_one(ctx, slot, val, child);
+
+            pos = idx + 1;
         }
         return;
     }

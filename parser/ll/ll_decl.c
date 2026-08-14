@@ -73,6 +73,28 @@ int is_type_start(Token* tok)
 /* parse an initializer list {elem, elem, ...} recursively.
  * called when p->tok points to TOK_LBRACE.  advances past the
  * closing TOK_RBRACE and returns an AST_INIT_LIST node. */
+
+/* parse an optional C99 designator prefix `.field =`.  returns 1 and
+ * fills *dname/*dstart when present; p->tok then points at the value.
+ * Consumed here (before the value's comma-rewrite) so the designator's
+ * '=' is never misread as assignment. */
+static int
+parse_designator(LR1_Parser* p, String* dname, Token** dstart)
+{
+    if (p->tok->kind != TOK_DOT)
+        return 0;
+
+    *dstart = p->tok;
+    p->tok = p->tok->next;  /* skip '.' */
+    if (p->tok->kind == TOK_IDENT) {
+        *dname = p->tok->body.ident;
+        p->tok = p->tok->next;
+    }
+    if (p->tok->kind == TOK_EQ)
+        p->tok = p->tok->next;  /* skip '=' */
+    return 1;
+}
+
 AST_Node*
 parse_init_list(LR1_Parser* p)
 {
@@ -85,6 +107,9 @@ parse_init_list(LR1_Parser* p)
 
     while (p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
         AST_Node* elem = NULL;
+        String dname = {NULL, 0};
+        Token* dstart = NULL;
+        int is_desig = parse_designator(p, &dname, &dstart);
 
         if (p->tok->kind == TOK_LBRACE) {
             elem = parse_init_list(p);
@@ -113,6 +138,16 @@ parse_init_list(LR1_Parser* p)
                   elem = ll_parse_expr(p);
               }
             }
+        }
+
+        if (is_desig && elem) {
+            AST_Node* d = ast_node_new(p->arena, AST_DESIGNATOR,
+                                       dstart->loc.line, dstart->loc.col);
+            d->body.designator.value = elem;
+            d->body.designator.field_name = dname;
+            d->body.designator.is_index = 0;
+            d->body.designator.index = 0;
+            elem = d;
         }
 
         if (elem) {
