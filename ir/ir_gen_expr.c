@@ -356,7 +356,9 @@ gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs)
  *  Scalar coercion for initializer stores
  * --------------------------------------------------------------- */
 
-/* coerce any scalar/pointer value to 'target' (mirrors AST_CAST). */
+/* coerce any scalar/pointer value to 'target' (mirrors AST_CAST).
+ * signedness-aware: int widening uses sext for signed (zext for i1/
+ * unsigned), int↔float uses sitofp/fptosi only for signed operands. */
 static IR_Value*
 coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target)
 {
@@ -373,14 +375,20 @@ coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target)
     /* int → float */
     if (v->type->kind >= IR_I1 && v->type->kind <= IR_I64 &&
         (target->kind == IR_F32 || target->kind == IR_F64))
-        return ir_build_sitofp(b, v, target);
+        return widen_zext(v->type)
+            ? ir_build_uitofp(b, v, target)
+            : ir_build_sitofp(b, v, target);
     /* float → int */
     if ((v->type->kind == IR_F32 || v->type->kind == IR_F64) &&
         target->kind >= IR_I1 && target->kind <= IR_I64)
-        return ir_build_fptosi(b, v, target);
+        return target->is_unsigned
+            ? ir_build_fptoui(b, v, target)
+            : ir_build_fptosi(b, v, target);
     /* int widening / narrowing */
     if (ir_type_size(v->type) < ir_type_size(target))
-        return ir_build_zext(b, v, target);
+        return widen_zext(v->type)
+            ? ir_build_zext(b, v, target)
+            : ir_build_sext(b, v, target);
     if (ir_type_size(v->type) > ir_type_size(target))
         return ir_build_trunc(b, v, target);
     return ir_build_bitcast(b, v, target);
@@ -390,18 +398,35 @@ coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target)
  *  Initializer-list stores into a temp (compound literals)
  * --------------------------------------------------------------- */
 
+/* child (element/member) type at position idx of an aggregate type */
+static IR_Type*
+init_child_type(IR_Type* ty, int idx)
+{
+    if (!ty) return NULL;
+    if (ty->kind == IR_ARRAY) return ty->inner;
+    if (ty->kind == IR_STRUCT || ty->kind == IR_UNION) {
+        IR_Type* m = ty->members;
+        for (int i = 0; m && i < idx; i++) m = m->next;
+        return m;
+    }
+    return NULL;
+}
+
 /* store one initializer element into dst; nested lists recurse into
- * the corresponding sub-slot (arrays/structs) of the aggregate. */
-static void
-gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
+ * the corresponding sub-slot (arrays/structs) of the aggregate.
+ * brace-elided sub-aggregates (scalar into an array/struct member,
+ * C99 6.7.8p20) absorb the following list elements.  shared with
+ * ir_gen_stmt.c (var-decl brace inits). */
+void
+ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
 {
     IR_Builder* b = ctx->b;
 
     if (e->type == AST_INIT_LIST) {
         int pos = 0;
+        AST_Node* sub = e->body.init_list.elems;
 
-        for (AST_Node* sub = e->body.init_list.elems;
-             sub; sub = sub->next) {
+        while (sub) {
             int idx = pos;
             AST_Node* val = sub;
 
@@ -413,21 +438,40 @@ gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                 val = sub->body.designator.value;
             }
 
-            IR_Type* child = NULL;
+            IR_Type* child = init_child_type(ty, idx);
             IR_Value* slot = dst;
 
-            if (ty && ty->kind == IR_ARRAY) {
-                child = ty->inner;
-            } else if (ty && (ty->kind == IR_STRUCT || ty->kind == IR_UNION)) {
-                child = ty->members;
-                for (int i = 0; child && i < idx; i++) child = child->next;
-            }
-            if (child)
+            if (child) {
                 slot = ir_build_gep(b, dst,
                     ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, idx));
-            gen_init_one(ctx, slot, val, child);
+                if (val->type != AST_INIT_LIST &&
+                    (child->kind == IR_ARRAY || child->kind == IR_STRUCT ||
+                     child->kind == IR_UNION)) {
+                    /* brace-elided sub-aggregate: this and the next
+                     * (up to capacity) elements initialize the child. */
+                    int cap = (child->kind == IR_ARRAY)
+                        ? child->size : 0;
+                    if (child->kind != IR_ARRAY)
+                        for (IR_Type* m = child->members; m; m = m->next)
+                            cap++;
+                    AST_Node* last = val;
+                    int n = 1;
+                    while (n < cap && last->next) { last = last->next; n++; }
+                    AST_Node synth;
+                    synth.type = AST_INIT_LIST;
+                    synth.next = NULL;
+                    synth.body.init_list.elems = val;
+                    synth.body.init_list.last_elem = last;
+                    ir_gen_init_one(ctx, slot, &synth, child);
+                    pos = idx + 1;
+                    sub = last->next;
+                    continue;
+                }
+            }
+            ir_gen_init_one(ctx, slot, val, child);
 
             pos = idx + 1;
+            sub = sub->next;
         }
         return;
     }
@@ -464,7 +508,7 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
         IR_Value* alloca_ptr = ir_build_alloca(b, ir_t ? ir_t : t_i8);
 
         if (n->body.compound_lit.init)
-            gen_init_one(ctx, alloca_ptr,
+            ir_gen_init_one(ctx, alloca_ptr,
                          n->body.compound_lit.init, ir_t);
         return alloca_ptr;
     }

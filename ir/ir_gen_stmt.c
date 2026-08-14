@@ -18,6 +18,10 @@ extern IR_Value* sym_lookup(GenCtx* ctx, String name);
 extern void      sym_add(GenCtx* ctx, String name, IR_Value* alloca);
 extern void      sym_scope_push(GenCtx* ctx);
 extern void      sym_scope_pop(GenCtx* ctx);
+/* from ir_gen_expr.c: recursive, type-aware init-list stores (handles
+ * nested braces, designators, arrays and structs uniformly) */
+extern void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst,
+                                 AST_Node* e, IR_Type* ty);
 
 /* forward: defined below (used by gen_stmt_if/while/for) */
 void gen_stmt(GenCtx* ctx, AST_Node* n);
@@ -323,29 +327,11 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
       sym_add(ctx, n->body.var_decl.name, al);
       if (n->body.var_decl.init &&
           n->body.var_decl.init->type == AST_INIT_LIST) {
-          /* array/struct initializer: store each element via GEP.
-           * A designator overrides the positional slot (C99). */
-          int pos = 0;
-          for (AST_Node* e = n->body.var_decl.init->body.init_list.elems;
-               e; e = e->next) {
-              int idx = pos;
-              AST_Node* val = e;
-
-              if (e->type == AST_DESIGNATOR) {
-                  int fi = ir_struct_field_index(n->body.var_decl.var_type,
-                                  e->body.designator.field_name);
-                  if (fi >= 0) idx = fi;
-                  val = e->body.designator.value;
-              }
-
-              IR_Value* ev = gen_expr(ctx, val);
-              if (!ev) continue;
-              IR_Value* gep = ir_build_gep(b, al,
-                  ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, idx));
-              ir_build_store(b, ev, gep);
-
-              pos = idx + 1;
-          }
+          /* array/struct initializer: recursive, type-aware stores
+           * (nested braces, designators, C99 cursor).  The old per-element
+           * gen_expr loop dropped inner brace lists (no AST_INIT_LIST case
+           * in gen_expr → undef) and emitted wrong GEP chains. */
+          ir_gen_init_one(ctx, al, n->body.var_decl.init, vt);
       } else if (n->body.var_decl.init) {
           IR_Value* init = gen_expr(ctx, n->body.var_decl.init);
           if (init && vt == t_i32 &&

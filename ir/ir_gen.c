@@ -351,7 +351,8 @@ static int is_stmt_type(AST_Type t)
            t == AST_DO_WHILE || t == AST_FOR || t == AST_RETURN ||
            t == AST_BREAK || t == AST_CONTINUE || t == AST_SWITCH ||
            t == AST_CASE || t == AST_DEFAULT || t == AST_GOTO ||
-           t == AST_LABEL || t == AST_EXPR_STMT || t == AST_VAR_DECL;
+           t == AST_LABEL || t == AST_EXPR_STMT || t == AST_VAR_DECL ||
+           t == AST_FUNC_DEF;
 }
 
 static void resolve_stmt_chain(AST_Node* first, TypedefEntry* table,
