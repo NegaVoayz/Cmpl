@@ -495,7 +495,9 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                     (child->kind == IR_ARRAY || child->kind == IR_STRUCT ||
                      child->kind == IR_UNION)) {
                     /* brace-elided sub-aggregate: this and the next
-                     * (up to capacity) elements initialize the child. */
+                     * (up to capacity, stopping at a designator — C99
+                     * 6.7.8p20: a designator targets the enclosing
+                     * aggregate) elements initialize the child. */
                     int cap = (child->kind == IR_ARRAY)
                         ? child->size : 0;
                     if (child->kind != IR_ARRAY)
@@ -503,7 +505,10 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                             cap++;
                     AST_Node* last = val;
                     int n = 1;
-                    while (n < cap && last->next) { last = last->next; n++; }
+                    while (n < cap && last->next &&
+                           last->next->type != AST_DESIGNATOR) {
+                        last = last->next; n++;
+                    }
                     AST_Node* saved = last->next;
                     last->next = NULL;
                     AST_Node synth;
@@ -533,6 +538,39 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
     ir_build_store(b, v, dst);
 }
 
+/* zero-fill every scalar slot of an aggregate.  C99 requires brace-init
+ * slots not covered by the list (skipped by [i]/designators or short
+ * lists) to be zero-initialized; without this the alloca keeps stack
+ * garbage.  shared with ir_gen_stmt.c. */
+void
+ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty)
+{
+    IR_Builder* b = ctx->b;
+    if (!ty) return;
+
+    if (ty->kind == IR_ARRAY) {
+        for (int i = 0; i < ty->size; i++) {
+            IR_Value* slot = ir_build_gep(b, dst,
+                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, i));
+            ir_gen_zero_fill(ctx, slot, ty->inner);
+        }
+    } else if (ty->kind == IR_STRUCT || ty->kind == IR_UNION) {
+        int i = 0;
+        for (IR_Type* m = ty->members; m; m = m->next, i++) {
+            IR_Value* slot = ir_build_gep(b, dst,
+                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, i));
+            ir_gen_zero_fill(ctx, slot, m);
+        }
+    } else if (ty->kind == IR_PTR) {
+        ir_build_store(b, ir_const_null(ctx->b->arena, ty), dst);
+    } else {
+        IR_Value* z = (ty->kind == IR_F32 || ty->kind == IR_F64)
+            ? ir_const_float(ctx->b->arena, ty, 0.0)
+            : ir_const_int(b, ty, 0);
+        ir_build_store(b, z, dst);
+    }
+}
+
 /* ---------------------------------------------------------------
  *  Store-target pointer for assignment LHS
  * --------------------------------------------------------------- */
@@ -557,9 +595,14 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
         IR_Type* ir_t = ct ? ir_type_from_ast(ctx->b->arena, ct) : NULL;
         IR_Value* alloca_ptr = ir_build_alloca(b, ir_t ? ir_t : t_i8);
 
-        if (n->body.compound_lit.init)
+        if (n->body.compound_lit.init) {
+            /* zero skipped slots first (C99: unlisted slots are zero) */
+            if (ir_t && (ir_t->kind == IR_ARRAY || ir_t->kind == IR_STRUCT ||
+                         ir_t->kind == IR_UNION))
+                ir_gen_zero_fill(ctx, alloca_ptr, ir_t);
             ir_gen_init_one(ctx, alloca_ptr,
                          n->body.compound_lit.init, ir_t);
+        }
         return alloca_ptr;
     }
     case AST_MEMBER: {

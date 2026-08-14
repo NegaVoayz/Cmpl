@@ -10,7 +10,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#define MAX_STR_CONSTS 64
+/* the compiler's own dumpers exceed 64 distinct string literals
+ * (ir_dump_instr 169, dump_ast 130, ir_dump 108, main 85) — a table
+ * smaller than that silently dropped later strings to "null" in the
+ * self-built compiler. */
+#define MAX_STR_CONSTS 256
 
 static String  str_table[MAX_STR_CONSTS];
 static int     str_count = 0;

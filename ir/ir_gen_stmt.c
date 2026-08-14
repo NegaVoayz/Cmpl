@@ -22,6 +22,8 @@ extern void      sym_scope_pop(GenCtx* ctx);
  * nested braces, designators, arrays and structs uniformly) */
 extern void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst,
                                  AST_Node* e, IR_Type* ty);
+/* zero-fill aggregate slots not covered by a brace init (C99) */
+extern void      ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty);
 
 /* forward: defined below (used by gen_stmt_if/while/for) */
 void gen_stmt(GenCtx* ctx, AST_Node* n);
@@ -330,7 +332,12 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
           /* array/struct initializer: recursive, type-aware stores
            * (nested braces, designators, C99 cursor).  The old per-element
            * gen_expr loop dropped inner brace lists (no AST_INIT_LIST case
-           * in gen_expr → undef) and emitted wrong GEP chains. */
+           * in gen_expr → undef) and emitted wrong GEP chains.  Zero the
+           * uncovered slots first (C99 6.7.8p21: unlisted members/elements
+           * are zero-initialized). */
+          if (vt->kind == IR_ARRAY || vt->kind == IR_STRUCT ||
+              vt->kind == IR_UNION)
+              ir_gen_zero_fill(ctx, al, vt);
           ir_gen_init_one(ctx, al, n->body.var_decl.init, vt);
       } else if (n->body.var_decl.init) {
           IR_Value* init = gen_expr(ctx, n->body.var_decl.init);

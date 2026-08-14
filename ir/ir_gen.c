@@ -343,6 +343,28 @@ static int resolve_compound_lit_type_cb(AST_Node* n, void* ctx)
     return 0;
 }
 
+/* ast_walk callback: register standalone struct/union definitions that
+ * appear INSIDE function bodies (`struct X {...};` as a statement) in
+ * struct_map.  only top-level defs were collected before, so a later
+ * `struct X` reference in the same function produced an unsized
+ * IR_STRUCT (no members) and clang rejected the alloca. */
+typedef struct { HashMap* map; Arena* a; } LocalDefCtx;
+
+static int collect_local_struct_def_cb(AST_Node* n, void* ctx)
+{
+    LocalDefCtx* lc = (LocalDefCtx*)ctx;
+    if (n && (n->type == AST_STRUCT_DEF || n->type == AST_UNION_DEF) &&
+        n->body.struct_def.name.data && n->body.struct_def.fields) {
+        StructDefEntry* se = arena_alloc(lc->a, sizeof(StructDefEntry));
+        se->name = n->body.struct_def.name;
+        se->fields = n->body.struct_def.fields;
+        se->is_union = (n->type == AST_UNION_DEF);
+        se->next = NULL;
+        hashmap_put(lc->map, se->name, se);
+    }
+    return 0;
+}
+
 static void resolve_ast_node(AST_Node* n, TypedefEntry* table);
 
 /* statement node types: nodes that can appear in a block stmt chain */
@@ -353,7 +375,7 @@ static int is_stmt_type(AST_Type t)
            t == AST_BREAK || t == AST_CONTINUE || t == AST_SWITCH ||
            t == AST_CASE || t == AST_DEFAULT || t == AST_GOTO ||
            t == AST_LABEL || t == AST_EXPR_STMT || t == AST_VAR_DECL ||
-           t == AST_FUNC_DEF;
+           t == AST_FUNC_DEF || t == AST_STRUCT_DEF || t == AST_UNION_DEF;
 }
 
 static void resolve_stmt_chain(AST_Node* first, TypedefEntry* table,
@@ -671,6 +693,15 @@ ir_gen_module_ex(AST_Node* root, int is_device)
              * (struct X v; without a typedef) */
             for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
                 if (decl->type == AST_FUNC_DEF && decl->body.func_def.body) {
+                    /* first register standalone local struct/union defs
+                     * so refs below resolve their fields */
+                    LocalDefCtx lc = { &struct_map, a };
+                    ast_walk(decl->body.func_def.body,
+                             collect_local_struct_def_cb, NULL, &lc);
+                }
+            }
+            for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+                if (decl->type == AST_FUNC_DEF && decl->body.func_def.body) {
                     resolve_struct_refs_stmt(decl->body.func_def.body,
                                              &struct_map);
                     ast_walk(decl->body.func_def.body,
@@ -983,7 +1014,12 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                 for (IR_Type* m = ct->members; m; m = m->next) cap++;
             AST_Node* last = val;
             int n = 1;
-            while (n < cap && last->next) { last = last->next; n++; }
+            /* stop absorbing at a designator (C99 6.7.8p20: a designator
+             * targets the enclosing aggregate) */
+            while (n < cap && last->next &&
+                   last->next->type != AST_DESIGNATOR) {
+                last = last->next; n++;
+            }
             AST_Node* saved = last->next;
             last->next = NULL;
             AST_Node synth;

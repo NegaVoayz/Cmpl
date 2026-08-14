@@ -73,6 +73,19 @@ dir_of(const char* path, char* dir, int dir_sz)
 
 /* --- Main source processor --- */
 
+/* a '#' at the first non-blank column of a line starts a directive
+ * (C allows leading whitespace: `  #define X 1`).  the old check
+ * required p[-1]=='\n', silently ignoring indented directives — the
+ * compiler's own ll_declarator.c has one (#define MAX_SUFFIX 16), and
+ * cmpl_self then built with an unsized array ([0 x ptr] alloca). */
+static int
+at_line_begin(const char* p, const char* src)
+{
+    while (p > src && (p[-1] == ' ' || p[-1] == '\t'))
+        p--;
+    return (p == src || p[-1] == '\n');
+}
+
 void
 process_source(PPCtx* ctx, const char* src, int srclen)
 {
@@ -80,7 +93,7 @@ process_source(PPCtx* ctx, const char* src, int srclen)
     const char* end = src + srclen;
 
     while (p < end) {
-        if (*p == '#' && (p == src || p[-1] == '\n')) {
+        if (*p == '#' && at_line_begin(p, src)) {
             handle_directive(ctx, &p, end);
             continue;
         }
@@ -97,6 +110,8 @@ process_source(PPCtx* ctx, const char* src, int srclen)
         buf_init(&line);
 
         while (p < end && *p != '\n') {
+            if (*p == '#' && at_line_begin(p, src))
+                break;   /* directive (possibly indented): outer loop handles */
             if (*p == '\\' && p + 1 < end && p[1] == '\n') {
                 p += 2;
             } else if (*p == '\\' && p + 2 < end
