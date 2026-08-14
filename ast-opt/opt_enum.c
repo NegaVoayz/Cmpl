@@ -99,3 +99,47 @@ int opt_enum(AST_Node* root)
 
     return changed;
 }
+
+/* ---------------------------------------------------------------
+ *  Designator-aware array size inference
+ * --------------------------------------------------------------- */
+
+/* `int a[] = {[i] = v}` sizes the array by element count in the parser,
+ * which cannot resolve enum/const indices.  Run after enum + fold so
+ * index_expr is an AST_INT_LIT; grow size_inferred arrays to cover the
+ * largest pure-[i] (empty field_name) designator index. */
+static int
+size_bump_cb(AST_Node* n, void* ctx)
+{
+    (void)ctx;
+
+    if (n->type != AST_VAR_DECL) return 0;
+
+    Type* scan = n->body.var_decl.var_type;
+    while (scan && scan->kind == TYPE_PTR)
+        scan = scan->inner;
+    if (!scan || scan->kind != TYPE_ARRAY || !scan->size_inferred)
+        return 0;
+
+    AST_Node* init = n->body.var_decl.init;
+    if (!init || init->type != AST_INIT_LIST) return 0;
+
+    long long maxi = scan->arr_size - 1;
+    for (AST_Node* e = init->body.init_list.elems; e; e = e->next) {
+        if (e->type != AST_DESIGNATOR) continue;
+        if (!e->body.designator.is_index) continue;
+        if (e->body.designator.field_name.data) continue;  /* .f[i] */
+        AST_Node* ix = e->body.designator.index_expr;
+        if (ix && ix->type == AST_INT_LIT && ix->body.literal.int_val > maxi)
+            maxi = ix->body.literal.int_val;
+    }
+    if (maxi + 1 > scan->arr_size)
+        scan->arr_size = (int)(maxi + 1);
+    return 0;
+}
+
+int opt_designator_size(AST_Node* root)
+{
+    if (!root || root->type != AST_PROGRAM) return 0;
+    return ast_walk(root, size_bump_cb, NULL, NULL);
+}

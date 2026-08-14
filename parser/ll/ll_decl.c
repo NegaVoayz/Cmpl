@@ -74,13 +74,47 @@ int is_type_start(Token* tok)
  * called when p->tok points to TOK_LBRACE.  advances past the
  * closing TOK_RBRACE and returns an AST_INIT_LIST node. */
 
-/* parse an optional C99 designator prefix `.field =`.  returns 1 and
- * fills *dname/*dstart when present; p->tok then points at the value.
- * Consumed here (before the value's comma-rewrite) so the designator's
- * '=' is never misread as assignment. */
-static int
-parse_designator(LR1_Parser* p, String* dname, Token** dstart)
+/* parse a bracketed constant index expression `[expr]` in a designator.
+ * p->tok is at '['; consumes through ']' and returns the AST node (NOT
+ * folded — enum/const folding happens later in the opt passes).  mirrors
+ * the bracket-rewrite pattern in ll_declarator.c. */
+static AST_Node*
+parse_designator_index(LR1_Parser* p)
 {
+    p->tok = p->tok->next;  /* skip '[' */
+    Token* rbrack = p->tok;
+    while (rbrack && rbrack->kind != TOK_RBRACKET)
+        rbrack = rbrack->next;
+    if (rbrack) rbrack->kind = TOK_SEMI;
+    AST_Node* expr = ll_parse_expr(p);
+    if (rbrack) rbrack->kind = TOK_RBRACKET;
+    if (p->tok->kind == TOK_RBRACKET)
+        p->tok = p->tok->next;  /* skip ']' */
+    return expr;
+}
+
+/* parse an optional C99 designator prefix: `.field =`, `[index] =`, or
+ * `.field[index] =`.  returns 1 when present and fills *dname/*index_expr/
+ * *is_index/*dstart; p->tok then points at the value.  Consumed here
+ * (before the value's comma-rewrite) so the designator's '=' is never
+ * misread as assignment. */
+static int
+parse_designator(LR1_Parser* p, String* dname, AST_Node** index_expr,
+                 int* is_index, Token** dstart)
+{
+    *dname = (String){NULL, 0};
+    *index_expr = NULL;
+    *is_index = 0;
+    *dstart = NULL;
+
+    if (p->tok->kind == TOK_LBRACKET) {
+        *dstart = p->tok;
+        *is_index = 1;
+        *index_expr = parse_designator_index(p);
+        if (p->tok->kind == TOK_EQ)
+            p->tok = p->tok->next;  /* skip '=' */
+        return 1;
+    }
     if (p->tok->kind != TOK_DOT)
         return 0;
 
@@ -89,6 +123,10 @@ parse_designator(LR1_Parser* p, String* dname, Token** dstart)
     if (p->tok->kind == TOK_IDENT) {
         *dname = p->tok->body.ident;
         p->tok = p->tok->next;
+    }
+    if (p->tok->kind == TOK_LBRACKET) {
+        *is_index = 1;
+        *index_expr = parse_designator_index(p);
     }
     if (p->tok->kind == TOK_EQ)
         p->tok = p->tok->next;  /* skip '=' */
@@ -108,8 +146,10 @@ parse_init_list(LR1_Parser* p)
     while (p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
         AST_Node* elem = NULL;
         String dname = {NULL, 0};
+        AST_Node* index_expr = NULL;
+        int is_index = 0;
         Token* dstart = NULL;
-        int is_desig = parse_designator(p, &dname, &dstart);
+        int is_desig = parse_designator(p, &dname, &index_expr, &is_index, &dstart);
 
         if (p->tok->kind == TOK_LBRACE) {
             elem = parse_init_list(p);
@@ -145,8 +185,8 @@ parse_init_list(LR1_Parser* p)
                                        dstart->loc.line, dstart->loc.col);
             d->body.designator.value = elem;
             d->body.designator.field_name = dname;
-            d->body.designator.is_index = 0;
-            d->body.designator.index = 0;
+            d->body.designator.index_expr = index_expr;
+            d->body.designator.is_index = is_index;
             elem = d;
         }
 
@@ -304,8 +344,10 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                       while (scan && scan->kind == TYPE_PTR)
                           scan = scan->inner;
                       if (scan && scan->kind == TYPE_ARRAY &&
-                          scan->arr_size == 0)
+                          scan->arr_size == 0) {
                           scan->arr_size = elem_count;
+                          scan->size_inferred = 1;
+                      }
                   }
                 }
                 /* parse the initializer into an AST_INIT_LIST */

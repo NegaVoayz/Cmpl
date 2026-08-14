@@ -38,7 +38,8 @@ static int walk_children(AST_Node* n, AST_Walker pre, AST_Walker post,
             ch |= ast_walk(e, pre, post, ctx);
         break;
     case AST_DESIGNATOR:
-        ch |= ast_walk(n->body.designator.value, pre, post, ctx); break;
+        ch |= ast_walk(n->body.designator.value, pre, post, ctx);
+        ch |= ast_walk(n->body.designator.index_expr, pre, post, ctx); break;
     case AST_CALL:
         ch |= ast_walk(n->body.call.callee, pre, post, ctx);
         ch |= ast_walk(n->body.call.args, pre, post, ctx); break;

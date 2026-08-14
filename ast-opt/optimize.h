@@ -14,6 +14,10 @@ AST_Node* optimize(AST_Node* root);
  * Runs once before the fixed-point loop (not iterative). */
 int opt_enum(AST_Node* root);
 
+/* Designator-aware array size inference (`int a[] = {[i] = v}`).
+ * Runs after the fixed-point loop so enum/const indices are folded. */
+int opt_designator_size(AST_Node* root);
+
 /* Internal pass functions -- each returns 1 if anything changed */
 int opt_fold(AST_Node* root);
 int opt_propagate(AST_Node* root);

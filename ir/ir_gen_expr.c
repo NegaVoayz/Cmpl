@@ -412,6 +412,42 @@ init_child_type(IR_Type* ty, int idx)
     return NULL;
 }
 
+/* classify one init-list element into its slot index and value.
+ * positional keeps *idx; `.field` → member index; `[i]` → index;
+ * `.field[i]` → member index + *is_field_index/*sub_index.  mirrors
+ * gen_const_resolve_designator in ir_gen.c. */
+static void
+resolve_init_designator(AST_Node* sub, IR_Type* ty, int* idx,
+                        long long* sub_index, int* is_field_index,
+                        AST_Node** val)
+{
+    *val = sub;
+    *is_field_index = 0;
+    *sub_index = 0;
+
+    if (sub->type != AST_DESIGNATOR) return;
+
+    String fn = sub->body.designator.field_name;
+    *val = sub->body.designator.value;
+
+    if (sub->body.designator.is_index) {
+        AST_Node* ix = sub->body.designator.index_expr;
+        long long ii = (ix && ix->type == AST_INT_LIT)
+            ? ix->body.literal.int_val : 0;
+        if (fn.data) {
+            Type* ast = ir_struct_ast_lookup(ty);
+            int fi = ast ? ir_struct_field_index(ast, fn) : -1;
+            if (fi >= 0) { *idx = fi; *is_field_index = 1; *sub_index = ii; }
+        } else {
+            *idx = (int)ii;
+        }
+    } else {
+        Type* ast = ir_struct_ast_lookup(ty);
+        int fi = ast ? ir_struct_field_index(ast, fn) : -1;
+        if (fi >= 0) *idx = fi;
+    }
+}
+
 /* store one initializer element into dst; nested lists recurse into
  * the corresponding sub-slot (arrays/structs) of the aggregate.
  * brace-elided sub-aggregates (scalar into an array/struct member,
@@ -428,15 +464,11 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
 
         while (sub) {
             int idx = pos;
-            AST_Node* val = sub;
-
-            if (sub->type == AST_DESIGNATOR) {
-                Type* ast = ir_struct_ast_lookup(ty);
-                int fi = ast ? ir_struct_field_index(ast,
-                                sub->body.designator.field_name) : -1;
-                if (fi >= 0) idx = fi;
-                val = sub->body.designator.value;
-            }
+            int is_field_index = 0;
+            long long sub_index = 0;
+            AST_Node* val = NULL;
+            resolve_init_designator(sub, ty, &idx, &sub_index,
+                                    &is_field_index, &val);
 
             IR_Type* child = init_child_type(ty, idx);
             IR_Value* slot = dst;
@@ -444,6 +476,21 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
             if (child) {
                 slot = ir_build_gep(b, dst,
                     ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, idx));
+
+                if (is_field_index && child->kind == IR_ARRAY) {
+                    IR_Type* et = child->inner;
+                    int n = child->size;
+                    if (sub_index >= 0 && sub_index < n && et) {
+                        IR_Value* eslot = ir_build_gep(b, slot,
+                            ir_const_int(b, t_i32, 0),
+                            ir_const_int(b, t_i32, (int)sub_index));
+                        ir_gen_init_one(ctx, eslot, val, et);
+                    }
+                    pos = idx + 1;
+                    sub = sub->next;
+                    continue;
+                }
+
                 if (val->type != AST_INIT_LIST &&
                     (child->kind == IR_ARRAY || child->kind == IR_STRUCT ||
                      child->kind == IR_UNION)) {
@@ -457,14 +504,17 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                     AST_Node* last = val;
                     int n = 1;
                     while (n < cap && last->next) { last = last->next; n++; }
+                    AST_Node* saved = last->next;
+                    last->next = NULL;
                     AST_Node synth;
                     synth.type = AST_INIT_LIST;
                     synth.next = NULL;
                     synth.body.init_list.elems = val;
                     synth.body.init_list.last_elem = last;
                     ir_gen_init_one(ctx, slot, &synth, child);
+                    last->next = saved;
                     pos = idx + 1;
-                    sub = last->next;
+                    sub = saved;
                     continue;
                 }
             }

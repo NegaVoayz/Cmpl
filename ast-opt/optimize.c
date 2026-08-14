@@ -19,5 +19,8 @@ AST_Node* optimize(AST_Node* root)
         changed |= opt_dead(root);
     } while (changed);
 
+    /* after folding, resolve inferred array sizes for [i] designators */
+    opt_designator_size(root);
+
     return root;
 }

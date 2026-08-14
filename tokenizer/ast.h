@@ -35,6 +35,7 @@ struct Type {
     int       is_const;
     int       is_volatile;
     int       is_variadic; /* function type has ... */
+    int       size_inferred; /* arr_size came from initializer count (int a[] = {...}) */
     String    size_name;  /* unresolved size identifier (enum constant / macro) */
 };
 
