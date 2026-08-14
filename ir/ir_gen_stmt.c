@@ -238,7 +238,15 @@ static void gen_stmt_do_while(GenCtx* ctx, AST_Node* n)
 static void gen_stmt_for(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
-    if (n->body.for_stmt.init) gen_stmt(ctx, n->body.for_stmt.init);
+    if (n->body.for_stmt.init) {
+        /* the parser stores a non-declaration init (for (x = e; ...)) as
+         * a BARE expression; gen_stmt would silently drop it (no
+         * expression case) and the loop would run from stale memory */
+        if (n->body.for_stmt.init->type == AST_VAR_DECL)
+            gen_stmt(ctx, n->body.for_stmt.init);
+        else
+            gen_expr(ctx, n->body.for_stmt.init);
+    }
 
     IR_Block *cb = ir_builder_new_block(b, "for.cond"), *bb = ir_builder_new_block(b, "for.body");
     IR_Block *ub = ir_builder_new_block(b, "for.update"), *mb = ir_builder_new_block(b, "for.end");
