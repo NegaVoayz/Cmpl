@@ -58,6 +58,7 @@ typedef enum {
     /* initializer */
     AST_INIT_LIST,
     AST_DESIGNATOR,   /* designated initializer element: .field = value */
+    AST_DESIG_STEP,   /* one designator step: `.field` or `[index]` */
 
     /* top-level */
     AST_PROGRAM

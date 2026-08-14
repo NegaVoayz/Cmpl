@@ -93,44 +93,50 @@ parse_designator_index(LR1_Parser* p)
     return expr;
 }
 
-/* parse an optional C99 designator prefix: `.field =`, `[index] =`, or
- * `.field[index] =`.  returns 1 when present and fills *dname/*index_expr/
- * *is_index/*dstart; p->tok then points at the value.  Consumed here
- * (before the value's comma-rewrite) so the designator's '=' is never
- * misread as assignment. */
-static int
-parse_designator(LR1_Parser* p, String* dname, AST_Node** index_expr,
-                 int* is_index, Token** dstart)
+/* parse a C99 designator prefix: a chain of `.field` and `[index]` steps,
+ * e.g. `.a.b[2].c` or `[i][j]`.  p->tok is at the first step; consumes the
+ * chain and the trailing '=' and returns a linked list of AST_DESIG_STEP
+ * nodes (NULL when no designator is present).  p->tok then points at the
+ * value.  Consumed here (before the value's comma-rewrite) so the
+ * designator's '=' is never misread as assignment. */
+static AST_Node*
+parse_designator(LR1_Parser* p, Token** dstart)
 {
-    *dname = (String){NULL, 0};
-    *index_expr = NULL;
-    *is_index = 0;
-    *dstart = NULL;
-
-    if (p->tok->kind == TOK_LBRACKET) {
-        *dstart = p->tok;
-        *is_index = 1;
-        *index_expr = parse_designator_index(p);
-        if (p->tok->kind == TOK_EQ)
-            p->tok = p->tok->next;  /* skip '=' */
-        return 1;
-    }
-    if (p->tok->kind != TOK_DOT)
-        return 0;
-
     *dstart = p->tok;
-    p->tok = p->tok->next;  /* skip '.' */
-    if (p->tok->kind == TOK_IDENT) {
-        *dname = p->tok->body.ident;
-        p->tok = p->tok->next;
+
+    AST_Node* head = NULL;
+    AST_Node** tail = &head;
+
+    for (;;) {
+        AST_Node* step;
+
+        if (p->tok->kind == TOK_LBRACKET) {
+            step = ast_node_new(p->arena, AST_DESIG_STEP,
+                                p->tok->loc.line, p->tok->loc.col);
+            step->body.desig_step.index_expr = parse_designator_index(p);
+        } else if (p->tok->kind == TOK_DOT) {
+            step = ast_node_new(p->arena, AST_DESIG_STEP,
+                                p->tok->loc.line, p->tok->loc.col);
+            p->tok = p->tok->next;  /* skip '.' */
+            if (p->tok->kind == TOK_IDENT) {
+                step->body.desig_step.field_name = p->tok->body.ident;
+                p->tok = p->tok->next;
+            }
+        } else {
+            break;
+        }
+
+        *tail = step;
+        tail = &step->next;
     }
-    if (p->tok->kind == TOK_LBRACKET) {
-        *is_index = 1;
-        *index_expr = parse_designator_index(p);
-    }
+
+    if (!head)
+        return NULL;
+
     if (p->tok->kind == TOK_EQ)
         p->tok = p->tok->next;  /* skip '=' */
-    return 1;
+
+    return head;
 }
 
 AST_Node*
@@ -145,11 +151,8 @@ parse_init_list(LR1_Parser* p)
 
     while (p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
         AST_Node* elem = NULL;
-        String dname = {NULL, 0};
-        AST_Node* index_expr = NULL;
-        int is_index = 0;
         Token* dstart = NULL;
-        int is_desig = parse_designator(p, &dname, &index_expr, &is_index, &dstart);
+        AST_Node* steps = parse_designator(p, &dstart);
 
         if (p->tok->kind == TOK_LBRACE) {
             elem = parse_init_list(p);
@@ -180,13 +183,11 @@ parse_init_list(LR1_Parser* p)
             }
         }
 
-        if (is_desig && elem) {
+        if (steps && elem) {
             AST_Node* d = ast_node_new(p->arena, AST_DESIGNATOR,
                                        dstart->loc.line, dstart->loc.col);
             d->body.designator.value = elem;
-            d->body.designator.field_name = dname;
-            d->body.designator.index_expr = index_expr;
-            d->body.designator.is_index = is_index;
+            d->body.designator.steps = steps;
             elem = d;
         }
 

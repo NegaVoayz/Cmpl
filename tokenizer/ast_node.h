@@ -113,8 +113,11 @@ struct AST_Node {
         /* initializer list {a, b, c} */
         struct { AST_Node* elems; AST_Node* last_elem; } init_list;
 
-        /* designated initializer element: .field = value  (or [index] = value) */
-        struct { AST_Node* value; AST_Node* index_expr; String field_name; int is_index; } designator;
+        /* designated initializer element: chain of .field/[index] steps = value */
+        struct { AST_Node* value; AST_Node* steps; } designator;
+
+        /* one designator step: `.field` or `[index]` (chained via ->next) */
+        struct { String field_name; AST_Node* index_expr; } desig_step;
 
         /* variable declaration */
         struct { Type* var_type; String name; AST_Node* init; int addr_space; int linkage; } var_decl;

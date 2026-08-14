@@ -412,40 +412,62 @@ init_child_type(IR_Type* ty, int idx)
     return NULL;
 }
 
-/* classify one init-list element into its slot index and value.
- * positional keeps *idx; `.field` → member index; `[i]` → index;
- * `.field[i]` → member index + *is_field_index/*sub_index.  mirrors
- * gen_const_resolve_designator in ir_gen.c. */
-static void
-resolve_init_designator(AST_Node* sub, IR_Type* ty, int* idx,
-                        long long* sub_index, int* is_field_index,
-                        AST_Node** val)
+/* walk a designator step chain from `dst` (type `ty`), emitting nested
+ * GEPs into the target slot.  sets *final_ty to the slot's type and
+ * *top_idx to the first step's resolved slot index (for cursor advance).
+ * returns the final slot, or NULL (after printing an error) on a bad
+ * field name or out-of-range [i].  mirrors gen_const_desig in ir_gen.c. */
+static IR_Value*
+desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
+                AST_Node* steps, IR_Type** final_ty, int* top_idx)
 {
-    *val = sub;
-    *is_field_index = 0;
-    *sub_index = 0;
+    IR_Builder* b = ctx->b;
+    IR_Value* slot = dst;
+    IR_Type* cur = ty;
+    int first = 1;
 
-    if (sub->type != AST_DESIGNATOR) return;
+    *final_ty = NULL;
+    *top_idx = -1;
 
-    String fn = sub->body.designator.field_name;
-    *val = sub->body.designator.value;
+    for (AST_Node* s = steps; s; s = s->next) {
+        String fn = s->body.desig_step.field_name;
 
-    if (sub->body.designator.is_index) {
-        AST_Node* ix = sub->body.designator.index_expr;
-        long long ii = (ix && ix->type == AST_INT_LIT)
-            ? ix->body.literal.int_val : 0;
         if (fn.data) {
-            Type* ast = ir_struct_ast_lookup(ty);
+            Type* ast = ir_struct_ast_lookup(cur);
             int fi = ast ? ir_struct_field_index(ast, fn) : -1;
-            if (fi >= 0) { *idx = fi; *is_field_index = 1; *sub_index = ii; }
-        } else {
-            *idx = (int)ii;
+            if (fi < 0) {
+                fprintf(stderr, "cmpl: error: no member '%.*s'\n",
+                        fn.length, fn.data);
+                return NULL;
+            }
+            if (first) *top_idx = fi;
+            int gep = (cur && cur->kind == IR_UNION) ? 0 : fi;
+            slot = ir_build_gep(b, slot,
+                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, gep));
+            cur = init_child_type(cur, fi);
+        } else if (s->body.desig_step.index_expr) {
+            AST_Node* ix = s->body.desig_step.index_expr;
+            long long ii = (ix && ix->type == AST_INT_LIT)
+                ? ix->body.literal.int_val : 0;
+            if (!cur || cur->kind != IR_ARRAY) {
+                fprintf(stderr, "cmpl: error: [index] designator on non-array\n");
+                return NULL;
+            }
+            if (ii < 0 || ii >= cur->size) {
+                fprintf(stderr, "cmpl: error: array index %lld out of bounds"
+                        " for array of %d\n", ii, cur->size);
+                return NULL;
+            }
+            if (first) *top_idx = (int)ii;
+            slot = ir_build_gep(b, slot,
+                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, (int)ii));
+            cur = cur->inner;
         }
-    } else {
-        Type* ast = ir_struct_ast_lookup(ty);
-        int fi = ast ? ir_struct_field_index(ast, fn) : -1;
-        if (fi >= 0) *idx = fi;
+        first = 0;
     }
+
+    *final_ty = cur;
+    return slot;
 }
 
 /* store one initializer element into dst; nested lists recurse into
@@ -463,69 +485,65 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
         AST_Node* sub = e->body.init_list.elems;
 
         while (sub) {
-            int idx = pos;
-            int is_field_index = 0;
-            long long sub_index = 0;
-            AST_Node* val = NULL;
-            resolve_init_designator(sub, ty, &idx, &sub_index,
-                                    &is_field_index, &val);
-
-            IR_Type* child = init_child_type(ty, idx);
+            int is_desig = (sub->type == AST_DESIGNATOR);
+            IR_Type* child = NULL;
             IR_Value* slot = dst;
+            AST_Node* val = sub;
 
-            if (child) {
-                slot = ir_build_gep(b, dst,
-                    ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, idx));
-
-                if (is_field_index && child->kind == IR_ARRAY) {
-                    IR_Type* et = child->inner;
-                    int n = child->size;
-                    if (sub_index >= 0 && sub_index < n && et) {
-                        IR_Value* eslot = ir_build_gep(b, slot,
-                            ir_const_int(b, t_i32, 0),
-                            ir_const_int(b, t_i32, (int)sub_index));
-                        ir_gen_init_one(ctx, eslot, val, et);
-                    }
-                    pos = idx + 1;
-                    sub = sub->next;
-                    continue;
-                }
-
-                if (val->type != AST_INIT_LIST &&
-                    (child->kind == IR_ARRAY || child->kind == IR_STRUCT ||
-                     child->kind == IR_UNION)) {
-                    /* brace-elided sub-aggregate: this and the next
-                     * (up to capacity, stopping at a designator — C99
-                     * 6.7.8p20: a designator targets the enclosing
-                     * aggregate) elements initialize the child. */
-                    int cap = (child->kind == IR_ARRAY)
-                        ? child->size : 0;
-                    if (child->kind != IR_ARRAY)
-                        for (IR_Type* m = child->members; m; m = m->next)
-                            cap++;
-                    AST_Node* last = val;
-                    int n = 1;
-                    while (n < cap && last->next &&
-                           last->next->type != AST_DESIGNATOR) {
-                        last = last->next; n++;
-                    }
-                    AST_Node* saved = last->next;
-                    last->next = NULL;
-                    AST_Node synth;
-                    synth.type = AST_INIT_LIST;
-                    synth.next = NULL;
-                    synth.body.init_list.elems = val;
-                    synth.body.init_list.last_elem = last;
-                    ir_gen_init_one(ctx, slot, &synth, child);
-                    last->next = saved;
-                    pos = idx + 1;
-                    sub = saved;
-                    continue;
-                }
+            if (is_desig) {
+                int top_idx = -1;
+                val = sub->body.designator.value;
+                slot = desig_walk_slot(ctx, dst, ty,
+                                       sub->body.designator.steps,
+                                       &child, &top_idx);
+                if (!slot) { sub = sub->next; continue; }
+                pos = top_idx + 1;
+            } else {
+                child = init_child_type(ty, pos);
+                if (child)
+                    slot = ir_build_gep(b, dst,
+                        ir_const_int(b, t_i32, 0),
+                        ir_const_int(b, t_i32, pos));
             }
+
+            if (val->type != AST_INIT_LIST && child &&
+                (child->kind == IR_ARRAY || child->kind == IR_STRUCT ||
+                 child->kind == IR_UNION)) {
+                /* brace-elided sub-aggregate: this and the next (up to
+                 * capacity, stopping at a designator — C99 6.7.8p20: a
+                 * designator targets the enclosing aggregate) elements
+                 * initialize the child. */
+                int cap = (child->kind == IR_ARRAY) ? child->size : 0;
+                if (child->kind != IR_ARRAY)
+                    for (IR_Type* m = child->members; m; m = m->next) cap++;
+                AST_Node* last = val;
+                int n = 1;
+                while (n < cap && last->next &&
+                       last->next->type != AST_DESIGNATOR) {
+                    last = last->next; n++;
+                }
+                AST_Node* saved = last->next;
+                last->next = NULL;
+                AST_Node synth;
+                synth.type = AST_INIT_LIST;
+                synth.next = NULL;
+                synth.body.init_list.elems = val;
+                synth.body.init_list.last_elem = last;
+                ir_gen_init_one(ctx, slot, &synth, child);
+                last->next = saved;
+
+                if (is_desig) {
+                    sub = sub->next;
+                } else {
+                    pos++;
+                    sub = saved;
+                }
+                continue;
+            }
+
             ir_gen_init_one(ctx, slot, val, child);
 
-            pos = idx + 1;
+            if (!is_desig) pos++;
             sub = sub->next;
         }
         return;

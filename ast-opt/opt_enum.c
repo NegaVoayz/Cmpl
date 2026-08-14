@@ -127,9 +127,11 @@ size_bump_cb(AST_Node* n, void* ctx)
     long long maxi = scan->arr_size - 1;
     for (AST_Node* e = init->body.init_list.elems; e; e = e->next) {
         if (e->type != AST_DESIGNATOR) continue;
-        if (!e->body.designator.is_index) continue;
-        if (e->body.designator.field_name.data) continue;  /* .f[i] */
-        AST_Node* ix = e->body.designator.index_expr;
+        AST_Node* s0 = e->body.designator.steps;
+        /* only a single top-level [i] step (no .field) sizes the array */
+        if (!s0 || s0->next || s0->body.desig_step.field_name.data)
+            continue;
+        AST_Node* ix = s0->body.desig_step.index_expr;
         if (ix && ix->type == AST_INT_LIT && ix->body.literal.int_val > maxi)
             maxi = ix->body.literal.int_val;
     }

@@ -88,12 +88,15 @@ static void dump_expr(AST_Node* n, int depth)
             dump_ast(e, depth + 1);
         break;
     case AST_DESIGNATOR:
-        if (n->body.designator.is_index)
-            printf("DESIGNATOR [index]\n");
-        else
-            printf("DESIGNATOR .%.*s\n",
-                   n->body.designator.field_name.length,
-                   n->body.designator.field_name.data);
+        printf("DESIGNATOR");
+        for (AST_Node* s = n->body.designator.steps; s; s = s->next) {
+            if (s->body.desig_step.field_name.data)
+                printf(".%.*s", s->body.desig_step.field_name.length,
+                       s->body.desig_step.field_name.data);
+            else
+                printf("[index]");
+        }
+        printf("\n");
         dump_ast(n->body.designator.value, depth + 1);
         break;
     case AST_KERNEL_LAUNCH:

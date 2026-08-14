@@ -224,7 +224,9 @@ static void resolve_expr_types(AST_Node* e, TypedefEntry* table)
         break;
     case AST_DESIGNATOR:
         resolve_expr_types(e->body.designator.value, table);
-        resolve_expr_types(e->body.designator.index_expr, table); break;
+        for (AST_Node* s = e->body.designator.steps; s; s = s->next)
+            resolve_expr_types(s->body.desig_step.index_expr, table);
+        break;
     default: break;
     }
 }
@@ -258,6 +260,11 @@ static void resolve_struct_refs_type(Type* t, HashMap* struct_map)
         if (se) {
             t->params = se->fields;
             if (se->is_union) t->kind = TYPE_UNION;
+            /* resolve nested struct members (struct field of struct type).
+             * guarded by the !t->params test above so each struct's fields
+             * resolve exactly once — self/mutual recursion terminates. */
+            for (AST_Node* f = t->params; f && f->type == AST_VAR_DECL; f = f->next)
+                resolve_struct_refs_type(f->body.var_decl.var_type, struct_map);
         }
     }
     resolve_struct_refs_type(t->inner, struct_map);
@@ -914,57 +921,73 @@ gen_const_child_type(IR_Type* ty, int idx)
     return t_i32;
 }
 
-/* classify one init-list element into its slot index and value.
- * positional keeps *idx; `.field` → member index; `[i]` → index;
- * `.field[i]` → member index + *is_field_index/*sub_index. */
-static void
-gen_const_resolve_designator(AST_Node* e, IR_Type* target_type, int* idx,
-                             long long* sub_index, int* is_field_index,
-                             AST_Node** val)
-{
-    *val = e;
-    *is_field_index = 0;
-    *sub_index = 0;
-
-    if (e->type != AST_DESIGNATOR) return;
-
-    String fn = e->body.designator.field_name;
-    *val = e->body.designator.value;
-
-    if (e->body.designator.is_index) {
-        AST_Node* ix = e->body.designator.index_expr;
-        long long ii = (ix && ix->type == AST_INT_LIT)
-            ? ix->body.literal.int_val : 0;
-        if (fn.data) {
-            Type* ast = ir_struct_ast_lookup(target_type);
-            int fi = ast ? ir_struct_field_index(ast, fn) : -1;
-            if (fi >= 0) { *idx = fi; *is_field_index = 1; *sub_index = ii; }
-        } else {
-            *idx = (int)ii;
-        }
-    } else {
-        Type* ast = ir_struct_ast_lookup(target_type);
-        int fi = ast ? ir_struct_field_index(ast, fn) : -1;
-        if (fi >= 0) *idx = fi;
-    }
-}
-
-/* build a full-length array constant where only element [i] is set from
- * `val` (the rest zero).  used for `.field[i] = val` designators. */
+/* build a constant for `ty` with only the designator step-chain path set
+ * from `val`; every other slot is zero.  recurses per step: `.field` →
+ * struct/union with only that member filled; `[i]` → array with only
+ * element i filled.  the first step is resolved by the caller (to select
+ * the top-level slot); `steps` here is the remaining chain.  mirrors
+ * desig_walk_slot in ir_gen_expr.c. */
 static IR_Value*
-gen_const_partial_array(Arena* a, IR_Type* arr_ty, long long i,
-                        AST_Node* val, TypedefEntry* enum_vals)
+gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
+                AST_Node* val, TypedefEntry* enum_vals)
 {
-    int n = (arr_ty && arr_ty->kind == IR_ARRAY) ? arr_ty->size : 0;
-    if (n <= 0) return gen_const_zero(a, arr_ty);
+    if (!steps) {
+        if (val && val->type != AST_INIT_LIST && ty &&
+            (ty->kind == IR_ARRAY || ty->kind == IR_STRUCT ||
+             ty->kind == IR_UNION)) {
+            /* brace-elided: a scalar value initializes the aggregate */
+            AST_Node synth;
+            memset(&synth, 0, sizeof synth);
+            synth.type = AST_INIT_LIST;
+            synth.body.init_list.elems = val;
+            synth.body.init_list.last_elem = val;
+            return gen_const_init(a, &synth, ty, enum_vals);
+        }
+        return gen_const_init(a, val, ty, enum_vals);
+    }
 
+    AST_Node* s = steps;
+    String fn = s->body.desig_step.field_name;
+
+    if (fn.data) {
+        Type* ast = ir_struct_ast_lookup(ty);
+        int fi = ast ? ir_struct_field_index(ast, fn) : -1;
+        if (fi < 0) {
+            fprintf(stderr, "cmpl: error: no member '%.*s'\n",
+                    fn.length, fn.data);
+            return gen_const_zero(a, ty);
+        }
+        int n = 0;
+        for (IR_Type* m = ty->members; m; m = m->next) n++;
+        IR_Value** elems = arena_alloc(a, n * sizeof(IR_Value*));
+        for (int j = 0; j < n; j++) elems[j] = NULL;
+        elems[fi] = gen_const_desig(a, gen_const_child_type(ty, fi),
+                                    s->next, val, enum_vals);
+        for (int j = 0; j < n; j++)
+            if (!elems[j])
+                elems[j] = gen_const_zero(a, gen_const_child_type(ty, j));
+        return ir_const_aggregate(a, ty, elems, n);
+    }
+
+    AST_Node* ix = s->body.desig_step.index_expr;
+    long long ii = (ix && ix->type == AST_INT_LIT)
+        ? ix->body.literal.int_val : 0;
+    if (!ty || ty->kind != IR_ARRAY) {
+        fprintf(stderr, "cmpl: error: [index] designator on non-array\n");
+        return gen_const_zero(a, ty);
+    }
+    if (ii < 0 || ii >= ty->size) {
+        fprintf(stderr, "cmpl: error: array index %lld out of bounds"
+                " for array of %d\n", ii, ty->size);
+        return gen_const_zero(a, ty);
+    }
+    int n = ty->size;
     IR_Value** elems = arena_alloc(a, n * sizeof(IR_Value*));
     for (int j = 0; j < n; j++) elems[j] = NULL;
-    if (i >= 0 && i < n)
-        elems[i] = gen_const_init(a, val, arr_ty->inner, enum_vals);
+    elems[ii] = gen_const_desig(a, ty->inner, s->next, val, enum_vals);
     for (int j = 0; j < n; j++)
-        if (!elems[j]) elems[j] = gen_const_zero(a, arr_ty->inner);
-    return ir_const_aggregate(a, arr_ty, elems, n);
+        if (!elems[j]) elems[j] = gen_const_zero(a, ty->inner);
+    return ir_const_aggregate(a, ty, elems, n);
 }
 
 /* lower an AST_INIT_LIST into a VAL_CONST_AGGREGATE.  positional elements
@@ -989,30 +1012,52 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
     int pos = 0;
     AST_Node* e = init->body.init_list.elems;
     while (e) {
-        int idx = pos;
-        int is_field_index = 0;
-        long long sub_index = 0;
-        AST_Node* val = NULL;
-        gen_const_resolve_designator(e, target_type, &idx, &sub_index,
-                                     &is_field_index, &val);
+        if (e->type == AST_DESIGNATOR) {
+            AST_Node* s0 = e->body.designator.steps;
+            int top_idx = -1;
+            IR_Type* ct = NULL;
 
-        IR_Type* ct = gen_const_child_type(target_type, idx);
+            if (s0) {
+                String fn0 = s0->body.desig_step.field_name;
+                if (fn0.data) {
+                    Type* ast = ir_struct_ast_lookup(target_type);
+                    top_idx = ast ? ir_struct_field_index(ast, fn0) : -1;
+                    if (top_idx < 0)
+                        fprintf(stderr, "cmpl: error: no member '%.*s'\n",
+                                fn0.length, fn0.data);
+                } else if (s0->body.desig_step.index_expr) {
+                    AST_Node* ix = s0->body.desig_step.index_expr;
+                    long long ii = (ix->type == AST_INT_LIT)
+                        ? ix->body.literal.int_val : 0;
+                    if (target_type->kind == IR_ARRAY &&
+                        (ii < 0 || ii >= target_type->size))
+                        fprintf(stderr, "cmpl: error: array index %lld out of"
+                                " bounds for array of %d\n",
+                                ii, target_type->size);
+                    top_idx = (int)ii;
+                }
+                ct = gen_const_child_type(target_type, top_idx);
+            }
 
-        if (is_field_index && idx >= 0 && idx < slots && ct &&
-            ct->kind == IR_ARRAY) {
-            elems[idx] = gen_const_partial_array(a, ct, sub_index, val, enum_vals);
-            pos = idx + 1;
+            if (top_idx >= 0 && top_idx < slots)
+                elems[top_idx] = gen_const_desig(a, ct, s0 ? s0->next : NULL,
+                                                 e->body.designator.value,
+                                                 enum_vals);
+            pos = top_idx + 1;
             e = e->next;
             continue;
         }
 
-        if (idx >= 0 && idx < slots && val->type != AST_INIT_LIST && ct &&
+        int idx = pos;
+        IR_Type* ct = gen_const_child_type(target_type, idx);
+
+        if (idx >= 0 && idx < slots && e->type != AST_INIT_LIST && ct &&
             (ct->kind == IR_ARRAY || ct->kind == IR_STRUCT ||
              ct->kind == IR_UNION)) {
             int cap = (ct->kind == IR_ARRAY) ? ct->size : 0;
             if (ct->kind != IR_ARRAY)
                 for (IR_Type* m = ct->members; m; m = m->next) cap++;
-            AST_Node* last = val;
+            AST_Node* last = e;
             int n = 1;
             /* stop absorbing at a designator (C99 6.7.8p20: a designator
              * targets the enclosing aggregate) */
@@ -1025,7 +1070,7 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
             AST_Node synth;
             memset(&synth, 0, sizeof synth);
             synth.type = AST_INIT_LIST;
-            synth.body.init_list.elems = val;
+            synth.body.init_list.elems = e;
             synth.body.init_list.last_elem = last;
             elems[idx] = gen_const_init(a, &synth, ct, enum_vals);
             last->next = saved;
@@ -1035,7 +1080,7 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
         }
 
         if (idx >= 0 && idx < slots)
-            elems[idx] = gen_const_init(a, val, ct, enum_vals);
+            elems[idx] = gen_const_init(a, e, ct, enum_vals);
         pos = idx + 1;
         e = e->next;
     }
