@@ -102,19 +102,7 @@ dump_func(FILE* out, IR_Func* func)
 static IR_Type* struct_seen[MAX_STRUCT_TYPES];
 static int n_struct_seen = 0;
 
-/* Return the largest member of a union type (by size).
- * For structs, returns NULL (all members are used). */
-static IR_Type* union_largest_member(IR_Type* t)
-{
-    if (!t || t->kind != IR_UNION || !t->members) return NULL;
-    IR_Type* best = NULL;
-    int best_sz = 0;
-    for (IR_Type* m = t->members; m; m = m->next) {
-        int sz = ir_type_size(m);
-        if (sz > best_sz) { best_sz = sz; best = m; }
-    }
-    return best;
-}
+/* union member layout is handled by ir_union_largest_member (ir_type.c) */
 
 /* compare two struct member lists for equality */
 static int members_eq(IR_Type* a, IR_Type* b)
@@ -210,7 +198,7 @@ static void emit_struct_types(FILE* out, IR_Module* mod)
             /* Union: emit only the largest member, since all members
              * overlap at offset 0.  LLVM represents unions as a struct
              * containing just the largest member. */
-            IR_Type* largest = union_largest_member(t);
+            IR_Type* largest = ir_union_largest_member(t);
             fprintf(out, "%%struct.%.*s = type { ", t->name.length, t->name.data);
             dump_type(out, largest ? largest : t->members);
             fprintf(out, " }\n");
@@ -234,7 +222,7 @@ static void emit_struct_types(FILE* out, IR_Module* mod)
         IR_Type* t = dump_anon_types[i];
 
         if (t->kind == IR_UNION) {
-            IR_Type* largest = union_largest_member(t);
+            IR_Type* largest = ir_union_largest_member(t);
             fprintf(out, "%%struct.anon.%d.p%p = type { ", i, (void*)t);
             dump_type(out, largest ? largest : t->members);
             fprintf(out, " }\n");

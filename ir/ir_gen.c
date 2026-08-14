@@ -990,6 +990,25 @@ gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
     return ir_const_aggregate(a, ty, elems, n);
 }
 
+/* store a value into a union's single largest-member slot.  accepted only
+ * when the initialized member's type matches the largest member (a
+ * constant-space bitcast across differing types is not expressible in the
+ * current dump); otherwise warn and leave the slot zero. */
+static void
+gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
+                      IR_Type* member_ty, AST_Node* steps, AST_Node* val,
+                      TypedefEntry* enum_vals)
+{
+    IR_Type* largest = ir_union_largest_member(target);
+    if (largest && member_ty && ir_type_eq(largest, member_ty)) {
+        elems[0] = gen_const_desig(a, largest, steps, val, enum_vals);
+    } else if (largest) {
+        fprintf(stderr, "cmpl: warning: union member with differing type"
+                " not supported in const init; zero-filled\n");
+        elems[0] = gen_const_zero(a, largest);
+    }
+}
+
 /* lower an AST_INIT_LIST into a VAL_CONST_AGGREGATE.  positional elements
  * fill the next slot (C99 cursor); designators target `.field`/`[i]`/
  * `.field[i]`; brace-elided sub-aggregates (C99 6.7.8p20) absorb up to
@@ -999,7 +1018,9 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                     TypedefEntry* enum_vals)
 {
     int slots = 0;
-    if (target_type->kind == IR_STRUCT || target_type->kind == IR_UNION)
+    if (target_type->kind == IR_UNION)
+        slots = 1;  /* union emits a single largest-member slot */
+    else if (target_type->kind == IR_STRUCT)
         for (IR_Type* m = target_type->members; m; m = m->next) slots++;
     else if (target_type->kind == IR_ARRAY)
         slots = target_type->size;
@@ -1012,6 +1033,27 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
     int pos = 0;
     AST_Node* e = init->body.init_list.elems;
     while (e) {
+        if (target_type->kind == IR_UNION) {
+            /* union: a single largest-member slot at index 0 */
+            AST_Node* s0 = (e->type == AST_DESIGNATOR)
+                ? e->body.designator.steps : NULL;
+            AST_Node* val = (e->type == AST_DESIGNATOR)
+                ? e->body.designator.value : e;
+            IR_Type* member_ty = NULL;
+            if (s0 && s0->body.desig_step.field_name.data) {
+                Type* ast = ir_struct_ast_lookup(target_type);
+                int fi = ast ? ir_struct_field_index(ast,
+                    s0->body.desig_step.field_name) : -1;
+                if (fi >= 0)
+                    member_ty = gen_const_child_type(target_type, fi);
+            } else if (!s0) {
+                member_ty = gen_const_child_type(target_type, 0);
+            }
+            gen_const_union_store(a, elems, target_type, member_ty,
+                                  s0 ? s0->next : NULL, val, enum_vals);
+            e = e->next;
+            continue;
+        }
         if (e->type == AST_DESIGNATOR) {
             AST_Node* s0 = e->body.designator.steps;
             int top_idx = -1;
@@ -1085,9 +1127,14 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
         e = e->next;
     }
 
-    for (int i = 0; i < slots; i++)
-        if (!elems[i])
-            elems[i] = gen_const_zero(a, gen_const_child_type(target_type, i));
+    for (int i = 0; i < slots; i++) {
+        if (!elems[i]) {
+            IR_Type* zt = (target_type->kind == IR_UNION)
+                ? ir_union_largest_member(target_type)
+                : gen_const_child_type(target_type, i);
+            elems[i] = gen_const_zero(a, zt);
+        }
+    }
     return ir_const_aggregate(a, target_type, elems, slots);
 }
 

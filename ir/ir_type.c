@@ -442,6 +442,21 @@ ir_type_size(IR_Type* t)
     }
 }
 
+/* the largest member of a union (by size) — the single slot the union is
+ * emitted as (all members overlap at offset 0).  NULL for non-unions. */
+IR_Type*
+ir_union_largest_member(IR_Type* t)
+{
+    if (!t || t->kind != IR_UNION || !t->members) return NULL;
+    IR_Type* best = NULL;
+    int best_sz = 0;
+    for (IR_Type* m = t->members; m; m = m->next) {
+        int sz = ir_type_size(m);
+        if (sz > best_sz) { best_sz = sz; best = m; }
+    }
+    return best;
+}
+
 int
 ir_type_eq(IR_Type* a, IR_Type* b)
 {

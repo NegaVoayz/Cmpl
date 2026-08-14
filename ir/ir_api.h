@@ -32,6 +32,7 @@ IR_Type*    ir_type_from_ast(Arena* a, Type* ast_type);
 void        ir_clear_struct_cache(void);
 void        ir_reset_type_caches(void);
 int         ir_type_size(IR_Type* t);
+IR_Type*    ir_union_largest_member(IR_Type* t);
 int         ir_type_eq(IR_Type* a, IR_Type* b);
 const char* ir_type_name(IR_Type* t);
 Type*       ir_struct_ast_lookup(IR_Type* t);

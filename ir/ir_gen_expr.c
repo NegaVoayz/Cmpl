@@ -441,10 +441,16 @@ desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                 return NULL;
             }
             if (first) *top_idx = fi;
-            int gep = (cur && cur->kind == IR_UNION) ? 0 : fi;
+            int is_union = (cur && cur->kind == IR_UNION);
+            int gep = is_union ? 0 : fi;
             slot = ir_build_gep(b, slot,
                 ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, gep));
             cur = init_child_type(cur, fi);
+            /* union is emitted as { largest_member }: the offset-0 GEP gives
+             * the largest member's pointer, so bitcast to the accessed
+             * member's type (mirrors the member-access path). */
+            if (is_union && cur)
+                slot = ir_build_bitcast(b, slot, ir_ptr_type(b->arena, cur, 0));
         } else if (s->body.desig_step.index_expr) {
             AST_Node* ix = s->body.desig_step.index_expr;
             long long ii = (ix && ix->type == AST_INT_LIT)
@@ -572,7 +578,15 @@ ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty)
                 ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, i));
             ir_gen_zero_fill(ctx, slot, ty->inner);
         }
-    } else if (ty->kind == IR_STRUCT || ty->kind == IR_UNION) {
+    } else if (ty->kind == IR_UNION) {
+        /* union emits a single largest-member slot at offset 0 */
+        IR_Type* largest = ir_union_largest_member(ty);
+        if (largest) {
+            IR_Value* slot = ir_build_gep(b, dst,
+                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, 0));
+            ir_gen_zero_fill(ctx, slot, largest);
+        }
+    } else if (ty->kind == IR_STRUCT) {
         int i = 0;
         for (IR_Type* m = ty->members; m; m = m->next, i++) {
             IR_Value* slot = ir_build_gep(b, dst,
