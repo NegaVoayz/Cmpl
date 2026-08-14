@@ -1054,6 +1054,14 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
               return ir_build_icmp(b, IR_COND_EQ, op, zero);
           }
       }
+      if (n->body.unary.op == TOK_TILDE) {
+          /* bitwise NOT: x ^ -1.  a missing case here silently compiled
+           * non-constant ~x to x — and since opt_fold_try.c itself folds
+           * constants with a runtime ~, the self-built cmpl_self then
+           * folded ~7 to 7, breaking every arena mask downstream. */
+          IR_Type* ty = op->type ? op->type : t_i32;
+          return ir_build_xor(b, op, ir_const_int(b, ty, -1));
+      }
 	      if (n->body.unary.op == TOK_STAR) {
 	          /* dereference: *ptr → load from the pointer to get pointee.
 	           * if the operand is a cast to a non-pointer type

@@ -1437,6 +1437,14 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
                 inner->body.float_val = -inner->body.float_val;
             return inner;
         }
+        if (init->body.unary.op == TOK_TILDE) {
+            /* ~x on a constant (usually already folded by opt_fold) */
+            IR_Value* inner = gen_const_init(a, init->body.unary.operand,
+                                              target_type, enum_vals);
+            if (inner && inner->kind == VAL_CONST_INT)
+                inner->body.int_val = ~inner->body.int_val;
+            return inner;
+        }
         /* fall through */
     default:
         fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
