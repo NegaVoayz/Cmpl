@@ -1025,6 +1025,19 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
             }
 
             if (!struct_ptr) {
+                /* nested lvalue chain (a.b.c, arr[i].x): resolve the
+                 * ADDRESS first via gen_store_ptr (GEP chain, no
+                 * aggregate copy), then load.  The rvalue-copy path
+                 * below is NOT byte-faithful for structs/records that
+                 * contain an anonymous union: the union's IR type
+                 * models only the largest member, so a copied member
+                 * whose offset crosses that layout's field boundary
+                 * gets truncated to the field's width (e.g. a pointer
+                 * read as i32 + padding). */
+                IR_Value* addr = gen_store_ptr(ctx, n);
+
+                if (addr) return ir_build_load(b, addr);
+
                 /* rvalue: eval, store to temp alloca, GEP from there */
                 IR_Value* record_val = gen_expr(ctx,
                     n->body.member.record);

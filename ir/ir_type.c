@@ -91,7 +91,7 @@ static void type_cache_put(IR_TypeKind kind, IR_Type* inner, int extra,
  * Used by AST_MEMBER handler to find field indices by name.
  * Kept as a separate table (not a field in IR_Type) to avoid
  * bootstrapping issues when the compiler compiles itself. */
-#define MAX_AST_MAP 64
+#define MAX_AST_MAP 256
 static IR_Type* ast_map_keys[MAX_AST_MAP];
 static Type*    ast_map_vals[MAX_AST_MAP];
 static int      n_ast_map = 0;
@@ -104,6 +104,24 @@ static void register_struct_ast(IR_Type* ir, Type* ast)
     ast_map_keys[n_ast_map] = ir;
     ast_map_vals[n_ast_map] = ast;
     n_ast_map++;
+}
+
+/* register a member/param chain clone under its source's AST type so
+ * ir_struct_ast_lookup's exact-pointer match resolves clones of
+ * anonymous structs (which otherwise fall through to the members-
+ * pointer fallback and can miss when the anonymous type materializes
+ * into more than one IR_Type object). */
+static void
+register_clone_ast(IR_Type* clone, IR_Type* src)
+{
+    if (!clone || (clone->kind != IR_STRUCT && clone->kind != IR_UNION))
+        return;
+
+    for (int i = 0; i < n_ast_map; i++)
+        if (ast_map_keys[i] == src) {
+            register_struct_ast(clone, ast_map_vals[i]);
+            return;
+        }
 }
 
 static IR_Type*
@@ -266,6 +284,7 @@ ast_to_ir_type(Arena* a, Type* ast)
         for (AST_Node* p = ast->params; p; p = p->next) {
             IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type);
             *tail = clone_type_for_chain(a, pt);
+            register_clone_ast(*tail, pt);
             tail = &(*tail)->next;
         }
         IR_Type* ft = ir_func_type(a, ret, params, ast->is_variadic);
@@ -315,6 +334,7 @@ ast_to_ir_type(Arena* a, Type* ast)
               IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type);
               if (!ft || ft->kind == IR_VOID) ft = t_i8;
               *tail = clone_type_for_chain(a, ft);
+              register_clone_ast(*tail, ft);
               tail = &(*tail)->next;
           }
       }
