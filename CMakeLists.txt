@@ -9,8 +9,16 @@ if(NOT MSVC)
         -Wno-incompatible-library-redeclaration
         -Wno-implicit-function-declaration
         -Wno-int-conversion
+        -include stdint.h
     )
 endif()
+
+# every translation unit is compiled with the full module include path
+# (mirrors the -I list in build_bootstrap.sh / build_self_linux.sh)
+include_directories(
+    include base . tokenizer pp parser parser/lr parser/ll
+    ast-opt ir ir-opt cuda vulkan llvm-codegen
+)
 
 add_subdirectory(base)
 add_subdirectory(tokenizer)
@@ -23,7 +31,16 @@ add_subdirectory(vulkan)
 add_subdirectory(ir-opt)
 add_subdirectory(llvm-codegen)
 
-add_executable(cmpl main.c dump_ast.c build/self_new/crt_shim.c)
+set(CMPL_SOURCES main.c dump_ast.c)
+# build/self_new/crt_shim.c is a MinGW/UCRT-only bridge (stdin/stdout/
+# stderr are not exported as globals by UCRT).  It is gitignored and
+# must be created by the user on Windows (build_self.ps1 compiles it
+# directly with clang); on Linux glibc exports the globals, so the
+# shim is optional and the build must not hard-fail without it.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/build/self_new/crt_shim.c")
+    list(APPEND CMPL_SOURCES build/self_new/crt_shim.c)
+endif()
+add_executable(cmpl ${CMPL_SOURCES})
 target_link_libraries(cmpl base tokenizer pp parser cuda ast_opt ir vulkan ir-opt llvm-codegen)
 
 add_executable(cmpl-pp main_pp.c)
