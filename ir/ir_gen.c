@@ -1013,6 +1013,54 @@ gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
  * fill the next slot (C99 cursor); designators target `.field`/`[i]`/
  * `.field[i]`; brace-elided sub-aggregates (C99 6.7.8p20) absorb up to
  * their capacity in following scalar elements. */
+
+/* brace-elided sub-aggregate (C99 6.7.8p20): temporarily relink `val`
+ * (the designator value, not linked into the list) onto the sibling
+ * chain so a synth init list [val..last] covers the value plus the
+ * following elements, absorbed up to `inner`'s capacity and stopping at
+ * a designator (which targets the enclosing aggregate).  returns the
+ * element after the absorbed group; leaves last->next NULL and
+ * val->next relinked — the caller must recurse on the synth immediately,
+ * then restore last->next = saved and val->next = *old_val_next. */
+static AST_Node*
+gen_const_absorb(AST_Node* val, AST_Node* list_next, IR_Type* inner,
+                 AST_Node** last, AST_Node** old_val_next)
+{
+    int cap = (inner->kind == IR_ARRAY) ? inner->size : 0;
+    if (inner->kind != IR_ARRAY)
+        for (IR_Type* m = inner->members; m; m = m->next) cap++;
+    *old_val_next = val->next;
+    val->next = list_next;
+    AST_Node* l = val;
+    int n = 1;
+    while (n < cap && l->next && l->next->type != AST_DESIGNATOR) {
+        l = l->next; n++;
+    }
+    AST_Node* saved = l->next;
+    l->next = NULL;
+    *last = l;
+    return saved;
+}
+
+/* resolve the remaining designator step chain past the first step and
+ * return the innermost designated type (for the elision capacity) */
+static IR_Type*
+gen_const_desig_inner_type(IR_Type* ct, AST_Node* steps)
+{
+    IR_Type* inner = ct;
+    for (AST_Node* s = steps; s; s = s->next) {
+        if (s->body.desig_step.field_name.data) {
+            Type* ast = ir_struct_ast_lookup(inner);
+            int fi = ast ? ir_struct_field_index(ast,
+                s->body.desig_step.field_name) : -1;
+            inner = (fi >= 0) ? gen_const_child_type(inner, fi) : t_i32;
+        } else {
+            inner = (inner->kind == IR_ARRAY) ? inner->inner : t_i32;
+        }
+    }
+    return inner;
+}
+
 static IR_Value*
 gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                     TypedefEntry* enum_vals)
@@ -1031,6 +1079,7 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
     for (int i = 0; i < slots; i++) elems[i] = NULL;
 
     int pos = 0;
+    int union_done = 0;   /* a union takes only its first positional element */
     AST_Node* e = init->body.init_list.elems;
     while (e) {
         if (target_type->kind == IR_UNION) {
@@ -1046,8 +1095,38 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                     s0->body.desig_step.field_name) : -1;
                 if (fi >= 0)
                     member_ty = gen_const_child_type(target_type, fi);
+                /* brace-elided union member (.p = 1, 2 where p is an
+                 * aggregate): absorb the following siblings up to the
+                 * member's capacity (C99 6.7.8p20) */
+                if (!s0->next && val->type != AST_INIT_LIST && member_ty &&
+                    (member_ty->kind == IR_ARRAY ||
+                     member_ty->kind == IR_STRUCT ||
+                     member_ty->kind == IR_UNION)) {
+                    AST_Node* last = NULL;
+                    AST_Node* old_vn = NULL;
+                    AST_Node* saved = gen_const_absorb(val, e->next,
+                                                       member_ty, &last,
+                                                       &old_vn);
+                    AST_Node synth;
+                    memset(&synth, 0, sizeof synth);
+                    synth.type = AST_INIT_LIST;
+                    synth.body.init_list.elems = val;
+                    synth.body.init_list.last_elem = last;
+                    gen_const_union_store(a, elems, target_type, member_ty,
+                                          NULL, &synth, enum_vals);
+                    last->next = saved;
+                    val->next = old_vn;
+                    union_done = 1;
+                    e = saved;
+                    continue;
+                }
+                union_done = 1;
             } else if (!s0) {
+                /* positional: only the first element initializes a union;
+                 * later ones are excess elements (gcc ignores them) */
+                if (union_done) { e = e->next; continue; }
                 member_ty = gen_const_child_type(target_type, 0);
+                union_done = 1;
             }
             gen_const_union_store(a, elems, target_type, member_ty,
                                   s0 ? s0->next : NULL, val, enum_vals);
@@ -1081,12 +1160,41 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                 ct = gen_const_child_type(target_type, top_idx);
             }
 
-            if (top_idx >= 0 && top_idx < slots)
-                elems[top_idx] = gen_const_desig(a, ct, s0 ? s0->next : NULL,
-                                                 e->body.designator.value,
-                                                 enum_vals);
+            if (top_idx >= 0 && top_idx < slots) {
+                AST_Node* dval = e->body.designator.value;
+                /* brace-elided designated sub-aggregate: the value plus
+                 * the following siblings (up to the innermost designated
+                 * aggregate's capacity, stopping at a designator) fill it
+                 * (C99 6.7.8p20) */
+                IR_Type* inner = gen_const_desig_inner_type(
+                    ct, s0 ? s0->next : NULL);
+                if (dval->type != AST_INIT_LIST && inner &&
+                    (inner->kind == IR_ARRAY || inner->kind == IR_STRUCT ||
+                     inner->kind == IR_UNION)) {
+                    AST_Node* last = NULL;
+                    AST_Node* old_vn = NULL;
+                    AST_Node* saved = gen_const_absorb(dval, e->next,
+                                                       inner, &last,
+                                                       &old_vn);
+                    AST_Node synth;
+                    memset(&synth, 0, sizeof synth);
+                    synth.type = AST_INIT_LIST;
+                    synth.body.init_list.elems = dval;
+                    synth.body.init_list.last_elem = last;
+                    elems[top_idx] = gen_const_desig(a, ct,
+                        s0 ? s0->next : NULL, &synth, enum_vals);
+                    last->next = saved;
+                    dval->next = old_vn;
+                    e = saved;
+                } else {
+                    elems[top_idx] = gen_const_desig(a, ct,
+                        s0 ? s0->next : NULL, dval, enum_vals);
+                    e = e->next;
+                }
+            } else {
+                e = e->next;
+            }
             pos = top_idx + 1;
-            e = e->next;
             continue;
         }
 
@@ -1172,6 +1280,15 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
         return v;
     }
 
+    case AST_FLOAT_LIT:
+    case AST_DOUBLE_LIT:
+    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+        v->kind = VAL_CONST_FLOAT;
+        v->type = target_type;
+        v->body.float_val = init->body.literal.float_val;
+        return v;
+    }
+
     case AST_STRING_LIT:
     {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
         v->kind = VAL_CONST_STRING;
@@ -1213,6 +1330,8 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
                                               target_type, enum_vals);
             if (inner && inner->kind == VAL_CONST_INT)
                 inner->body.int_val = -inner->body.int_val;
+            else if (inner && inner->kind == VAL_CONST_FLOAT)
+                inner->body.float_val = -inner->body.float_val;
             return inner;
         }
         /* fall through */

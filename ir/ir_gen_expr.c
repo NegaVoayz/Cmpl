@@ -505,6 +505,15 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                 if (!slot) { sub = sub->next; continue; }
                 pos = top_idx + 1;
             } else {
+                /* a union has a single slot: only the first positional
+                 * element initializes it; later ones are excess elements
+                 * (gcc ignores them — and a per-member GEP would be
+                 * invalid on the one-slot union type) */
+                if (ty->kind == IR_UNION && pos > 0) {
+                    pos++;
+                    sub = sub->next;
+                    continue;
+                }
                 child = init_child_type(ty, pos);
                 if (child) {
                     slot = ir_build_gep(b, dst,
@@ -530,6 +539,12 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                     for (IR_Type* m = child->members; m; m = m->next) cap++;
                 AST_Node* last = val;
                 int n = 1;
+                /* the designator's value node is not linked into the list
+                 * (the designator node replaced it): relink it onto the
+                 * sibling chain so the elision absorbs the value AND the
+                 * following elements */
+                AST_Node* old_vnext = val->next;
+                if (is_desig) val->next = sub->next;
                 while (n < cap && last->next &&
                        last->next->type != AST_DESIGNATOR) {
                     last = last->next; n++;
@@ -543,13 +558,10 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                 synth.body.init_list.last_elem = last;
                 ir_gen_init_one(ctx, slot, &synth, child);
                 last->next = saved;
+                if (is_desig) val->next = old_vnext;
 
-                if (is_desig) {
-                    sub = sub->next;
-                } else {
-                    pos++;
-                    sub = saved;
-                }
+                if (!is_desig) pos++;
+                sub = saved;
                 continue;
             }
 
