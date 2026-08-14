@@ -1,4 +1,5 @@
-build/
+build/*
+!build/run_tests.sh
 build2/
 *.o
 *.exe
