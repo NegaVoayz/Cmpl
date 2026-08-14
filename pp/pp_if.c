@@ -19,8 +19,10 @@ is_cond_directive(const char* name, int len)
     return 0;
 }
 
-/* Resolve defined(NAME) or defined NAME → 1 or 0.
- * Copies `src..end` to `out`, replacing `defined` expressions with '1'/'0'. */
+/* Resolve defined(NAME) or defined NAME → 1 or 0, and macro-expand
+ * object-like macros (C11 6.10.1p3: the #if expression is macro-
+ * expanded first).  Copies `src..end` to `out`, replacing `defined`
+ * expressions with '1'/'0' and macro names with their replacement text. */
 static void
 resolve_defined(MacroTable* mt, const char* src, const char* end, Buffer* out)
 {
@@ -56,7 +58,21 @@ resolve_defined(MacroTable* mt, const char* src, const char* end, Buffer* out)
                 char digit = def ? '1' : '0';
                 buf_append(out, &digit, 1);
             } else {
-                buf_append(out, id, id_len);
+                /* object-like macro → its replacement text; anything
+                 * else (unknown or function-like) evaluates to 0 */
+                char idbuf[256];
+                int subst = 0;
+                if (id_len > 0 && id_len < 256) {
+                    memcpy(idbuf, id, id_len);
+                    idbuf[id_len] = '\0';
+                    Macro* m = macro_lookup(mt, idbuf);
+                    if (m && !m->is_func && m->body) {
+                        buf_append(out, m->body, (int)strlen(m->body));
+                        subst = 1;
+                    }
+                }
+                if (!subst)
+                    buf_append(out, id, id_len);
             }
         } else {
             buf_append(out, q, 1);

@@ -26,5 +26,7 @@ int w = 3;
 
 int main(void)
 {
-    return x + y + z + w; /* 42 + 1 + 2 + 3 = 48, but x=42 dominates */
+    /* #if FOO used to evaluate false (macros were not expanded in #if);
+     * x must be 42, total must be 48 */
+    return (x + y + z + w == 48) ? 0 : 1;
 }
