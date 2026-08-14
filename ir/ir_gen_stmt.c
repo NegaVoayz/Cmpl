@@ -176,7 +176,6 @@ static void gen_stmt_switch(GenCtx* ctx, AST_Node* n)
         if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode))
             ir_build_br(b, next);
     }
-    ctx->break_blk = save_brk;
 
     /* default body */
     if (def_blk) {
@@ -186,6 +185,11 @@ static void gen_stmt_switch(GenCtx* ctx, AST_Node* n)
         if (!b->cur_block->last || !is_terminator(b->cur_block->last->opcode))
             ir_build_br(b, merge);
     }
+    /* break must target the switch's merge block in the default body too,
+     * so restore the outer break target only after both case and default
+     * bodies are emitted (a `default: break` would otherwise exit the
+     * enclosing loop). */
+    ctx->break_blk = save_brk;
 
     ir_builder_set_block(b, merge);
 }
