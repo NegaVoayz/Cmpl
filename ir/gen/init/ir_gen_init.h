@@ -58,4 +58,16 @@ IR_Type* gen_const_cont_build(IR_Type* ty, AST_Node* steps,
 void     gen_const_cont_set(IR_Value* root, ContLevel* cont, int depth,
                             IR_Value* v);
 
+/* ---- const init-list driver + element cases ---- */
+
+IR_Value* gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
+                              TypedefEntry* enum_vals);
+/* continuation + positional/elided element cases (ir_gen_const_elem.c) */
+AST_Node* gen_const_cont_elem(Arena* a, IR_Value** elems,
+                              TypedefEntry* enum_vals, AST_Node* e,
+                              ContLevel* cont, int* depth);
+AST_Node* gen_const_elided_elem(Arena* a, IR_Value** elems,
+                                IR_Type* target_type, TypedefEntry* enum_vals,
+                                AST_Node* e, int slots, int* pos);
+
 #endif /* IR_GEN_INIT_H */
