@@ -25,6 +25,17 @@ make_str_const(Arena* a, IR_Type* ptr_ty, const char* s, int len)
     return v;
 }
 
+/* Allocate a small integer constant IR value of the given type. */
+static IR_Value*
+make_int_const(Arena* a, IR_Type* ty, long long v)
+{
+    IR_Value* val = arena_alloc(a, sizeof(IR_Value));
+    val->kind = VAL_CONST_INT;
+    val->type = ty;
+    val->body.int_val = v;
+    return val;
+}
+
 /* ---------------------------------------------------------------
  *  Walk and transform: __cmpl_kl_* → cmpl_vk_launch
  *
@@ -35,6 +46,44 @@ make_str_const(Arena* a, IR_Type* ptr_ty, const char* s, int len)
  *  Transformed to:
  *    call void @cmpl_vk_launch(name_str, gx,1,1, bx,1,1, sh, stream, n_ka, args...)
  * --------------------------------------------------------------- */
+
+/* Build the transformed argument list for a kernel launch:
+ * [name_str, grid_x,1,1, block_x,1,1, shared, stream, n_ka, kernel_args...].
+ * Writes the array to *out_args and returns the argument count. */
+static int
+build_vk_args(IR_Instr* inst, Arena* a, const char* kname, int name_len,
+              int n_cfg, int n_ka, IR_Value* grid, IR_Value* block,
+              IR_Value* shared, IR_Value* stream, IR_Value*** out_args)
+{
+    IR_Value* one = make_int_const(a, t_i32, 1);
+    IR_Value* zero = make_int_const(a, t_i32, 0);
+    IR_Value* zero64 = make_int_const(a, t_i64, 0);
+    IR_Value* nka = make_int_const(a, t_i32, n_ka);
+
+    int new_n = 10 + n_ka;
+    IR_Value** new_args = arena_alloc(a, new_n * sizeof(IR_Value*));
+    int idx = 0;
+
+    IR_Type* i8_ptr = ir_ptr_type(a, t_i8, 0);
+
+    new_args[idx++] = make_str_const(a, i8_ptr, kname, name_len);
+    new_args[idx++] = grid ? grid : zero;     /* grid_x */
+    new_args[idx++] = one;                     /* grid_y */
+    new_args[idx++] = one;                     /* grid_z */
+    new_args[idx++] = block ? block : zero;    /* block_x */
+    new_args[idx++] = one;                     /* block_y */
+    new_args[idx++] = one;                     /* block_z */
+    new_args[idx++] = shared ? shared : zero;  /* shared_mem */
+    new_args[idx++] = stream ? stream : zero64;/* stream */
+    new_args[idx++] = nka;                     /* n_args */
+
+    /* copy kernel args */
+    for (int i = 0; i < n_ka; i++)
+        new_args[idx++] = inst->call_args[n_cfg + i];
+
+    *out_args = new_args;
+    return new_n;
+}
 
 static void
 transform_call(IR_Instr* inst, Arena* a)
@@ -71,42 +120,9 @@ transform_call(IR_Instr* inst, Arena* a)
     IR_Value* shared = (n_cfg >= 3 && inst->call_args[2]) ? inst->call_args[2] : NULL;
     IR_Value* stream = (n_cfg >= 4 && inst->call_args[3]) ? inst->call_args[3] : NULL;
 
-    /* build constant 1 and 0 */
-    IR_Value* one = arena_alloc(a, sizeof(IR_Value));
-    one->kind = VAL_CONST_INT; one->type = t_i32; one->body.int_val = 1;
-
-    IR_Value* zero = arena_alloc(a, sizeof(IR_Value));
-    zero->kind = VAL_CONST_INT; zero->type = t_i32; zero->body.int_val = 0;
-
-    IR_Value* zero64 = arena_alloc(a, sizeof(IR_Value));
-    zero64->kind = VAL_CONST_INT; zero64->type = t_i64; zero64->body.int_val = 0;
-
-    /* count kernel args */
-    IR_Value* nka = arena_alloc(a, sizeof(IR_Value));
-    nka->kind = VAL_CONST_INT; nka->type = t_i32; nka->body.int_val = n_ka;
-
-    /* build new args array:
-     * [name_str, grid_x, 1, 1, block_x, 1, 1, shared, stream, n_ka, kernel_args...] */
-    int new_n = 10 + n_ka;
-    IR_Value** new_args = arena_alloc(a, new_n * sizeof(IR_Value*));
-    int idx = 0;
-
-    IR_Type* i8_ptr = ir_ptr_type(a, t_i8, 0);
-
-    new_args[idx++] = make_str_const(a, i8_ptr, kname, name_len);
-    new_args[idx++] = grid ? grid : zero;     /* grid_x */
-    new_args[idx++] = one;                     /* grid_y */
-    new_args[idx++] = one;                     /* grid_z */
-    new_args[idx++] = block ? block : zero;    /* block_x */
-    new_args[idx++] = one;                     /* block_y */
-    new_args[idx++] = one;                     /* block_z */
-    new_args[idx++] = shared ? shared : zero;  /* shared_mem */
-    new_args[idx++] = stream ? stream : zero64;/* stream */
-    new_args[idx++] = nka;                     /* n_args */
-
-    /* copy kernel args */
-    for (int i = 0; i < n_ka; i++)
-        new_args[idx++] = inst->call_args[n_cfg + i];
+    IR_Value** new_args;
+    int new_n = build_vk_args(inst, a, kname, name_len, n_cfg, n_ka,
+                              grid, block, shared, stream, &new_args);
 
     /* replace callee — old data was arena-allocated, no free needed */
     const char* vk_launch = "cmpl_vk_launch";
