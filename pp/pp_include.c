@@ -5,6 +5,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Join dir + inc_path, test for existence, and return 1 if readable. */
+static int
+try_join(const char* dir, const char* inc_path, char* out)
+{
+    int written = snprintf(out, MAX_PATH, "%s/%s", dir, inc_path);
+
+    if (written >= MAX_PATH) return 0;
+
+    FILE* test = fopen(out, "rb");
+
+    if (test) { fclose(test); return 1; }
+    return 0;
+}
+
 /* Try to find inc_path in subdirectories (up to 2 levels deep) of base.
  * If found, writes the full path to out_buf (size out_sz) and returns 1. */
 static int
@@ -90,6 +104,75 @@ search_up_tree(const char* start_dir, const char* inc_path,
     return 0;
 }
 
+/* Try each configured include path in turn. */
+static int
+try_include_paths(PPCtx* ctx, const char* inc_path, char* out)
+{
+    for (int i = 0; i < ctx->n_include_paths; i++) {
+        if (try_join(ctx->include_paths[i], inc_path, out))
+            return 1;
+    }
+    return 0;
+}
+
+/* Try subdirectories (up to 2 levels) under each include path. */
+static int
+try_include_subdirs(PPCtx* ctx, const char* inc_path, char* out)
+{
+    for (int i = 0; i < ctx->n_include_paths; i++) {
+        if (try_subdirs(ctx->include_paths[i], inc_path, out, MAX_PATH))
+            return 1;
+    }
+    return 0;
+}
+
+/* Try each directory in C_INCLUDE_PATH (colon/semicolon separated). */
+static int
+try_c_include_path(const char* inc_path, char* out)
+{
+    const char* env = getenv("C_INCLUDE_PATH");
+
+    if (!env) return 0;
+
+    const char* s = env;
+
+    while (*s) {
+        const char* sep = strpbrk(s, ":;");
+        int         dlen = sep ? (int)(sep - s) : (int)strlen(s);
+
+        if (dlen > 0 && dlen < MAX_PATH - (int)strlen(inc_path) - 2) {
+            memcpy(out, s, dlen);
+            out[dlen] = '/';
+            strcpy(out + dlen + 1, inc_path);
+
+            FILE* test = fopen(out, "rb");
+
+            if (test) { fclose(test); return 1; }
+        }
+        s = sep ? sep + 1 : s + strlen(s);
+    }
+    return 0;
+}
+
+/* Try each hardcoded system include directory. */
+static int
+try_sys_dirs(const char* inc_path, char* out)
+{
+    const char* sys_dirs[] = {
+        "/usr/include",
+        "/usr/local/include",
+        "C:/MinGW/include",
+        "C:/msys64/ucrt64/include",
+        NULL
+    };
+
+    for (int i = 0; sys_dirs[i]; i++) {
+        if (try_join(sys_dirs[i], inc_path, out))
+            return 1;
+    }
+    return 0;
+}
+
 /* Resolve #include "..." (local) or #include <...> (system).
  * The included file's content goes into ctx->out after recursive processing.
  * Returns 0 on success, -1 if file cannot be read. */
@@ -100,88 +183,23 @@ include_resolve(PPCtx* ctx, const char* inc_path, int is_local)
     int  found = 0;
 
     if (is_local) {
-        /* 1. Try relative to current file's directory */
-        int written = snprintf(full, MAX_PATH, "%s/%s", ctx->base_dir, inc_path);
+        /* 1. relative to current file's directory */
+        found = try_join(ctx->base_dir, inc_path, full);
 
-        if (written < MAX_PATH) {
-            FILE* test = fopen(full, "rb");
-            if (test) { fclose(test); found = 1; }
-        }
+        /* 2. include paths */
+        if (!found) found = try_include_paths(ctx, inc_path, full);
 
-        /* 2. Try include paths */
-        if (!found) {
-            for (int i = 0; i < ctx->n_include_paths; i++) {
-                written = snprintf(full, MAX_PATH, "%s/%s",
-                                   ctx->include_paths[i], inc_path);
-                if (written >= MAX_PATH) continue;
+        /* 3. subdirectories of include paths */
+        if (!found) found = try_include_subdirs(ctx, inc_path, full);
 
-                FILE* test = fopen(full, "rb");
-                if (test) { fclose(test); found = 1; break; }
-            }
-        }
-
-        /* 3. Search subdirectories of include paths */
-        if (!found) {
-            for (int i = 0; i < ctx->n_include_paths; i++) {
-                if (try_subdirs(ctx->include_paths[i], inc_path,
-                                full, MAX_PATH))
-                    { found = 1; break; }
-            }
-        }
-
-        /* 4. Walk up from base_dir, trying subdirectories at each level */
-        if (!found)
-            found = search_up_tree(ctx->base_dir, inc_path, full, MAX_PATH);
+        /* 4. walk up from base_dir, trying subdirectories at each level */
+        if (!found) found = search_up_tree(ctx->base_dir, inc_path,
+                                           full, MAX_PATH);
     } else {
-        /* System include: check include paths first, then system dirs */
-        for (int i = 0; i < ctx->n_include_paths; i++) {
-            int written = snprintf(full, MAX_PATH, "%s/%s",
-                                   ctx->include_paths[i], inc_path);
-            if (written >= MAX_PATH) continue;
-
-            FILE* test = fopen(full, "rb");
-            if (test) { fclose(test); found = 1; break; }
-        }
-
-        if (!found) {
-            const char* sys_dirs[] = {
-                "/usr/include",
-                "/usr/local/include",
-                "C:/MinGW/include",
-                "C:/msys64/ucrt64/include",
-                NULL
-            };
-            const char* env = getenv("C_INCLUDE_PATH");
-
-            if (env) {
-                const char* s = env;
-                while (*s) {
-                    const char* sep = strpbrk(s, ":;");
-                    int         dlen = sep ? (int)(sep - s) : (int)strlen(s);
-
-                    if (dlen > 0 && dlen < MAX_PATH - (int)strlen(inc_path) - 2) {
-                        memcpy(full, s, dlen);
-                        full[dlen] = '/';
-                        strcpy(full + dlen + 1, inc_path);
-
-                        FILE* test = fopen(full, "rb");
-                        if (test) { fclose(test); found = 1; break; }
-                    }
-                    s = sep ? sep + 1 : s + strlen(s);
-                }
-            }
-
-            if (!found) {
-                for (int i = 0; sys_dirs[i]; i++) {
-                    int written = snprintf(full, MAX_PATH, "%s/%s",
-                                           sys_dirs[i], inc_path);
-                    if (written >= MAX_PATH) continue;
-
-                    FILE* test = fopen(full, "rb");
-                    if (test) { fclose(test); found = 1; break; }
-                }
-            }
-        }
+        /* system: include paths, then C_INCLUDE_PATH, then system dirs */
+        if (!found) found = try_include_paths(ctx, inc_path, full);
+        if (!found) found = try_c_include_path(inc_path, full);
+        if (!found) found = try_sys_dirs(inc_path, full);
     }
 
     if (!found && is_local) {
