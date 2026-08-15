@@ -1,0 +1,109 @@
+/* ir_gen_call.c -- function call lowering (direct + indirect). */
+
+#include "../ir_gen.h"
+#include "ir_gen_expr.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+/* Coerce call arguments to the declared parameter types, then apply the
+ * default argument promotion for variadic functions (char/short → int,
+ * float → double, C11 6.5.2.2p6).  Mutates arg_buf in place. */
+static void
+coerce_call_args(IR_Builder* b, IR_Type* func_ty, IR_Value** arg_buf, int n_args)
+{
+    /* fix up argument types to match the function signature: integer
+     * promotions (i8->i32 like an isalpha arg), integer truncation, and
+     * ptr/int mismatches so call + declare have correct types. */
+    if (func_ty && func_ty->members) {
+        IR_Type* expected = func_ty->members;
+        for (int i = 0; i < n_args && expected;
+             i++, expected = expected->next) {
+            if (!arg_buf[i] || !arg_buf[i]->type) continue;
+            IR_Type* at = arg_buf[i]->type;
+            if (at == expected) continue;
+            int at_int = (at->kind >= IR_I8 && at->kind <= IR_I64);
+            int ex_int = (expected->kind >= IR_I8 &&
+                          expected->kind <= IR_I64);
+            if (at_int && ex_int) {
+                int at_sz = ir_type_size(at);
+                int ex_sz = ir_type_size(expected);
+                if (at_sz < ex_sz)
+                    arg_buf[i] = widen_zext(at)
+                        ? ir_build_zext(b, arg_buf[i], expected)
+                        : ir_build_sext(b, arg_buf[i], expected);
+                else if (at_sz > ex_sz)
+                    arg_buf[i] = ir_build_trunc(b, arg_buf[i], expected);
+            } else if (at_int &&
+                       (expected->kind == IR_F32 ||
+                        expected->kind == IR_F64)) {
+                /* int arg → float param: sitofp/uitofp */
+                arg_buf[i] = at->is_unsigned
+                    ? ir_build_uitofp(b, arg_buf[i], expected)
+                    : ir_build_sitofp(b, arg_buf[i], expected);
+            } else if ((at->kind == IR_F32 || at->kind == IR_F64) &&
+                       ex_int) {
+                /* float arg → int param: fptosi/fptoui */
+                arg_buf[i] = expected->is_unsigned
+                    ? ir_build_fptoui(b, arg_buf[i], expected)
+                    : ir_build_fptosi(b, arg_buf[i], expected);
+            } else if (at->kind != expected->kind) {
+                arg_buf[i] = ir_build_bitcast(b, arg_buf[i], expected);
+            }
+        }
+    }
+
+    if (func_ty && func_ty->is_variadic) {
+        int n_fixed = 0;
+        for (IR_Type* m = func_ty->members; m; m = m->next) n_fixed++;
+        for (int i = n_fixed; i < n_args; i++) {
+            if (!arg_buf[i] || !arg_buf[i]->type) continue;
+            IR_Type* at = arg_buf[i]->type;
+            if (at->kind == IR_I8 || at->kind == IR_I16)
+                arg_buf[i] = widen_zext(at)
+                    ? ir_build_zext(b, arg_buf[i], t_i32)
+                    : ir_build_sext(b, arg_buf[i], t_i32);
+            else if (at->kind == IR_F32)
+                arg_buf[i] = ir_build_bitcast(b, arg_buf[i], t_f64);
+        }
+    }
+}
+
+IR_Value*
+gen_call_expr(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
+
+    int n_args = 0; IR_Value* arg_buf[16]; String cn = {0,0};
+    IR_Value* fn_ptr = NULL;
+    if (n->body.call.callee->type == AST_IDENT) {
+        cn = n->body.call.callee->body.ident.name;
+        /* if name resolves to a local (e.g. function pointer param),
+         * use indirect call; otherwise direct call by name */
+        IR_Value* local = sym_lookup(ctx, cn);
+        if (local) fn_ptr = ir_build_load(b, local);
+    } else
+        fn_ptr = gen_expr(ctx, n->body.call.callee);
+    for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next)
+        arg_buf[n_args++] = gen_expr(ctx, a);
+    IR_Type* ret_t = t_i32;
+    IR_Type* func_ty = NULL;
+    if (cn.length > 0) {
+        func_ty = func_type_lookup(ctx->sig_map, cn);
+        if (func_ty) ret_t = func_ty->inner;
+    }
+    if (!ret_t) ret_t = t_i32;
+
+    coerce_call_args(b, func_ty, arg_buf, n_args);
+
+    if (fn_ptr) {
+        /* indirect call through function pointer */
+        return ir_build_call_ptr(b, fn_ptr, ret_t, arg_buf, n_args);
+    }
+    char nb[128]; int nl = cn.length; if (nl > 127) nl = 127;
+    memcpy(nb, cn.data, nl); nb[nl] = '\0';
+    { IR_Value* result = ir_build_call(b, nb, ret_t, arg_buf, n_args);
+      if (result && result->def_instr)
+          result->def_instr->func_type = func_ty;
+      return result; }
+}
