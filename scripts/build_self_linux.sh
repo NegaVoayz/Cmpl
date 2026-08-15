@@ -17,11 +17,10 @@ SOURCES=(
   tokenizer/parse.c tokenizer/lexer.c tokenizer/number.c tokenizer/ast.c
   pp/pp.c pp/pp_expand.c pp/pp_if.c pp/pp_eval.c pp/pp_cond.c
   pp/pp_macro.c pp/pp_directive.c pp/pp_include.c pp/pp_line.c
-  parser/lr/lr1.c parser/lr/lr1_shift.c parser/lr/lr1_table_goto.c
-  parser/lr/lr1_table_acts.c parser/lr/lr1_table_reds.c parser/lr/lr1_reduce.c
-  parser/lr/lr1_reduce_binary.c parser/lr/lr1_reduce_ctx.c
-  parser/lr/lr1_reduce_postfix.c parser/lr/lr1_reduce_passthrough.c
-  parser/lr/lr1_table.c
+  parser/lr/lr1.c parser/lr/lr1_shift.c
+  parser/lr/reduce/lr1_reduce.c parser/lr/reduce/lr1_reduce_binary.c parser/lr/reduce/lr1_reduce_ctx.c
+  parser/lr/reduce/lr1_reduce_postfix.c parser/lr/reduce/lr1_reduce_passthrough.c
+  parser/lr/table/lr1_table.c parser/lr/table/lr1_table_acts.c parser/lr/table/lr1_table_goto.c parser/lr/table/lr1_table_reds.c
   parser/ll/ll.c parser/ll/ll_stmt.c parser/ll/ll_stmt_ctrl.c
   parser/ll/ll_stmt_ctrl_jump.c parser/ll/ll_type.c parser/ll/decl/ll_declarator.c
   parser/ll/decl/ll_decl.c parser/ll/decl/ll_decl_agg.c parser/ll/decl/ll_decl_struct.c parser/ll/decl/ll_decl_init.c

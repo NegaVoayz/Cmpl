@@ -1,6 +1,6 @@
 /* lr1_table_goto.c -- goto table initialization for LR(1) parser */
 
-#include "lr1.h"
+#include "../lr1.h"
 
 /* goto table from lr1_table.c */
 extern int goto_table[NUM_STATES][NUM_SYMBOLS];

@@ -68,10 +68,11 @@ base/          →  libbase.a        (arena.c, hash.c)  — shared data-structur
 tokenizer/     →  libtokenizer.a   (parse.c, lexer.c, number.c, ast.c)
 pp/            →  libpp.a          (pp.c, pp_macro.c, pp_expand.c, pp_if.c, pp_cond.c,
                                      pp_eval.c, pp_include.c, pp_directive.c, pp_line.c)
-parser/lr/     →  libparser_lr.a   (lr1.c, lr1_table.c, lr1_table_goto.c, lr1_table_acts.c,
-                                     lr1_table_reds.c, lr1_shift.c, lr1_reduce.c,
-                                     lr1_reduce_passthrough.c, lr1_reduce_postfix.c,
-                                     lr1_reduce_binary.c, lr1_reduce_ctx.c)
+parser/lr/     →  libparser_lr.a   (lr1.c, lr1_shift.c,
+                                     table/lr1_table.c, table/lr1_table_goto.c, table/lr1_table_acts.c,
+                                     table/lr1_table_reds.c, reduce/lr1_reduce.c,
+                                     reduce/lr1_reduce_passthrough.c, reduce/lr1_reduce_postfix.c,
+                                     reduce/lr1_reduce_binary.c, reduce/lr1_reduce_ctx.c)
 parser/ll/     →  libparser_ll.a   (ll.c, ll_decl.c, ll_decl_agg.c, ll_decl_struct.c,
                                      ll_declarator.c, ll_stmt.c, ll_stmt_ctrl.c,
                                      ll_stmt_ctrl_jump.c, ll_type.c)

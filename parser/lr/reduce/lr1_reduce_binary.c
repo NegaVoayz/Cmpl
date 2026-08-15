@@ -1,6 +1,6 @@
 /* lr1_reduce_binary.c -- binary/ternary reductions, arg lists, operator mapping */
 
-#include "lr1.h"
+#include "../lr1.h"
 
 /* from lr1_reduce.c */
 extern int prec_of(TokenKind k);

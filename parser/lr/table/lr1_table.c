@@ -1,6 +1,6 @@
 /* lr1_table.c -- action and goto table initialization */
 
-#include "lr1.h"
+#include "../lr1.h"
 
 /* redeclarations needed by passthrough_of() */
 LR_Action reduce_to_postfix(LR1_Parser* p); LR_Action reduce_to_unary(LR1_Parser* p);

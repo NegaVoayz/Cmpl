@@ -1,6 +1,6 @@
 /* lr1_table_reds.c -- action table: have-expr states + binRHS/ternary/assign */
 
-#include "lr1.h"
+#include "../lr1.h"
 
 /* table data and helpers from lr1_table.c */
 extern LR1_Func action_table[NUM_STATES][NUM_TOKENS];

@@ -1,6 +1,6 @@
 /* lr1_reduce_postfix.c -- postfix and unary prefix reductions */
 
-#include "lr1.h"
+#include "../lr1.h"
 
 /* ---------------------------------------------------------------
  *  Postfix reductions

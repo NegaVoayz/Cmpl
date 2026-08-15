@@ -1,6 +1,6 @@
 /* lr1_reduce.c -- LR(1) reduction functions: core (primary, prec, accept) */
 
-#include "lr1.h"
+#include "../lr1.h"
 
 /* from lr1_reduce_binary.c */
 LR_Action shift_binary_op(LR1_Parser* p);

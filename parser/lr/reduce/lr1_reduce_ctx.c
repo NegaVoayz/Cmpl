@@ -1,6 +1,6 @@
 /* lr1_reduce_ctx.c -- context-aware LR(1) handlers: binary, ternary, comma, colon, rparen */
 
-#include "lr1.h"
+#include "../lr1.h"
 
 /* from lr1_reduce.c */
 extern int prec_of(TokenKind k);

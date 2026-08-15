@@ -1,6 +1,6 @@
 /* lr1_reduce_passthrough.c -- passthrough reductions (in-place state update) */
 
-#include "lr1.h"
+#include "../lr1.h"
 
 #define PASSTHRU(NAME, SYM)                                   \
 LR_Action NAME(LR1_Parser* p) {                                \
