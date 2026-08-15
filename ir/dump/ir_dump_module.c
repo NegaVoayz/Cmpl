@@ -103,7 +103,11 @@ ir_dump_module(IR_Module* mod, FILE* out)
     dump_str_reset();
     dump_str_collect_module(mod);
 
-    /* target triple + data layout — skip to avoid clang -Woverride-module */
+    /* emit the host x86-64 triple so clang does not warn
+     * "-Woverride-module": omitting it ALSO triggers the warning on
+     * clang >= 19 (the module triple is overridden by clang's default).
+     * data layout is left to clang's default. */
+    fprintf(out, "target triple = \"x86_64-pc-linux-gnu\"\n\n");
 
     /* struct type definitions (must come before globals and functions) */
     emit_struct_types(out, mod);
