@@ -43,6 +43,20 @@ typedef struct TypedefEntry {
     struct TypedefEntry* next;
 } TypedefEntry;
 
+/* struct definition entry for resolving TYPE_STRUCT references */
+typedef struct StructDefEntry {
+    String                  name;
+    AST_Node*               fields;
+    int                     is_union;
+    struct StructDefEntry*  next;
+} StructDefEntry;
+
+/* context for the collect_local_struct_def_cb ast_walk callback */
+typedef struct {
+    HashMap* map;
+    Arena*   a;
+} LocalDefCtx;
+
 /* ---- symbol table (ir_gen.c) ---- */
 IR_Value* sym_lookup(GenCtx* ctx, String name);
 IR_Value* global_lookup(IR_Module* mod, String name);
@@ -63,6 +77,14 @@ void      gen_string_array_init(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type
 /* ---- constant initializer lowering (ir_gen_const.c) ---- */
 IR_Value* gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
                          TypedefEntry* enum_vals);
+
+/* ---- type/struct resolution (ir_gen_resolve.c) ---- */
+void resolve_ast_node(AST_Node* n, TypedefEntry* table);
+void resolve_array_sizes(Type* t, TypedefEntry* enum_vals);
+void resolve_struct_refs_type(Type* t, HashMap* struct_map);
+void resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map);
+int  resolve_compound_lit_type_cb(AST_Node* n, void* ctx);
+int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 
 /* ---- shared helpers ---- */
 IR_Value* coerce_to_i1(IR_Builder* b, IR_Value* v);
