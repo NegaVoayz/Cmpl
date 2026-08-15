@@ -29,6 +29,96 @@ static AST_Node* ll_parse_params(LR1_Parser* p, int* is_variadic);
 
 #define MAX_DECL_DEPTH 256
 
+/* Wrap *count pointer layers around *result (outermost star first). */
+static void
+wrap_ptr_layers(LR1_Parser* p, Type** result, int* count)
+{
+    while ((*count)-- > 0) {
+        Type* ptr = type_new(p->arena, TYPE_PTR);
+
+        ptr->inner = *result;
+        *result = ptr;
+    }
+}
+
+/* Parse one array suffix [N] / [name] / [] / [expr].  p->tok at '['; leaves
+ * past ']'.  Wraps pending pointer layers into *result first (char *a[64]
+ * -> [64 x ptr]) and appends the new array Type to suffixes. */
+static void
+parse_array_suffix(LR1_Parser* p, Type** result, int* ptr_count,
+                   Type** suffixes, int* n_arrays)
+{
+    p->tok = p->tok->next;
+
+    Type* arr = type_new(p->arena, TYPE_ARRAY);
+
+    arr->arr_size = 0;
+
+    if (p->tok->kind == TOK_INT_LIT &&
+        p->tok->next && p->tok->next->kind == TOK_RBRACKET) {
+        arr->arr_size = (int)p->tok->body.int_val;
+        p->tok = p->tok->next;
+    } else if (p->tok->kind == TOK_IDENT &&
+               p->tok->next && p->tok->next->kind == TOK_RBRACKET) {
+        arr->size_name = p->tok->body.ident;
+        p->tok = p->tok->next;
+    } else if (p->tok->kind != TOK_RBRACKET) {
+        Token* rbrack = p->tok;
+        while (rbrack && rbrack->kind != TOK_RBRACKET)
+            rbrack = rbrack->next;
+
+        if (rbrack) rbrack->kind = TOK_SEMI;
+
+        AST_Node* expr = ll_parse_expr(p);
+
+        if (rbrack) rbrack->kind = TOK_RBRACKET;
+
+        if (expr) {
+            if (expr->type == AST_INT_LIT)
+                arr->arr_size = (int)expr->body.literal.int_val;
+            else if (expr->type == AST_BINARY &&
+                     expr->body.binary.left &&
+                     expr->body.binary.left->type == AST_INT_LIT &&
+                     expr->body.binary.right &&
+                     expr->body.binary.right->type == AST_INT_LIT) {
+                int l = (int)expr->body.binary.left->body.literal.int_val;
+                int r = (int)expr->body.binary.right->body.literal.int_val;
+                TokenKind op = expr->body.binary.op;
+
+                if (op == TOK_PLUS)      arr->arr_size = l + r;
+                else if (op == TOK_MINUS) arr->arr_size = l - r;
+                else if (op == TOK_STAR)  arr->arr_size = l * r;
+                else if (op == TOK_SLASH) arr->arr_size = l / r;
+            }
+        }
+    }
+
+    if (p->tok->kind == TOK_RBRACKET)
+        p->tok = p->tok->next;
+
+    wrap_ptr_layers(p, result, ptr_count);
+    suffixes[(*n_arrays)++] = arr;
+}
+
+/* Parse one function suffix (params).  p->tok at '('; leaves past ')'.
+ * Returns the TYPE_FUNC node wrapping `result`. */
+static Type*
+parse_func_suffix(LR1_Parser* p, Type* result)
+{
+    p->tok = p->tok->next;
+
+    Type* func = type_new(p->arena, TYPE_FUNC);
+    { int is_variadic = 0;
+      func->params = ll_parse_params(p, &is_variadic);
+      func->is_variadic = is_variadic; }
+    func->inner = result;
+
+    if (p->tok->kind == TOK_RPAREN)
+        p->tok = p->tok->next;
+
+    return func;
+}
+
 Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth)
 {
     int ptr_count = 0;
@@ -80,81 +170,13 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
     #define MAX_SUFFIX 16
     Type* array_suffixes[MAX_SUFFIX];
     int n_arrays = 0;
-    int has_func = 0;
-    Type* func_type = NULL;
 
     for (;;) {
         if (p->tok->kind == TOK_LBRACKET) {
             if (n_arrays >= MAX_SUFFIX) break;
-            p->tok = p->tok->next;
-
-            Type* arr = type_new(p->arena, TYPE_ARRAY);
-
-            arr->arr_size = 0;
-
-            if (p->tok->kind == TOK_INT_LIT &&
-                p->tok->next && p->tok->next->kind == TOK_RBRACKET) {
-                arr->arr_size = (int)p->tok->body.int_val;
-                p->tok = p->tok->next;
-            } else if (p->tok->kind == TOK_IDENT &&
-                       p->tok->next && p->tok->next->kind == TOK_RBRACKET) {
-                arr->size_name = p->tok->body.ident;
-                p->tok = p->tok->next;
-            } else if (p->tok->kind != TOK_RBRACKET) {
-                Token* rbrack = p->tok;
-                while (rbrack && rbrack->kind != TOK_RBRACKET)
-                    rbrack = rbrack->next;
-
-                if (rbrack) rbrack->kind = TOK_SEMI;
-
-                AST_Node* expr = ll_parse_expr(p);
-
-                if (rbrack) rbrack->kind = TOK_RBRACKET;
-
-                if (expr) {
-                    if (expr->type == AST_INT_LIT)
-                        arr->arr_size = (int)expr->body.literal.int_val;
-                    else if (expr->type == AST_BINARY &&
-                             expr->body.binary.left &&
-                             expr->body.binary.left->type == AST_INT_LIT &&
-                             expr->body.binary.right &&
-                             expr->body.binary.right->type == AST_INT_LIT) {
-                        int l = (int)expr->body.binary.left->body.literal.int_val;
-                        int r = (int)expr->body.binary.right->body.literal.int_val;
-                        TokenKind op = expr->body.binary.op;
-                        if (op == TOK_PLUS)      arr->arr_size = l + r;
-                        else if (op == TOK_MINUS) arr->arr_size = l - r;
-                        else if (op == TOK_STAR)  arr->arr_size = l * r;
-                        else if (op == TOK_SLASH) arr->arr_size = l / r;
-                    }
-                }
-            }
-
-            if (p->tok->kind == TOK_RBRACKET)
-                p->tok = p->tok->next;
-
-            /* wrap pending pointer layers so array wraps them:
-             *   char *seen[64] → [64 x ptr], not ptr to [64 x i8] */
-            while (ptr_count-- > 0) {
-                Type* pwrap = type_new(p->arena, TYPE_PTR);
-                pwrap->inner = result;
-                result = pwrap;
-            }
-            array_suffixes[n_arrays++] = arr;
+            parse_array_suffix(p, &result, &ptr_count, array_suffixes, &n_arrays);
         } else if (p->tok->kind == TOK_LPAREN) {
-            p->tok = p->tok->next;
-
-            Type* func = type_new(p->arena, TYPE_FUNC);
-            { int is_variadic = 0;
-              func->params = ll_parse_params(p, &is_variadic);
-              func->is_variadic = is_variadic; }
-            func->inner = result;
-            result = func;
-            has_func = 1;
-            func_type = func;
-
-            if (p->tok->kind == TOK_RPAREN)
-                p->tok = p->tok->next;
+            result = parse_func_suffix(p, result);
         } else {
             break;
         }
@@ -169,12 +191,7 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
     #undef MAX_SUFFIX
 
     /* 4. Wrap pointer layers (outermost star first) */
-    while (ptr_count-- > 0) {
-        Type* ptr = type_new(p->arena, TYPE_PTR);
-
-        ptr->inner = result;
-        result = ptr;
-    }
+    wrap_ptr_layers(p, &result, &ptr_count);
 
     return result;
 }
