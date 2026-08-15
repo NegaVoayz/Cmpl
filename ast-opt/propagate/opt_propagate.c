@@ -6,7 +6,7 @@
 
 #define MAX_CONSTANTS 32
 
-typedef struct { String name; long value; int is_unsigned; int active; } ConstEntry;
+typedef struct { String name; long value; int is_unsigned; int is_long; int active; } ConstEntry;
 
 /* from sub-files */
 extern void scan_node(AST_Node* n, ConstEntry* map, int* count);
@@ -36,12 +36,13 @@ ConstEntry* find_entry(ConstEntry* map, int count, String name)
 }
 
 void add_entry(ConstEntry* map, int* count, String name, long value,
-               int is_unsigned)
+               int is_unsigned, int is_long)
 {
     if (*count >= MAX_CONSTANTS) return;
     map[*count].name = name;
     map[*count].value = value;
     map[*count].is_unsigned = is_unsigned;
+    map[*count].is_long = is_long;
     map[*count].active = 1;
     (*count)++;
 }

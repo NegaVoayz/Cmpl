@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-typedef struct { String name; long value; int active; } ConstEntry;
+typedef struct { String name; long value; int is_unsigned; int is_long; int active; } ConstEntry;
 
 /* context passed through walker */
 typedef struct {
@@ -15,7 +15,7 @@ typedef struct {
 
 /* from opt_propagate.c */
 extern void add_entry(ConstEntry* map, int* count, String name, long value,
-                      int is_unsigned);
+                      int is_unsigned, int is_long);
 extern void kill_entry(ConstEntry* map, int count, String name);
 
 /* ---------------------------------------------------------------
@@ -32,7 +32,8 @@ static int scan_pre(AST_Node* n, void* ctx)
             && is_int_literal_kind(n->body.var_decl.init->type))
             add_entry(c->map, c->count, n->body.var_decl.name,
                       n->body.var_decl.init->body.literal.int_val,
-                      n->body.var_decl.init->body.literal.is_unsigned);
+                      n->body.var_decl.init->body.literal.is_unsigned,
+                      n->body.var_decl.init->type == AST_LONG_LIT);
         break;
 
     case AST_BINARY:

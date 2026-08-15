@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-typedef struct { String name; long value; int is_unsigned; int active; } ConstEntry;
+typedef struct { String name; long value; int is_unsigned; int is_long; int active; } ConstEntry;
 
 typedef struct {
     ConstEntry* map;
@@ -27,7 +27,9 @@ static int replace_pre(AST_Node* n, void* ctx)
         ConstEntry* e = find_entry(c->map, c->count, n->body.ident.name);
 
         if (e) {
-            n->type = AST_INT_LIT;
+            /* keep the 64-bit kind: a propagated LONG_LIT must stay a
+             * long literal, or the i64 value is truncated to i32 */
+            n->type = e->is_long ? AST_LONG_LIT : AST_INT_LIT;
             n->body.literal.int_val = e->value;
             n->body.literal.is_unsigned = e->is_unsigned;
             return 1;
