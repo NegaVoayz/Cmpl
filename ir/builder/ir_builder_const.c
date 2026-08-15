@@ -4,6 +4,9 @@
 
 #include "arena.h"
 
+#include <stdint.h>
+#include <string.h>
+
 IR_Value*
 ir_const_int(IR_Builder* b, IR_Type* ty, long long val)
 {
@@ -73,9 +76,7 @@ int_type_of_bytes(int sz)
  * initialized member (at offset 0) into the union's single largest-member
  * slot, e.g. union { int a; double b; } gu = {1} lowers to
  * bitcast(i64 1 to double).  Returns NULL (caller zero-fills) for
- * aggregates/pointers, a narrowing target, or a float member widened past
- * its own width (the i32->i64 step would need a zext constexpr, dropped in
- * LLVM 21). */
+ * aggregates/pointers and narrowing targets. */
 IR_Value*
 ir_const_reinterpret(Arena* a, IR_Value* v, IR_Type* to)
 {
@@ -114,5 +115,24 @@ ir_const_reinterpret(Arena* a, IR_Value* v, IR_Type* to)
         return ir_const_bitcast(a, to, w);
     }
 
-    return NULL;  /* widening a float member needs a zext constexpr */
+    /* widening a float member (f32 -> f64): a zext constexpr was dropped in
+     * LLVM 21, but the zero-extended bit pattern is exactly a value-space
+     * double — build the double whose bits are the f32 pattern extended to
+     * 64 bits (e.g. union { float f; double d; } {.f = 2.5f} -> d's bits
+     * 0x0000000040200000).  same-size float<->int was handled above. */
+    if (is_float && v->type->kind == IR_F32 && to->kind == IR_F64) {
+        float f = (float)v->body.float_val;
+        uint32_t b;
+        memcpy(&b, &f, 4);
+        uint64_t bits = (uint64_t)b;
+        double d;
+        memcpy(&d, &bits, 8);
+        IR_Value* r = arena_alloc(a, sizeof(IR_Value));
+        r->kind = VAL_CONST_FLOAT;
+        r->type = to;
+        r->body.float_val = d;
+        return r;
+    }
+
+    return NULL;  /* other widening/narrowing: unsupported */
 }

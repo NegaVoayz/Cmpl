@@ -40,6 +40,26 @@ gen_const_string(Arena* a, AST_Node* init, IR_Type* target_type)
     return v;
 }
 
+/* scalar constant of `ty` from an int/char value (iv) or a float value
+ * (fv): the kind must follow the TARGET type, not the literal.  an int
+ * literal initializing a float member must convert (C semantics) —
+ * emitting VAL_CONST_INT with a float type would dump "{double 1}",
+ * which clang rejects.  float -> int truncates toward zero (gcc parity). */
+static IR_Value*
+gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv)
+{
+    IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+    v->type = ty;
+    if (ty && (ty->kind == IR_F32 || ty->kind == IR_F64)) {
+        v->kind = VAL_CONST_FLOAT;
+        v->body.float_val = fv;
+    } else {
+        v->kind = VAL_CONST_INT;
+        v->body.int_val = iv;
+    }
+    return v;
+}
+
 /* an enum constant reference; unresolved identifiers warn and return 0. */
 static IR_Value*
 gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
@@ -49,11 +69,8 @@ gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
         if (ev->name.length == init->body.ident.name.length &&
             memcmp(ev->name.data, init->body.ident.name.data,
                    ev->name.length) == 0) {
-            IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-            v->kind = VAL_CONST_INT;
-            v->type = target_type;
-            v->body.int_val = (long)(intptr_t)ev->aliased_type;
-            return v;
+            long long iv = (long long)(intptr_t)ev->aliased_type;
+            return gen_const_scalar(a, target_type, iv, (double)iv);
         }
     }
     fprintf(stderr, "gen_const: unresolved ident '%.*s'\n",
@@ -101,37 +118,21 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
         return gen_const_init_list(a, init, target_type, enum_vals);
 
     case AST_INT_LIT:
-    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-        v->kind = VAL_CONST_INT;
-        v->type = target_type;
-        v->body.int_val = init->body.literal.int_val;
-        return v;
-    }
-
     case AST_LONG_LIT:
-    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-        v->kind = VAL_CONST_INT;
-        v->type = target_type;
-        v->body.int_val = init->body.literal.int_val;
-        return v;
-    }
+        return gen_const_scalar(a, target_type,
+                                init->body.literal.int_val,
+                                (double)init->body.literal.int_val);
 
     case AST_CHAR_LIT:
-    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-        v->kind = VAL_CONST_INT;
-        v->type = target_type;
-        v->body.int_val = init->body.literal.char_val;
-        return v;
-    }
+        return gen_const_scalar(a, target_type,
+                                init->body.literal.char_val,
+                                (double)init->body.literal.char_val);
 
     case AST_FLOAT_LIT:
     case AST_DOUBLE_LIT:
-    {   IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-        v->kind = VAL_CONST_FLOAT;
-        v->type = target_type;
-        v->body.float_val = init->body.literal.float_val;
-        return v;
-    }
+        return gen_const_scalar(a, target_type,
+                                (long long)init->body.literal.float_val,
+                                init->body.literal.float_val);
 
     case AST_STRING_LIT:
         return gen_const_string(a, init, target_type);
