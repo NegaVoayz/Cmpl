@@ -95,6 +95,16 @@ void resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map);
 int  resolve_compound_lit_type_cb(AST_Node* n, void* ctx);
 int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 
+/* ---- module emission passes (ir_gen_module_emit.c) ---- */
+void resolve_struct_refs_all(Arena* a, AST_Node* root);
+void resolve_array_sizes_pass(AST_Node* root, TypedefEntry* enum_vals);
+void upgrade_existing_global(Arena* a, AST_Node* decl, IR_Value* existing,
+                             TypedefEntry* enum_vals);
+void emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
+                 TypedefEntry* enum_vals);
+void gen_module_functions(AST_Node* root, IR_Module* mod, int is_device,
+                          HashMap* sig_map);
+
 /* ---- expression operators + coercion (ir/gen/expr/) ---- */
 IR_Value* coerce_to_i1(IR_Builder* b, IR_Value* v);
 IR_Value* coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target);
