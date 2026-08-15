@@ -7,10 +7,7 @@
 
 #include "arena.h"
 
-/* from ir_builder.c */
-extern IR_Value* make_vreg(IR_Builder* b, IR_Type* ty);
-extern IR_Instr* make_instr(IR_Builder* b, IR_Opcode op, IR_Type* ty);
-extern void      append_instr(IR_Builder* b, IR_Instr* inst);
+#include "ir_builder.h"
 
 /* macro for simple binary ops */
 #define BINOP_BUILDER(FN, OP)                   \
@@ -219,26 +216,8 @@ ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
 }
 
 /* ---------------------------------------------------------------
- *  Instruction builders -- cast / select
+ *  Instruction builders -- select / unreachable
  * --------------------------------------------------------------- */
-
-#define CAST_BUILDER(FN, OP)                                  \
-IR_Value* FN(IR_Builder* b, IR_Value* v, IR_Type* to) {       \
-    IR_Instr* inst = make_instr(b, OP, to);                    \
-    inst->operands[0] = v; append_instr(b, inst);              \
-    return inst->result;                                       \
-}
-
-CAST_BUILDER(ir_build_bitcast, IROP_BITCAST)
-CAST_BUILDER(ir_build_trunc,   IROP_TRUNC)
-CAST_BUILDER(ir_build_zext,    IROP_ZEXT)
-CAST_BUILDER(ir_build_sext,    IROP_SEXT)
-CAST_BUILDER(ir_build_sitofp,  IROP_SITOFP)
-CAST_BUILDER(ir_build_uitofp,  IROP_UITOFP)
-CAST_BUILDER(ir_build_fptosi,  IROP_FPTOSI)
-CAST_BUILDER(ir_build_fptoui,  IROP_FPTOUI)
-
-#undef CAST_BUILDER
 
 IR_Value*
 ir_build_select(IR_Builder* b, IR_Value* cond, IR_Value* tv, IR_Value* fv)
