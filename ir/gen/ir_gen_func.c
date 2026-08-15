@@ -9,6 +9,76 @@
 #include "ast.h"
 #include "ir_gen.h"
 
+/* count params, create the VAL_PARAM list, and emit allocas + stores
+ * that copy each argument into a named local in the entry block. */
+static void
+gen_func_params(GenCtx* ctx, IR_Builder* b, IR_Func* func, AST_Node* fd,
+                Arena* a)
+{
+    int n = 0;
+    for (AST_Node* p = fd->body.func_def.params; p; p = p->next) n++;
+
+    func->n_params = n;
+    func->params = arena_alloc(a, n * sizeof(IR_Value*));
+
+    for (int i = 0; i < n; i++) {
+        func->params[i] = arena_alloc(a, sizeof(IR_Value));
+        func->params[i]->kind = VAL_PARAM;
+        func->params[i]->type = t_i32;
+        func->params[i]->id = b->next_vreg_id++;
+    }
+
+    {
+        int i = 0;
+        for (AST_Node* p = fd->body.func_def.params; p; p = p->next, i++) {
+            IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type);
+            /* if resolved type is i32 but AST type is a named typedef
+             * (e.g. unresolved typedef for function pointer or struct),
+             * default to ptr — typedefs aren't resolved at parse time. */
+            if (pty && pty->kind == IR_I32) {
+                Type* ast = p->body.param_decl.param_type;
+                if (ast && ast->kind == TYPE_NAMED && !ast->inner)
+                    pty = ir_ptr_type(a, t_i8, 0);
+            }
+            func->params[i]->type = pty ? pty : t_i32;
+
+            IR_Value* alloca = ir_build_alloca(b, func->params[i]->type);
+            sym_add(ctx, p->body.param_decl.name, alloca);
+            ir_build_store(b, func->params[i], alloca);
+        }
+    }
+}
+
+/* ensure every block ends with a proper terminator: empty blocks (e.g.
+ * merge blocks after if-without-else) and blocks whose last instruction
+ * is not a terminator get a ret; already-terminated blocks are left
+ * alone. */
+static void
+gen_func_terminators(IR_Builder* b, IR_Func* func, Arena* a)
+{
+    IR_Block* blk = func->blocks;
+    while (blk) {
+        IR_Instr* term = blk->last;
+
+        if (!term || (term->opcode != IROP_RET &&
+                      term->opcode != IROP_BR &&
+                      term->opcode != IROP_COND_BR &&
+                      term->opcode != IROP_UNREACHABLE)) {
+            ir_builder_set_block(b, blk);
+
+            if (func->ret_type && func->ret_type->kind != IR_VOID) {
+                IR_Value* undef = arena_alloc(a, sizeof(IR_Value));
+                undef->kind = VAL_UNDEF;
+                undef->type = func->ret_type;
+                ir_build_ret(b, undef);
+            } else {
+                ir_build_ret(b, NULL);
+            }
+        }
+        blk = blk->next;
+    }
+}
+
 /* ---------------------------------------------------------------
  *  Function generation
  * --------------------------------------------------------------- */
@@ -50,20 +120,6 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     default: func->linkage = LINK_EXTERNAL; break; /* host */
     }
 
-    /* count and create params */
-    int n = 0;
-    for (AST_Node* p = fd->body.func_def.params; p; p = p->next) n++;
-
-    func->n_params = n;
-    func->params = arena_alloc(a, n * sizeof(IR_Value*));
-
-    for (int i = 0; i < n; i++) {
-        func->params[i] = arena_alloc(a, sizeof(IR_Value));
-        func->params[i]->kind = VAL_PARAM;
-        func->params[i]->type = t_i32;
-        func->params[i]->id = b->next_vreg_id++;
-    }
-
     b->cur_func = func;
 
     /* create entry block first */
@@ -73,58 +129,13 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     b->entry_block = entry;
     ir_builder_set_block(b, entry);
 
-    /* emit allocas and stores for params */
-    {
-        int i = 0;
-        for (AST_Node* p = fd->body.func_def.params; p; p = p->next, i++) {
-            IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type);
-            /* if resolved type is i32 but AST type is a named typedef
-             * (e.g. unresolved typedef for function pointer or struct),
-             * default to ptr — typedefs aren't resolved at parse time. */
-            if (pty && pty->kind == IR_I32) {
-                Type* ast = p->body.param_decl.param_type;
-                if (ast && ast->kind == TYPE_NAMED && !ast->inner)
-                    pty = ir_ptr_type(a, t_i8, 0);
-            }
-            func->params[i]->type = pty ? pty : t_i32;
-
-            IR_Value* alloca = ir_build_alloca(b, func->params[i]->type);
-            sym_add(&ctx, p->body.param_decl.name, alloca);
-            ir_build_store(b, func->params[i], alloca);
-        }
-    }
+    gen_func_params(&ctx, b, func, fd, a);
 
     /* generate body */
     if (fd->body.func_def.body)
         gen_stmt(&ctx, fd->body.func_def.body);
 
-    /* ensure every block has a proper terminator.
-     * empty blocks (e.g. merge blocks after if-without-else) get a ret;
-     * blocks whose last instruction is not a terminator get a ret;
-     * blocks that already have a terminator are left alone. */
-    {
-        IR_Block* blk = func->blocks;
-        while (blk) {
-            IR_Instr* term = blk->last;
-
-            if (!term || (term->opcode != IROP_RET &&
-                          term->opcode != IROP_BR &&
-                          term->opcode != IROP_COND_BR &&
-                          term->opcode != IROP_UNREACHABLE)) {
-                ir_builder_set_block(b, blk);
-
-                if (func->ret_type && func->ret_type->kind != IR_VOID) {
-                    IR_Value* undef = arena_alloc(a, sizeof(IR_Value));
-                    undef->kind = VAL_UNDEF;
-                    undef->type = func->ret_type;
-                    ir_build_ret(b, undef);
-                } else {
-                    ir_build_ret(b, NULL);
-                }
-            }
-            blk = blk->next;
-        }
-    }
+    gen_func_terminators(b, func, a);
 
     /* append to module */
     if (mod->last_func)
