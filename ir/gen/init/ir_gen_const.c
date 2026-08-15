@@ -107,6 +107,30 @@ gen_const_unary(Arena* a, AST_Node* init, IR_Type* target_type,
       v->body.int_val = 0; return v; }
 }
 
+/* scalar-initialized union whose LARGEST member is an aggregate: place the
+ * member's value-space bits in the aggregate's first element/field (the
+ * member sits at offset 0), recursing into nested first-fields, and zero
+ * the rest.  ir_const_reinterpret yields the exact first-slot constant
+ * (e.g. bitcast(i64 5 to double) for {int a; double b[2]} {.a=5}). */
+IR_Value*
+gen_const_union_aggregate(Arena* a, IR_Type* agg, IR_Value* mv)
+{
+    int n = ir_agg_count(agg);
+    if (n <= 0) return gen_const_zero(a, agg);
+
+    IR_Value** elems = arena_alloc(a, n * sizeof(IR_Value*));
+    IR_Type* first = gen_const_child_type(agg, 0);
+    if (first->kind == IR_ARRAY || first->kind == IR_STRUCT)
+        elems[0] = gen_const_union_aggregate(a, first, mv);
+    else {
+        IR_Value* cv = ir_const_reinterpret(a, mv, first);
+        elems[0] = cv ? cv : gen_const_zero(a, first);
+    }
+    for (int i = 1; i < n; i++)
+        elems[i] = gen_const_zero(a, gen_const_child_type(agg, i));
+    return ir_const_aggregate(a, agg, elems, n);
+}
+
 IR_Value*
 gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
                TypedefEntry* enum_vals)

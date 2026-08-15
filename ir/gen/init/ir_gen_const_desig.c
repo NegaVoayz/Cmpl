@@ -122,7 +122,8 @@ gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
  * initialized member's type matches the largest member, store it directly;
  * otherwise reinterpret the member value's low bits into the largest type
  * (the member sits at offset 0 of the union's storage, so the high bytes are
- * zero-filled).  unsupported operands (aggregates/pointers) fall back to a
+ * zero-filled).  an aggregate largest member receives the reinterpreted bits
+ * in its first element (gen_const_union_aggregate); pointers fall back to a
  * zero-filled slot. */
 void
 gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
@@ -134,8 +135,12 @@ gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
         elems[0] = gen_const_desig(a, largest, steps, val, enum_vals);
     } else if (largest && member_ty) {
         IR_Value* mv = gen_const_desig(a, member_ty, steps, val, enum_vals);
-        IR_Value* cv = ir_const_reinterpret(a, mv, largest);
-        elems[0] = cv ? cv : gen_const_zero(a, largest);
+        if (largest->kind == IR_ARRAY || largest->kind == IR_STRUCT)
+            elems[0] = gen_const_union_aggregate(a, largest, mv);
+        else {
+            IR_Value* cv = ir_const_reinterpret(a, mv, largest);
+            elems[0] = cv ? cv : gen_const_zero(a, largest);
+        }
     } else if (largest) {
         elems[0] = gen_const_zero(a, largest);
     }
