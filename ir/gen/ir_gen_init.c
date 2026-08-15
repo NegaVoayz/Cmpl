@@ -2,9 +2,8 @@
  *
  * Store initializers into a freshly allocated aggregate slot:
  * gen_string_array_init (string bytes), ir_gen_init_one (element/brace
- * lists), ir_gen_zero_fill (zero skipped slots), and the designator-walk
- * helpers (init_child_type, desig_walk_slot, cont_walk_slot,
- * init_cont_advance).
+ * lists), ir_gen_zero_fill (zero skipped slots).  The designator-walk
+ * helpers moved to init/ir_gen_init_desig.c.
  */
 
 #include "ir.h"
@@ -16,139 +15,7 @@
 #include "ast.h"
 #include "arena.h"
 #include "ir_gen.h"
-
-/* ---------------------------------------------------------------
- *  Initializer-list stores into a temp (compound literals)
- * --------------------------------------------------------------- */
-
-/* child (element/member) type at position idx of an aggregate type */
-static IR_Type*
-init_child_type(IR_Type* ty, int idx)
-{
-    if (!ty) return NULL;
-    if (ty->kind == IR_ARRAY) return ty->inner;
-    if (ty->kind == IR_STRUCT || ty->kind == IR_UNION) {
-        IR_Type* m = ty->members;
-        for (int i = 0; m && i < idx; i++) m = m->next;
-        return m;
-    }
-    return NULL;
-}
-
-/* walk a designator step chain from `dst` (type `ty`), emitting nested
- * GEPs into the target slot.  sets *final_ty to the slot's type and
- * *top_idx to the first step's resolved slot index (for cursor advance).
- * returns the final slot, or NULL (after printing an error) on a bad
- * field name or out-of-range [i].  mirrors gen_const_desig in ir_gen.c. */
-static IR_Value*
-desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
-                AST_Node* steps, IR_Type** final_ty, int* top_idx,
-                ContLevel* cont, int* depth)
-{
-    IR_Builder* b = ctx->b;
-    IR_Value* slot = dst;
-    IR_Type* cur = ty;
-    int first = 1;
-
-    *final_ty = NULL;
-    *top_idx = -1;
-    if (depth) *depth = 0;
-
-    for (AST_Node* s = steps; s; s = s->next) {
-        String fn = s->body.desig_step.field_name;
-
-        if (fn.data) {
-            Type* ast = ir_struct_ast_lookup(cur);
-            int fi = ast ? ir_struct_field_index(ast, fn) : -1;
-            if (fi < 0) {
-                fprintf(stderr, "cmpl: error: no member '%.*s'\n",
-                        fn.length, fn.data);
-                return NULL;
-            }
-            if (first) *top_idx = fi;
-            if (cont && *depth < CONT_MAX) {
-                cont[*depth].agg = cur;
-                cont[*depth].idx = fi;
-                (*depth)++;
-            }
-            int is_union = (cur && cur->kind == IR_UNION);
-            int gep = is_union ? 0 : fi;
-            slot = ir_build_gep(b, slot,
-                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, gep));
-            cur = init_child_type(cur, fi);
-            /* union is emitted as { largest_member }: the offset-0 GEP gives
-             * the largest member's pointer, so bitcast to the accessed
-             * member's type (mirrors the member-access path). */
-            if (is_union && cur)
-                slot = ir_build_bitcast(b, slot, ir_ptr_type(b->arena, cur, 0));
-        } else if (s->body.desig_step.index_expr) {
-            AST_Node* ix = s->body.desig_step.index_expr;
-            long long ii = (ix && ix->type == AST_INT_LIT)
-                ? ix->body.literal.int_val : 0;
-            if (!cur || cur->kind != IR_ARRAY) {
-                fprintf(stderr, "cmpl: error: [index] designator on non-array\n");
-                return NULL;
-            }
-            if (ii < 0 || ii >= cur->size) {
-                fprintf(stderr, "cmpl: error: array index %lld out of bounds"
-                        " for array of %d\n", ii, cur->size);
-                return NULL;
-            }
-            if (first) *top_idx = (int)ii;
-            if (cont && *depth < CONT_MAX) {
-                cont[*depth].agg = cur;
-                cont[*depth].idx = (int)ii;
-                (*depth)++;
-            }
-            slot = ir_build_gep(b, slot,
-                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, (int)ii));
-            cur = cur->inner;
-        }
-        first = 0;
-    }
-
-    *final_ty = cur;
-    return slot;
-}
-
-/* descend a continuation path (built by desig_walk_slot) emitting GEPs
- * into the innermost slot; sets *child to that slot's type. */
-static IR_Value*
-cont_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
-               ContLevel* cont, int depth, IR_Type** child)
-{
-    IR_Builder* b = ctx->b;
-    IR_Value* slot = dst;
-    IR_Type* cur = ty;
-
-    for (int i = 0; i < depth; i++) {
-        int idx = cont[i].idx;
-        int is_union = (cur && cur->kind == IR_UNION);
-        int gep = is_union ? 0 : idx;
-        slot = ir_build_gep(b, slot,
-            ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, gep));
-        cur = init_child_type(cur, idx);
-        if (is_union && cur)
-            slot = ir_build_bitcast(b, slot, ir_ptr_type(b->arena, cur, 0));
-    }
-    *child = cur;
-    return slot;
-}
-
-/* advance a continuation path past its current (just-filled) slot: bump
- * the deepest index; on overflow pop and increment the parent.  leaves
- * *depth at its post-advance value (the caller drops back to the plain
- * top-level cursor once depth < 2). */
-static void
-init_cont_advance(ContLevel* cont, int* depth)
-{
-    while (*depth > 0) {
-        ContLevel* L = &cont[*depth - 1];
-        L->idx++;
-        if (L->idx < ir_agg_count(L->agg)) return;
-        (*depth)--;
-    }
-}
+#include "init/ir_gen_init.h"
 
 /* store one initializer element into dst; nested lists recurse into
  * the corresponding sub-slot (arrays/structs) of the aggregate.
@@ -294,7 +161,7 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
             }
 
             if (depth >= 2) {
-                init_cont_advance(cont, &depth);
+                cont_advance(cont, &depth);
                 if (depth < 2) depth = 0;
             } else if (!is_desig) {
                 pos++;

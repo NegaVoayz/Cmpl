@@ -8,6 +8,7 @@
 
 #include "ast.h"
 #include "ir_gen.h"
+#include "init/ir_gen_init.h"
 
 /* ---------------------------------------------------------------
  *  gen_const_init — recursive AST-to-IR constant initializer
@@ -223,19 +224,6 @@ gen_const_cont_build(IR_Type* ty, AST_Node* steps, ContLevel* cont, int* depth)
     return cur;
 }
 
-/* advance a continuation path past its just-filled slot (const path).
- * mirrors init_cont_advance in ir_gen_expr.c. */
-static void
-gen_const_advance(ContLevel* cont, int* depth)
-{
-    while (*depth > 0) {
-        ContLevel* L = &cont[*depth - 1];
-        L->idx++;
-        if (L->idx < ir_agg_count(L->agg)) return;
-        (*depth)--;
-    }
-}
-
 /* merge a const value into the innermost continuation slot of `root`
  * (a VAL_CONST_AGGREGATE at level 0).  cont[1..depth-1] index the nested
  * aggregates, whose elems are already fully populated (zeros + designated
@@ -387,7 +375,7 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
             if (s0 && top_idx >= 0 && top_idx < slots) {
                 gen_const_cont_build(target_type, s0, cont, &depth);
                 if (depth < 2) depth = 0;
-                else gen_const_advance(cont, &depth);
+                else cont_advance(cont, &depth);
             } else {
                 depth = 0;
             }
@@ -426,7 +414,7 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                 e = e->next;
             }
             gen_const_cont_set(elems[cont[0].idx], cont, depth, v);
-            gen_const_advance(cont, &depth);
+            cont_advance(cont, &depth);
             if (depth < 2) depth = 0;
             continue;
         }

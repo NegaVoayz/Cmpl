@@ -17,7 +17,7 @@ endif()
 # (mirrors the -I list in build_bootstrap.sh / build_self_linux.sh)
 include_directories(
     include base . tokenizer pp parser parser/lr parser/ll
-    ast-opt ir ir/gen ir/gen/expr ir/dump ir-opt cuda vulkan llvm-codegen
+    ast-opt ir ir/gen ir/gen/expr ir/gen/init ir/dump ir-opt cuda vulkan llvm-codegen
 )
 
 add_subdirectory(base)
