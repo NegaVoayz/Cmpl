@@ -8,20 +8,7 @@
 
 #include "ast.h"
 #include "arena.h"
-
-/* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
-typedef struct { IR_Builder* b; HashMap syms; HashMap* sig_map; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; } GenCtx;
-
-/* from ir_gen.c */
-extern IR_Value* sym_lookup(GenCtx* ctx, String name);
-extern IR_Value* global_lookup(IR_Module* mod, String name);
-extern IR_Type*  func_type_lookup(HashMap* sig_map, String name);
-
-/* from ir_builder.c (shared internal helper) */
-extern void append_instr(IR_Builder* b, IR_Instr* inst);
-
-/* forward: gen_expr is defined later, but gen_logical calls it */
-IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
+#include "ir_gen.h"
 
 /* ---------------------------------------------------------------
  *  CUDA builtin lookup (for device IR only)
@@ -49,8 +36,8 @@ static int match_str(const char* a, const String* b)
  * --------------------------------------------------------------- */
 
 /* coerce any scalar/pointer value to an i1 boolean */
-static IR_Value*
-coerce_bool(IR_Builder* b, IR_Value* v)
+IR_Value*
+coerce_to_i1(IR_Builder* b, IR_Value* v)
 {
     if (!v) return NULL;
     if (v->type && v->type->kind == IR_I1) return v;
@@ -89,7 +76,7 @@ gen_logical(GenCtx* ctx, TokenKind op, AST_Node* l, AST_Node* r)
 
     /* evaluate LHS, then branch (entry block is where the branch lands) */
     IR_Value* lhs = gen_expr(ctx, l);
-    IR_Value* li = coerce_bool(b, lhs);
+    IR_Value* li = coerce_to_i1(b, lhs);
     IR_Block* entry = b->cur_block;
 
     if (op == TOK_AMPAMP)
@@ -102,7 +89,7 @@ gen_logical(GenCtx* ctx, TokenKind op, AST_Node* l, AST_Node* r)
      * the RHS is evaluated — capture it as the phi's incoming block. */
     ir_builder_set_block(b, rhs_blk);
     IR_Value* rhs = gen_expr(ctx, r);
-    IR_Value* ri = coerce_bool(b, rhs);
+    IR_Value* ri = coerce_to_i1(b, rhs);
     IR_Block* rhs_end = b->cur_block;
     ir_build_br(b, end_blk);
 

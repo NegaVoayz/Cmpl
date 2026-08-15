@@ -9,32 +9,7 @@
 #include "ast.h"
 #include "hash.h"
 #include "ast_walk.h"
-
-/* ---------------------------------------------------------------
- *  Typedef table entry (for resolving TYPE_NAMED during IR gen)
- * --------------------------------------------------------------- */
-
-typedef struct TypedefEntry {
-    String               name;
-    Type*                aliased_type;
-    struct TypedefEntry* next;
-} TypedefEntry;
-
-/* ---------------------------------------------------------------
- *  Generation context (per function)
- * --------------------------------------------------------------- */
-
-typedef struct {
-    IR_Builder*   b;
-    HashMap       syms;         /* local variables: name → IR_Value* (alloca) */
-    HashMap*      sig_map;      /* module-level: func name → IR_Type* (func type) */
-    IR_Block*     break_blk;    /* target for break */
-    IR_Block*     cont_blk;     /* target for continue */
-    IR_Type*      ret_type;     /* enclosing function return type */
-    IR_Module*    mod;          /* for global variable lookup */
-    int           is_device;    /* 1 = device IR gen (CUDA builtins), 0 = host */
-    struct SymSave* scope_top;  /* saved shadowed symbols for scope restore */
-} GenCtx;
+#include "ir_gen.h"
 
 /* ---------------------------------------------------------------
  *  Symbol table ops
@@ -64,13 +39,6 @@ IR_Type* func_type_lookup(HashMap* sig_map, String name)
 
 /* save old value for a shadowed variable so it can be restored
  * when the inner block scope exits. */
-typedef struct SymSave {
-    String            name;
-    IR_Value*         old_val;
-    int               had_old;
-    struct SymSave*   next;
-} SymSave;
-
 void sym_add(GenCtx* ctx, String name, IR_Value* alloca)
 {
     /* save the previous binding (if any) so shadowing can be undone */
@@ -455,13 +423,6 @@ static void resolve_ast_node(AST_Node* n, TypedefEntry* table)
 #undef MAX_VISITED
 
 /* ---------------------------------------------------------------
- *  Forward declarations from other sub-files
- * --------------------------------------------------------------- */
-
-extern IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
-extern void      gen_stmt(GenCtx* ctx, AST_Node* n);
-
-/* ---------------------------------------------------------------
  *  Function generation
  * --------------------------------------------------------------- */
 
@@ -481,6 +442,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     ctx.ret_type = NULL;
     ctx.mod = mod;
     ctx.is_device = is_device;
+    ctx.scope_top = NULL;
     IR_Func*    func = arena_alloc(a, sizeof(IR_Func));
 
     func->name = fd->body.func_def.name;

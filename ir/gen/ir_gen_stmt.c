@@ -8,28 +8,9 @@
 
 #include "ast.h"
 #include "arena.h"
-
-/* duplicated from ir_gen.c (C99 pattern for intra-module sharing) */
-typedef struct { IR_Builder* b; HashMap syms; HashMap* sig_map; IR_Block *break_blk, *cont_blk; IR_Type* ret_type; IR_Module* mod; int is_device; struct SymSave* scope_top; } GenCtx;
-
-/* from ir_gen.c and ir_gen_expr.c */
-extern IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
-extern IR_Value* sym_lookup(GenCtx* ctx, String name);
-extern void      sym_add(GenCtx* ctx, String name, IR_Value* alloca);
-extern void      sym_scope_push(GenCtx* ctx);
-extern void      sym_scope_pop(GenCtx* ctx);
-/* from ir_gen_expr.c: recursive, type-aware init-list stores (handles
- * nested braces, designators, arrays and structs uniformly) */
-extern void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst,
-                                 AST_Node* e, IR_Type* ty);
-/* zero-fill aggregate slots not covered by a brace init (C99) */
-extern void      ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty);
-/* char a[N] = "s": copy string bytes into the array (not the pointer) */
-extern void      gen_string_array_init(GenCtx* ctx, IR_Value* dst,
-                                       AST_Node* e, IR_Type* ty);
+#include "ir_gen.h"
 
 /* forward: defined below (used by gen_stmt_if/while/for) */
-void gen_stmt(GenCtx* ctx, AST_Node* n);
 static void gen_stmt_switch(GenCtx* ctx, AST_Node* n);
 
 /* check if an opcode is a terminator (nothing can follow it in a block) */
@@ -37,32 +18,6 @@ static int is_terminator(IR_Opcode op)
 {
     return op == IROP_RET || op == IROP_BR ||
            op == IROP_COND_BR || op == IROP_UNREACHABLE;
-}
-
-/* coerce a value to i1 for use as branch condition */
-static IR_Value*
-coerce_to_i1(IR_Builder* b, IR_Value* v)
-{
-    if (!v) return NULL;
-
-    if (v->type && v->type->kind == IR_I1) return v;
-
-    /* pointer → icmp ne ptr %v, null */
-    if (v->type && v->type->kind == IR_PTR) {
-        IR_Value* nv = arena_alloc(b->arena, sizeof(IR_Value));
-        nv->kind = VAL_CONST_NULL; nv->type = v->type;
-        return ir_build_icmp(b, IR_COND_NE, v, nv);
-    }
-
-    /* float/double → fcmp one ty %v, 0.0 */
-    if (v->type && (v->type->kind == IR_F32 || v->type->kind == IR_F64)) {
-        IR_Value* zero = ir_const_float(b->arena, v->type, 0.0);
-        return ir_build_fcmp(b, IR_COND_NE, v, zero);
-    }
-
-    /* integer/other → icmp ne ty %v, 0 */
-    IR_Value* zero = ir_const_int(b, v->type ? v->type : t_i32, 0);
-    return ir_build_icmp(b, IR_COND_NE, v, zero);
 }
 
 /* helper: link new blocks after existing ones */
