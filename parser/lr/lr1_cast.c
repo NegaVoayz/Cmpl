@@ -1,0 +1,175 @@
+/* lr1_cast.c -- cast / sizeof(type) / compound-literal detection: the
+ * lookahead heuristics that decide whether '(' starts a cast (rather than a
+ * paren-expr or call) and the type-name parser they share. */
+
+#include "lr1.h"
+#include "../ll/ll.h"
+
+/* type keywords that can begin a cast/sizeof type */
+static int is_type_keyword(TokenKind k)
+{
+    return k == TOK_INT    || k == TOK_CHAR   || k == TOK_VOID ||
+           k == TOK_SHORT  || k == TOK_LONG   || k == TOK_FLOAT ||
+           k == TOK_DOUBLE || k == TOK_SIGNED || k == TOK_UNSIGNED ||
+           k == TOK_STRUCT || k == TOK_UNION  || k == TOK_ENUM;
+}
+
+/* Check if a token can start a type specifier inside a cast:
+ *   (type_keyword...)  e.g. (int*), (unsigned long)
+ *   (const ...)        e.g. (const int*), (const Keyword*)
+ *   (volatile ...)     e.g. (volatile int*)
+ *   (IDENT *)          e.g. (Keyword*)  -- typedef name with pointer
+ *   (IDENT)            e.g. (Keyword)   -- usable as a cast when
+ *                        followed by a unary expression (heuristic).
+ * Only called when the next token after '(' needs disambiguation. */
+int is_cast_start(Token* tok)
+{
+    if (!tok) return 0;
+
+    TokenKind k = tok->kind;
+
+    /* type keywords and struct/union/enum -- always a cast */
+    if (is_type_keyword(k)) return 1;
+
+    /* const / volatile -- qualifiers only appear in types, never
+     * at the start of a parenthesised expression. */
+    if (k == TOK_CONST || k == TOK_VOLATILE) return 1;
+
+    /* typedef name: (TypeName*) or (TypeName **) is a cast;
+     * (TypeName) without * is ambiguous — check if what follows
+     * ')' looks like a cast target (expr start). */
+    if (k == TOK_IDENT) {
+        Token* next = tok->next;
+
+        while (next && (next->kind == TOK_CONST ||
+                        next->kind == TOK_VOLATILE))
+            next = next->next;
+
+        if (next && next->kind == TOK_STAR) {
+            /* (TypeName*) is a cast ONLY if the type ends at ')'.
+             * (ident * ident) is a parenthesized multiply — treating it
+             * as a cast broke every `(a * b)` expression.  Scan past
+             * the star chain and array dimensions: (T*)x, (T**)x and
+             * (T*[2])x end with ')', (a * b) does not. */
+            Token* s = next;
+
+            while (s && (s->kind == TOK_STAR ||
+                         s->kind == TOK_CONST ||
+                         s->kind == TOK_VOLATILE))
+                s = s->next;
+            while (s && s->kind == TOK_LBRACKET) {
+                int depth = 1;
+
+                s = s->next;
+                while (s && depth > 0) {
+                    if (s->kind == TOK_LBRACKET) depth++;
+                    if (s->kind == TOK_RBRACKET) depth--;
+                    if (depth > 0) s = s->next;
+                }
+                if (s && s->kind == TOK_RBRACKET) s = s->next;
+            }
+            if (s && s->kind == TOK_RPAREN)
+                return 1;
+        }
+
+        /* (TypeName) — find closing ) and peek at what follows */
+        if (next && next->kind == TOK_RPAREN) {
+            Token* after = next->next;
+
+            if (after && (after->kind == TOK_IDENT ||
+                          after->kind == TOK_INT_LIT ||
+                          after->kind == TOK_LONG_LIT ||
+                          after->kind == TOK_FLOAT_LIT ||
+                          after->kind == TOK_DOUBLE_LIT ||
+                          after->kind == TOK_CHAR_LIT ||
+                          after->kind == TOK_STRING_LIT ||
+                          after->kind == TOK_LPAREN ||
+                          after->kind == TOK_PLUSPLUS ||
+                          after->kind == TOK_MINUSMINUS ||
+                          after->kind == TOK_BANG ||
+                          after->kind == TOK_TILDE ||
+                          after->kind == TOK_SIZEOF ||
+                          after->kind == TOK_LBRACE))
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+/* check if token kind is a postfix operator (binds tighter than cast) */
+int is_postfix_token(TokenKind k)
+{
+    return k == TOK_LPAREN    /* func(args) */
+        || k == TOK_LBRACKET  /* arr[idx]   */
+        || k == TOK_DOT       /* obj.member */
+        || k == TOK_ARROW     /* ptr->member*/
+        || k == TOK_PLUSPLUS  /* expr++     */
+        || k == TOK_MINUSMINUS;/* expr--     */
+}
+
+/* states at or below cast-expr level -- where a pending cast should wrap */
+int is_cast_level(int s)
+{
+    /* HS_POSTFIX / S_BINRHS_POSTFIX are deliberately excluded —
+     * postfix operators bind tighter than casts.  If we wrap at
+     * HS_POSTFIX, (unsigned char)key.data[i] becomes
+     * ((unsigned char)key.data)[i] instead of the correct
+     * (unsigned char)(key.data[i]). */
+    return s == HS_UNARY ||
+           s == HS_CAST_EXPR ||
+           s == S_BINRHS_UNARY;
+}
+
+/* states where '(' starts a function call, not a cast/paren-expr */
+int is_have_expr_state(LR1_State s)
+{
+    return (s >= HS_PRIMARY && s <= HS_EXPR) ||
+           s == S_BINRHS_PRIMARY || s == S_BINRHS_POSTFIX ||
+           s == S_BINRHS_UNARY ||
+           s == S_UNARY_RHS || s == S_ASSIGN_RHS || s == S_TERNARY_RHS;
+}
+
+/* Parse a type name inside a cast or sizeof: type specifiers followed by
+ * pointer/array declarator suffixes.  Leaves p->tok just past the type
+ * (before the closing ')') and returns the wrapped Type tree. */
+Type* ll_parse_type_name(LR1_Parser* p)
+{
+    Type* ct = ll_parse_type_specs(p);
+
+    /* consume pointer declarator: (int*), (void**), etc. */
+    while (p->tok->kind == TOK_STAR ||
+           p->tok->kind == TOK_CONST ||
+           p->tok->kind == TOK_VOLATILE) {
+        if (p->tok->kind == TOK_STAR) {
+            Type* ptr = type_new(p->arena, TYPE_PTR);
+            ptr->inner = ct;
+            ct = ptr;
+        }
+        p->tok = p->tok->next;
+    }
+
+    /* consume array declarator: (int[]), (int[N]), (IR_Value*[]), etc. */
+    while (p->tok->kind == TOK_LBRACKET) {
+        p->tok = p->tok->next;
+
+        Type* arr = type_new(p->arena, TYPE_ARRAY);
+        arr->arr_size = 0;
+
+        if (p->tok->kind == TOK_INT_LIT) {
+            arr->arr_size = (int)p->tok->body.int_val;
+            p->tok = p->tok->next;
+        } else if (p->tok->kind == TOK_IDENT) {
+            arr->size_name = p->tok->body.ident;
+            p->tok = p->tok->next;
+        }
+
+        if (p->tok->kind == TOK_RBRACKET)
+            p->tok = p->tok->next;
+
+        arr->inner = ct;
+        ct = arr;
+    }
+
+    return ct;
+}

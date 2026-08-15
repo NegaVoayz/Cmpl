@@ -162,4 +162,19 @@ AST_Node*   lr1_parse_expr(LR1_Parser* p);
 void goto_push(LR1_Parser* p, AST_Node* node, int lhs_sym);
 void goto_passthru(LR1_Parser* p, int lhs_sym);
 
+/* ---------------------------------------------------------------
+ *  Cast / sizeof(type) / compound-literal helpers
+ *  (defined in lr1_cast.c and lr1_cast_apply.c)
+ * --------------------------------------------------------------- */
+
+int    is_cast_start(Token* tok);
+int    is_postfix_token(TokenKind k);
+int    is_cast_level(int s);
+int    is_have_expr_state(LR1_State s);
+Type*  ll_parse_type_name(LR1_Parser* p);
+
+int       try_parse_cast(LR1_Parser* p, LR1_State state);
+AST_Node* lr1_stop_at_comma(LR1_Parser* p, TokenKind next);
+void      apply_pending_cast_at_reduce(LR1_Parser* p);
+
 #endif /* LR1_H */

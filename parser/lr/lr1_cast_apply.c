@@ -1,0 +1,165 @@
+/* lr1_cast_apply.c -- cast / sizeof(type) / compound-literal actions: the
+ * helpers that consume the construct once lr1_cast.c has decided '(' starts
+ * one.  try_parse_cast / lr1_stop_at_comma / apply_pending_cast_at_reduce are
+ * the entry points driven from the main LR loop in lr1.c. */
+
+#include "lr1.h"
+
+/* Parse sizeof(type).  p->tok at '(', peek at the type.  Consumes the type
+ * and ')' and reduces the S_SIZEOF frame to an AST_SIZEOF_TYPE node. */
+static void
+parse_sizeof_type(LR1_Parser* p, Token* peek)
+{
+    p->tok = peek;
+    Type* ct = ll_parse_type_name(p);
+
+    if (p->tok->kind == TOK_RPAREN)
+        p->tok = p->tok->next;
+
+    /* pop S_SIZEOF stack frame, push sizeof_type node */
+    Token* tok = p->stack[p->sp].token;
+    AST_Node* n = ast_node_new(p->arena, AST_SIZEOF_TYPE,
+                               tok->loc.line, tok->loc.col);
+
+    n->body.sizeof_type.type_expr = ct;
+    p->sp--;
+    goto_push(p, n, SYM_UNARY);
+}
+
+/* Skip a C99 compound literal (type){init}.  p->tok at '{'; records the
+ * token and advances past the balanced initializer.  The initializer is
+ * re-parsed by resolve_compound_lits() after the LR expression completes
+ * (parse_init_list re-enters lr1_parse_expr, so it cannot run here). */
+static void
+skip_compound_literal(LR1_Parser* p, Type* ct)
+{
+    Token* start = p->tok;
+    int depth = 1;
+
+    p->tok = p->tok->next;
+    while (p->tok->kind != TOK_EOF && depth > 0) {
+        if (p->tok->kind == TOK_LBRACE) depth++;
+        if (p->tok->kind == TOK_RBRACE) depth--;
+        if (depth > 0) p->tok = p->tok->next;
+    }
+    if (p->tok->kind == TOK_RBRACE)
+        p->tok = p->tok->next;
+
+    AST_Node* n = ast_node_new(p->arena, AST_COMPOUND_LIT,
+                               start->loc.line, start->loc.col);
+
+    n->body.compound_lit.type_expr = ct;
+    n->body.compound_lit.init = NULL;
+    n->body.compound_lit.init_start = start;
+    goto_push(p, n, SYM_PRIMARY);
+}
+
+/* Try to parse a cast / sizeof(type) / compound literal at the current
+ * position.  Returns 1 and consumes the construct when '(' starts one
+ * (leaving the LR stack/state advanced); returns 0 otherwise so the caller
+ * falls through to the normal action table.
+ *
+ * Detected before shifting '(' to avoid leaving a stray LPAREN on the
+ * stack.  Not inside sizeof -- (type) there is sizeof(type).  And skipped
+ * when state == S_IDENT -- after an ident, '(' is always a call, not a cast. */
+int
+try_parse_cast(LR1_Parser* p, LR1_State state)
+{
+    if (p->tok->kind != TOK_LPAREN || state == S_IDENT ||
+        is_have_expr_state(state))
+        return 0;
+
+    Token* peek = p->tok->next;
+
+    if (!peek || !is_cast_start(peek))
+        return 0;
+
+    /* check if we're inside sizeof -- if so, (type) is a type name */
+    int inside_sizeof = (state == S_SIZEOF);
+
+    for (int i = p->sp; !inside_sizeof && i >= 0; i--) {
+        if (p->stack[i].state == S_SIZEOF) inside_sizeof = 1;
+    }
+
+    if (inside_sizeof) {
+        parse_sizeof_type(p, peek);
+        return 1;
+    }
+
+    p->tok = peek;
+    Type* ct = ll_parse_type_name(p);
+
+    if (p->tok->kind == TOK_RPAREN)
+        p->tok = p->tok->next;
+
+    if (p->tok->kind == TOK_LBRACE) {
+        skip_compound_literal(p, ct);
+        return 1;
+    }
+
+    /* mark pending cast so lr1_parse_expr wraps the result */
+    p->pending_cast = 1;
+    p->cast_type = ct;
+    p->cast_loc = peek->loc;
+    p->cast_paren_depth = p->paren_depth;
+    p->cast_sp = p->sp;
+    return 1;
+}
+
+/* Handle stop_at_comma: when set, treat comma as a terminator (enum values,
+ * init lists, etc.).  Returns the completed expression node, or NULL to keep
+ * parsing.  Only returns when the stack top holds a node -- after a shift
+ * the node is still NULL and the reducer must run first. */
+AST_Node*
+lr1_stop_at_comma(LR1_Parser* p, TokenKind next)
+{
+    if (!p->stop_at_comma || next != TOK_COMMA || !p->stack[p->sp].node)
+        return NULL;
+
+    AST_Node* result = p->stack[p->sp].node;
+
+    if (p->pending_cast && result && p->paren_depth <= p->cast_paren_depth) {
+        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
+                                      p->cast_loc.line, p->cast_loc.col);
+
+        cast->body.cast.type_expr = p->cast_type;
+        cast->body.cast.cast_expr = result;
+        p->pending_cast = 0;
+        return cast;
+    }
+    return result;
+}
+
+/* Apply a pending cast at the earliest point (primary through cast-expr).
+ * Defer if a postfix operator follows -- postfix binds tighter than cast:
+ *   (int)strlen(x)  ->  (int)(strlen(x)), not ((int)strlen)(x)
+ *   (int)arr[i]     ->  (int)(arr[i]),    not ((int)arr)[i]
+ * Also defer inside parens/brackets opened after the cast:
+ *   (int)(p - q)    ->  cast wraps (p-q), not p
+ *   (int)strlen(x)  ->  cast wraps strlen(x), not x */
+void
+apply_pending_cast_at_reduce(LR1_Parser* p)
+{
+    int defer_for_postfix = (p->pending_cast &&
+                             is_postfix_token(p->tok->kind));
+    int in_nested_parens = (p->pending_cast &&
+                            p->paren_depth > p->cast_paren_depth);
+    int st = p->stack[p->sp].state;
+    int apply_at_unary_rhs = (st == S_UNARY_RHS &&
+                              p->sp >= 1 && p->sp - 1 <= p->cast_sp);
+
+    if (p->pending_cast && !defer_for_postfix && !in_nested_parens &&
+        (is_cast_level(st) || apply_at_unary_rhs)) {
+        AST_Node* inner = p->stack[p->sp].node;
+
+        if (inner) {
+            AST_Node* cast = ast_node_new(p->arena, AST_CAST,
+                                          p->cast_loc.line, p->cast_loc.col);
+
+            cast->body.cast.type_expr = p->cast_type;
+            cast->body.cast.cast_expr = inner;
+            p->stack[p->sp].node = cast;
+        }
+        p->pending_cast = 0;
+    }
+}
