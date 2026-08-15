@@ -23,6 +23,44 @@ skip_ws(const char* p, const char* end)
     return p;
 }
 
+/* Substitute a function-like macro's parameter names in `macro->body` with
+ * the captured argument text, appending the result to `out`. */
+static void
+expand_func_body(Macro* macro, const char** arg_starts, const int* arg_lens,
+                 Buffer* out)
+{
+    const char* bp = macro->body;
+    const char* be = bp + strlen(macro->body);
+
+    while (bp < be) {
+        if (isalpha((unsigned char)*bp) || *bp == '_') {
+            int blen = scan_ident(bp, be);
+            char bname[128];
+
+            if (blen >= (int)sizeof(bname)) blen = (int)sizeof(bname) - 1;
+            memcpy(bname, bp, blen);
+            bname[blen] = '\0';
+
+            int found = -1;
+            for (int i = 0; i < macro->nparams; i++) {
+                if (strcmp(bname, macro->params[i]) == 0) {
+                    found = i;
+                    break;
+                }
+            }
+
+            if (found >= 0)
+                buf_append(out, arg_starts[found], arg_lens[found]);
+            else
+                buf_append(out, bp, blen);
+            bp += blen;
+        } else {
+            buf_append(out, bp, 1);
+            bp++;
+        }
+    }
+}
+
 /* Expand one macro occurrence at position `p` in source `src`.
  * Writes the expansion to `out`.
  * Returns the number of characters consumed from src (0 if no expansion). */
@@ -96,37 +134,7 @@ macro_expand(MacroTable* mt, const char* src, int srclen,
         return (int)(q - p);
     }
 
-    /* Walk body, substitute parameter names with argument text */
-    const char* bp = macro->body;
-    const char* be = bp + strlen(macro->body);
-
-    while (bp < be) {
-        if (isalpha((unsigned char)*bp) || *bp == '_') {
-            int blen = scan_ident(bp, be);
-            char bname[128];
-
-            if (blen >= (int)sizeof(bname)) blen = (int)sizeof(bname) - 1;
-            memcpy(bname, bp, blen);
-            bname[blen] = '\0';
-
-            int found = -1;
-            for (int i = 0; i < macro->nparams; i++) {
-                if (strcmp(bname, macro->params[i]) == 0) {
-                    found = i;
-                    break;
-                }
-            }
-
-            if (found >= 0)
-                buf_append(out, arg_starts[found], arg_lens[found]);
-            else
-                buf_append(out, bp, blen);
-            bp += blen;
-        } else {
-            buf_append(out, bp, 1);
-            bp++;
-        }
-    }
+    expand_func_body(macro, arg_starts, arg_lens, out);
 
     return (int)(q - p);
 }
