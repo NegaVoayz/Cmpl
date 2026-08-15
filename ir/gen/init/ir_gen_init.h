@@ -38,4 +38,17 @@ int init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                           IR_Type** child, AST_Node** val, int* pos,
                           ContLevel* cont, int* depth);
 
+/* ---- constant initializer helpers (ir_gen_const_desig.c) ---- */
+
+IR_Value* gen_const_zero(Arena* a, IR_Type* ty);
+IR_Type*  gen_const_child_type(IR_Type* ty, int idx);
+IR_Value* gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
+                          AST_Node* val, TypedefEntry* enum_vals);
+void      gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
+                                IR_Type* member_ty, AST_Node* steps,
+                                AST_Node* val, TypedefEntry* enum_vals);
+AST_Node* gen_const_absorb(AST_Node* val, AST_Node* list_next, IR_Type* inner,
+                           AST_Node** last, AST_Node** old_val_next);
+IR_Type*  gen_const_desig_inner_type(IR_Type* ct, AST_Node* steps);
+
 #endif /* IR_GEN_INIT_H */
