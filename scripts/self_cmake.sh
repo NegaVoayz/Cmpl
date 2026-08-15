@@ -26,9 +26,9 @@ SOURCES=(
   ast-opt/opt_fold.c ast-opt/opt_fold_walk.c ast-opt/opt_fold_try.c
   ast-opt/opt_propagate.c ast-opt/opt_propagate_scan.c
   ast-opt/opt_propagate_replace.c ast-opt/opt_dead.c
-  ir/ir_type.c ir/ir_builder.c ir/ir_builder_ops.c ir/ir_gen.c
-  ir/ir_gen_expr.c ir/ir_gen_stmt.c ir/ir_gen_cuda.c ir/ir_dump.c
-  ir/ir_dump_instr.c ir/ir_dump_func.c ir/ir_dump_str.c
+  ir/ir_type.c ir/ir_builder.c ir/ir_builder_ops.c ir/ir_gen_cuda.c
+  ir/gen/ir_gen.c ir/gen/ir_gen_expr.c ir/gen/ir_gen_stmt.c
+  ir/dump/ir_dump.c ir/dump/ir_dump_instr.c ir/dump/ir_dump_func.c ir/dump/ir_dump_str.c
   cuda/cuda_qual.c cuda/cuda_split.c cuda/cuda_launch.c
   vulkan/vk_spirv.c vulkan/vk_spirv_collect.c vulkan/vk_spirv_emit.c
   vulkan/vk_spirv_func.c vulkan/vk_mock.c

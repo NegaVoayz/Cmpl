@@ -24,9 +24,9 @@ $sources = @(
     "ast-opt/opt_fold.c",
     "ast-opt/opt_fold_walk.c", "ast-opt/opt_fold_try.c", "ast-opt/opt_propagate.c",
     "ast-opt/opt_propagate_scan.c", "ast-opt/opt_propagate_replace.c", "ast-opt/opt_dead.c",
-    "ir/ir_type.c", "ir/ir_builder.c", "ir/ir_builder_ops.c", "ir/ir_gen.c",
-    "ir/ir_gen_expr.c", "ir/ir_gen_stmt.c", "ir/ir_gen_cuda.c", "ir/ir_dump.c",
-    "ir/ir_dump_instr.c", "ir/ir_dump_func.c", "ir/ir_dump_str.c",
+    "ir/ir_type.c", "ir/ir_builder.c", "ir/ir_builder_ops.c", "ir/ir_gen_cuda.c",
+    "ir/gen/ir_gen.c", "ir/gen/ir_gen_expr.c", "ir/gen/ir_gen_stmt.c",
+    "ir/dump/ir_dump.c", "ir/dump/ir_dump_instr.c", "ir/dump/ir_dump_func.c", "ir/dump/ir_dump_str.c",
     "cuda/cuda_qual.c", "cuda/cuda_split.c", "cuda/cuda_launch.c",
     "vulkan/vk_spirv.c", "vulkan/vk_spirv_collect.c", "vulkan/vk_spirv_emit.c",
     "vulkan/vk_spirv_func.c", "vulkan/vk_mock.c",
@@ -78,7 +78,7 @@ foreach ($src in $sources) {
     $objFiles += $objFile
 
     Write-Host "  $src -> $llFile"
-    $result = & $CMPL -emit-llvm -I./include -I./base -I. -o $llFile $src 2>&1
+    $result = & $CMPL -emit-llvm -I./include -I./base -I./ir -I. -o $llFile $src 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "    FAIL (cmpl): $src"
         Write-Host $result
@@ -134,7 +134,7 @@ Write-Host "SUCCESS: cmpl_self.exe built!"
 
 Write-Host ""
 Write-Host "=== Stage 3: Test cmpl_self.exe ==="
-$testResult = & ./build/self/cmpl_self.exe -emit-llvm -I./include -I./base -I. -o build/self/test_self.ll test/test.c 2>&1
+$testResult = & ./build/self/cmpl_self.exe -emit-llvm -I./include -I./base -I./ir -I. -o build/self/test_self.ll test/test.c 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "SELF-COMPILATION WORKS!"
 } else {
