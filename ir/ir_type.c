@@ -1,5 +1,8 @@
 /* ir_type.c -- IR type constructors and AST-to-IR type conversion */
 
+/* TODO(refactor): still >200 lines — AST-to-IR resolution (ast_to_ir_type +
+ * struct/type caches) is tightly coupled; split into ir_type_ast.c in P2. */
+
 #include "ir.h"
 
 #include <stdlib.h>
@@ -240,6 +243,9 @@ unsigned_of(IR_Type* t)
  *  AST-to-IR type conversion
  * --------------------------------------------------------------- */
 
+static IR_Type* ast_to_func_type(Arena* a, Type* ast);
+static IR_Type* ast_to_struct_type(Arena* a, Type* ast);
+
 static IR_Type*
 ast_to_ir_type(Arena* a, Type* ast)
 {
@@ -267,89 +273,96 @@ ast_to_ir_type(Arena* a, Type* ast)
     { IR_Type* inner = ast_to_ir_type(a, ast->inner);
       return ir_array_type(a, inner, ast->arr_size > 0 ? ast->arr_size : 0); }
     case TYPE_FUNC:
-    {
-        /* pointer-to-function: the declarator parser produces
-         * TYPE_FUNC -> TYPE_PTR -> ret_ty for (*f)(args).
-         * Lift the pointer layers outside the function type so
-         * IR is PTR -> FUNC rather than FUNC -> PTR -> ret. */
-        Type* inner = ast->inner;
-        int n_ptr = 0;
-        while (inner && inner->kind == TYPE_PTR) {
-            n_ptr++;
-            inner = inner->inner;
-        }
-        IR_Type* ret = ast_to_ir_type(a, inner);
-        IR_Type *params = NULL, **tail = &params;
-
-        for (AST_Node* p = ast->params; p; p = p->next) {
-            IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type);
-            *tail = clone_type_for_chain(a, pt);
-            register_clone_ast(*tail, pt);
-            tail = &(*tail)->next;
-        }
-        IR_Type* ft = ir_func_type(a, ret, params, ast->is_variadic);
-        while (n_ptr-- > 0)
-            ft = ir_ptr_type(a, ft, 0);
-        return ft;
-    }
-
+        return ast_to_func_type(a, ast);
     case TYPE_STRUCT:
     case TYPE_UNION:
-    { /* dedup by name (named) or by AST pointer (anonymous).
-       * Anonymous structs must also be cached so every
-       * ast_to_ir_type call for the same typedef returns the
-       * same IR_Type — otherwise ir_struct_ast_lookup fails
-       * on clones in member chains. */
-      if (cache_enabled) {
-          if (ast->name.data) {
-              for (int i = 0; i < n_struct_cache; i++) {
-                  IR_Type* sc = struct_cache[i];
-                  if (sc->name.length == ast->name.length &&
-                      memcmp(sc->name.data, ast->name.data,
-                             ast->name.length) == 0) {
-                      /* A forward-declared (incomplete) struct must not
-                       * shadow its later complete definition of the same
-                       * tag: keep scanning for a complete cached entry. */
-                      if (sc->members || !ast->params)
-                          return sc;
-                  }
-              }
-          } else {
-              for (int i = 0; i < n_struct_cache; i++)
-                  if (!struct_cache[i]->name.data &&
-                      struct_cache_ast[i] == ast)
-                      return struct_cache[i];
-          }
-      }
-      IR_Type* t = ir_type_new(a,
-          (ast->kind == TYPE_UNION) ? IR_UNION : IR_STRUCT);
-      t->name = ast->name;
-      /* Cache BEFORE building members so self-referencing fields
-       * (e.g. Arena* prev inside struct Arena) hit the cache and
-       * avoid infinite recursion -> stack overflow. */
-      if (cache_enabled && n_struct_cache < MAX_STRUCT_CACHE) {
-          struct_cache_ast[n_struct_cache] = ast;
-          struct_cache[n_struct_cache] = t;
-          n_struct_cache++;
-      }
-      register_struct_ast(t, ast);
-      if (ast->params) {
-          IR_Type** tail = &t->members;
-          for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL; f = f->next) {
-              IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type);
-              if (!ft || ft->kind == IR_VOID) ft = t_i8;
-              *tail = clone_type_for_chain(a, ft);
-              register_clone_ast(*tail, ft);
-              tail = &(*tail)->next;
-          }
-      }
-      return t; }
+        return ast_to_struct_type(a, ast);
     case TYPE_NAMED:
         if (ast->inner) return ast_to_ir_type(a, ast->inner);
         return t_i32;
     default:
         return t_i32;
     }
+}
+
+/* pointer-to-function: the declarator parser produces TYPE_FUNC ->
+ * TYPE_PTR -> ret_ty for (*f)(args).  Lift the pointer layers outside
+ * the function type so IR is PTR -> FUNC rather than FUNC -> PTR -> ret. */
+static IR_Type*
+ast_to_func_type(Arena* a, Type* ast)
+{
+    Type* inner = ast->inner;
+    int n_ptr = 0;
+    while (inner && inner->kind == TYPE_PTR) {
+        n_ptr++;
+        inner = inner->inner;
+    }
+    IR_Type* ret = ast_to_ir_type(a, inner);
+    IR_Type *params = NULL, **tail = &params;
+
+    for (AST_Node* p = ast->params; p; p = p->next) {
+        IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type);
+        *tail = clone_type_for_chain(a, pt);
+        register_clone_ast(*tail, pt);
+        tail = &(*tail)->next;
+    }
+    IR_Type* ft = ir_func_type(a, ret, params, ast->is_variadic);
+    while (n_ptr-- > 0)
+        ft = ir_ptr_type(a, ft, 0);
+    return ft;
+}
+
+/* struct/union: dedup by name (named) or by AST pointer (anonymous).
+ * Anonymous structs must also be cached so every ast_to_ir_type call
+ * for the same typedef returns the same IR_Type — otherwise
+ * ir_struct_ast_lookup fails on clones in member chains. */
+static IR_Type*
+ast_to_struct_type(Arena* a, Type* ast)
+{
+    if (cache_enabled) {
+        if (ast->name.data) {
+            for (int i = 0; i < n_struct_cache; i++) {
+                IR_Type* sc = struct_cache[i];
+                if (sc->name.length == ast->name.length &&
+                    memcmp(sc->name.data, ast->name.data,
+                           ast->name.length) == 0) {
+                    /* A forward-declared (incomplete) struct must not
+                     * shadow its later complete definition of the same
+                     * tag: keep scanning for a complete cached entry. */
+                    if (sc->members || !ast->params)
+                        return sc;
+                }
+            }
+        } else {
+            for (int i = 0; i < n_struct_cache; i++)
+                if (!struct_cache[i]->name.data &&
+                    struct_cache_ast[i] == ast)
+                    return struct_cache[i];
+        }
+    }
+    IR_Type* t = ir_type_new(a,
+        (ast->kind == TYPE_UNION) ? IR_UNION : IR_STRUCT);
+    t->name = ast->name;
+    /* Cache BEFORE building members so self-referencing fields
+     * (e.g. Arena* prev inside struct Arena) hit the cache and
+     * avoid infinite recursion -> stack overflow. */
+    if (cache_enabled && n_struct_cache < MAX_STRUCT_CACHE) {
+        struct_cache_ast[n_struct_cache] = ast;
+        struct_cache[n_struct_cache] = t;
+        n_struct_cache++;
+    }
+    register_struct_ast(t, ast);
+    if (ast->params) {
+        IR_Type** tail = &t->members;
+        for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL; f = f->next) {
+            IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type);
+            if (!ft || ft->kind == IR_VOID) ft = t_i8;
+            *tail = clone_type_for_chain(a, ft);
+            register_clone_ast(*tail, ft);
+            tail = &(*tail)->next;
+        }
+    }
+    return t;
 }
 
 IR_Type*
@@ -372,158 +385,6 @@ ir_reset_type_caches(void)
     cache_enabled = 0;
     n_ast_map = 0;
     memset(type_slots, 0, sizeof(type_slots));
-}
-
-/* ---------------------------------------------------------------
- *  Type utilities
- * --------------------------------------------------------------- */
-
-static int
-ir_type_align(IR_Type* t)
-{
-    if (!t) return 1;
-
-    switch (t->kind) {
-    case IR_VOID:  return 1;
-    case IR_I1:    return 1;
-    case IR_I8:    return 1;
-    case IR_I16:   return 2;
-    case IR_I32:   return 4;
-    case IR_I64:   return 8;
-    case IR_F32:   return 4;
-    case IR_F64:   return 8;
-    case IR_PTR:   return 8;
-    case IR_ARRAY: return ir_type_align(t->inner);
-    case IR_STRUCT:
-    case IR_UNION:
-    { int max_a = 1;
-      for (IR_Type* f = t->members; f; f = f->next) {
-          int a = ir_type_align(f);
-          if (a > max_a) max_a = a;
-      }
-      return max_a; }
-    case IR_FUNC:  return 1;
-    default:       return 1;
-    }
-}
-
-int
-ir_type_size(IR_Type* t)
-{
-    if (!t) return 0;
-
-    switch (t->kind) {
-    case IR_VOID:  return 0;
-    case IR_I1:    return 1;
-    case IR_I8:    return 1;
-    case IR_I16:   return 2;
-    case IR_I32:   return 4;
-    case IR_I64:   return 8;
-    case IR_F32:   return 4;
-    case IR_F64:   return 8;
-    case IR_PTR:   return 8;   /* 64-bit pointer */
-    case IR_ARRAY: return t->size * ir_type_size(t->inner);
-    case IR_UNION:
-    { int max_sz = 0, max_al = 1;
-      for (IR_Type* f = t->members; f; f = f->next) {
-          int sz = ir_type_size(f);
-          int al = ir_type_align(f);
-          if (sz > max_sz) max_sz = sz;
-          if (al > max_al) max_al = al;
-      }
-      return (max_sz + max_al - 1) / max_al * max_al; }
-    case IR_STRUCT:
-    { int offset = 0, max_al = 1;
-      for (IR_Type* f = t->members; f; f = f->next) {
-          int al = ir_type_align(f);
-          int sz = ir_type_size(f);
-          if (al > max_al) max_al = al;
-          offset = (offset + al - 1) / al * al;  /* align */
-          offset += sz;
-      }
-      return (offset + max_al - 1) / max_al * max_al; }
-    case IR_FUNC:  return 0;
-    default:       return 0;
-    }
-}
-
-/* the largest member of a union (by size) — the single slot the union is
- * emitted as (all members overlap at offset 0).  NULL for non-unions. */
-IR_Type*
-ir_union_largest_member(IR_Type* t)
-{
-    if (!t || t->kind != IR_UNION || !t->members) return NULL;
-    IR_Type* best = NULL;
-    int best_sz = 0;
-    for (IR_Type* m = t->members; m; m = m->next) {
-        int sz = ir_type_size(m);
-        if (sz > best_sz) { best_sz = sz; best = m; }
-    }
-    return best;
-}
-
-/* number of child slots an aggregate occupies: array element count,
- * struct member count, or 1 for a union (single largest-member slot).
- * 0 for non-aggregates. */
-int
-ir_agg_count(IR_Type* t)
-{
-    if (!t) return 0;
-    if (t->kind == IR_ARRAY) return t->size;
-    if (t->kind == IR_UNION) return 1;
-    if (t->kind == IR_STRUCT) {
-        int n = 0;
-        for (IR_Type* m = t->members; m; m = m->next) n++;
-        return n;
-    }
-    return 0;
-}
-
-int
-ir_type_eq(IR_Type* a, IR_Type* b)
-{
-    if (a == b) return 1;
-    if (!a || !b) return 0;
-    if (a->kind != b->kind) return 0;
-
-    switch (a->kind) {
-    case IR_PTR:
-        return a->addrspace == b->addrspace && ir_type_eq(a->inner, b->inner);
-    case IR_ARRAY:
-        return a->size == b->size && ir_type_eq(a->inner, b->inner);
-    case IR_FUNC:
-        return ir_type_eq(a->inner, b->inner) && ir_type_eq(a->members, b->members);
-    case IR_STRUCT:
-    case IR_UNION:
-        if (!a->name.data && !b->name.data)
-            return a == b;  /* anonymous: pointer identity only */
-        return a->name.data == b->name.data;  /* named: compare by tag */
-    default:
-        return 1;
-    }
-}
-
-const char*
-ir_type_name(IR_Type* t)
-{
-    if (!t) return "void";
-
-    switch (t->kind) {
-    case IR_VOID:  return "void";
-    case IR_I1:    return "i1";
-    case IR_I8:    return "i8";
-    case IR_I16:   return "i16";
-    case IR_I32:   return "i32";
-    case IR_I64:   return "i64";
-    case IR_F32:   return "float";
-    case IR_F64:   return "double";
-    case IR_PTR:   return "ptr";
-    case IR_ARRAY: return "array";
-    case IR_STRUCT:return "struct";
-    case IR_UNION: return "union";
-    case IR_FUNC:  return "func";
-    default:       return "?";
-    }
 }
 
 /* ---------------------------------------------------------------
@@ -560,20 +421,3 @@ ir_struct_ast_lookup(IR_Type* t)
     return NULL;
 }
 
-int
-ir_struct_field_index(Type* ast_struct, String field_name)
-{
-    if (!ast_struct || (ast_struct->kind != TYPE_STRUCT &&
-                         ast_struct->kind != TYPE_UNION))
-        return -1;
-
-    int idx = 0;
-    for (AST_Node* f = ast_struct->params;
-         f && f->type == AST_VAR_DECL; f = f->next, idx++) {
-        if (f->body.var_decl.name.length == field_name.length &&
-            memcmp(f->body.var_decl.name.data,
-                   field_name.data, field_name.length) == 0)
-            return idx;
-    }
-    return -1;  /* not found */
-}
