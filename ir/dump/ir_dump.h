@@ -24,8 +24,16 @@ const char* fcmp_cond_str(IR_Cond cond);
 extern IR_Type* dump_anon_types[IR_MAX_ANON_TYPES];
 extern int      dump_anon_count;
 
-/* --- instruction printer (ir_dump_instr.c) --- */
+/* --- instruction printer (ir_dump_instr.c + ir_dump_instr_extra.c
+ *     + ir_dump_instr_gep.c) --- */
 void dump_instr(FILE* out, IR_Instr* inst);
+void dump_call(FILE* out, IR_Instr* inst);
+void dump_term_op(FILE* out, IR_Instr* inst);
+void dump_bitcast(FILE* out, IR_Instr* inst);
+void dump_cast(FILE* out, IR_Instr* inst, const char* mnemonic);
+void dump_select(FILE* out, IR_Instr* inst);
+void dump_phi(FILE* out, IR_Instr* inst);
+void dump_gep(FILE* out, IR_Instr* inst);
 
 /* --- string constant table (ir_dump_str.c) --- */
 void dump_str_reset(void);
