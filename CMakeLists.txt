@@ -16,7 +16,7 @@ endif()
 # every translation unit is compiled with the full module include path
 # (mirrors the -I list in build_bootstrap.sh / build_self_linux.sh)
 include_directories(
-    include base . tokenizer pp parser parser/lr parser/ll
+    include base . tokenizer pp pp/inc parser parser/lr parser/ll
     ast-opt ir ir/gen ir/gen/expr ir/gen/init ir/dump ir-opt cuda vulkan llvm-codegen
 )
 

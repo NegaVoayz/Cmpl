@@ -119,6 +119,15 @@ void process_source(PPCtx* ctx, const char* src, int srclen);
 /* Include resolution: returns 0 on success, -1 on error */
 int include_resolve(PPCtx* ctx, const char* inc_path, int is_local);
 
+/* Include-path probes (in inc/pp_include_paths.c), shared with pp_include.c */
+int try_join(const char* dir, const char* inc_path, char* out);
+int search_up_tree(const char* start_dir, const char* inc_path,
+                   char* out_buf, int out_sz);
+int try_include_paths(PPCtx* ctx, const char* inc_path, char* out);
+int try_include_subdirs(PPCtx* ctx, const char* inc_path, char* out);
+int try_c_include_path(const char* inc_path, char* out);
+int try_sys_dirs(const char* inc_path, char* out);
+
 /* Directive handler: process one directive at *pp, advance *pp past it */
 int handle_directive(PPCtx* ctx, const char** pp, const char* end);
 

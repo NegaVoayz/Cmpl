@@ -10,7 +10,7 @@ SOURCES=(
   base/arena.c base/hash.c
   tokenizer/parse.c tokenizer/lexer.c tokenizer/number.c tokenizer/ast.c
   pp/pp.c pp/pp_expand.c pp/pp_if.c pp/pp_eval.c pp/pp_cond.c
-  pp/pp_macro.c pp/pp_directive.c pp/pp_include.c pp/pp_line.c
+  pp/pp_macro.c pp/pp_directive.c pp/pp_include.c pp/inc/pp_include_paths.c pp/pp_line.c
   parser/lr/lr1.c parser/lr/lr1_cast.c parser/lr/lr1_cast_apply.c parser/lr/lr1_shift.c
   parser/lr/reduce/lr1_reduce.c parser/lr/reduce/lr1_reduce_binary.c parser/lr/reduce/lr1_reduce_ctx.c
   parser/lr/reduce/lr1_reduce_postfix.c parser/lr/reduce/lr1_reduce_passthrough.c
