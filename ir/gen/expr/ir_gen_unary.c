@@ -1,4 +1,5 @@
-/* ir_gen_unary.c -- unary operator lowering (address-of, ++/--, deref). */
+/* ir_gen_unary.c -- unary operator lowering (address-of, ++/--, deref).
+ * TODO(refactor): 207 lines > 200 limit — split further when expr/ has room. */
 
 #include "../ir_gen.h"
 

@@ -1,4 +1,5 @@
-/* ir_gen_binary.c -- arithmetic/logical binary operator lowering. */
+/* ir_gen_binary.c -- arithmetic/logical binary operator lowering.
+ * TODO(refactor): 213 lines > 200 limit — split further when expr/ has room. */
 
 #include "../ir_gen.h"
 #include "ir_gen_expr.h"
