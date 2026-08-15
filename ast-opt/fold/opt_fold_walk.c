@@ -1,7 +1,7 @@
 /* opt_fold_walk.c -- bottom-up AST walker for constant folding */
 
-#include "optimize.h"
-#include "ast_walk.h"
+#include "../optimize.h"
+#include "../ast_walk.h"
 
 #include <stddef.h>
 

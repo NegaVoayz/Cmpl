@@ -77,9 +77,10 @@ parser/ll/     →  libparser_ll.a   (ll.c, ll_decl.c, ll_decl_agg.c, ll_decl_st
                                      ll_declarator.c, ll_stmt.c, ll_stmt_ctrl.c,
                                      ll_stmt_ctrl_jump.c, ll_type.c)
 parser/        →  libparser.a      (parse.c) — links lr + ll + tokenizer
-ast-opt/       →  libast_opt.a     (optimize.c, opt_fold.c, opt_fold_walk.c, opt_fold_try.c,
-                                     opt_propagate.c, opt_propagate_scan.c,
-                                     opt_propagate_replace.c, opt_dead.c, ast_walk.c)
+ast-opt/       →  libast_opt.a     (optimize.c, ast_walk.c, opt_enum.c, opt_dead.c,
+                                     fold/opt_fold.c, fold/opt_fold_walk.c, fold/opt_fold_try.c,
+                                     propagate/opt_propagate.c, propagate/opt_propagate_scan.c,
+                                     propagate/opt_propagate_replace.c)
 ir/            →  libir.a          (ir_type.c, ir_builder.c, ir_builder_ops.c,
                                      ir_gen.c, ir_gen_expr.c, ir_gen_stmt.c, ir_gen_cuda.c,
                                      ir_dump.c, ir_dump_instr.c, ir_dump_func.c, ir_dump_str.c)

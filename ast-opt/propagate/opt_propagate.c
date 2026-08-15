@@ -1,6 +1,6 @@
 /* opt_propagate.c -- constant propagation: scan, invalidate, replace in-place */
 
-#include "optimize.h"
+#include "../optimize.h"
 
 #include <string.h>
 

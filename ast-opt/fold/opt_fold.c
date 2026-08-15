@@ -1,6 +1,6 @@
 /* opt_fold.c -- constant folding: predicates, binary eval, mutation helpers */
 
-#include "optimize.h"
+#include "../optimize.h"
 
 /* from opt_fold_walk.c */
 extern int fold_node(AST_Node* n);

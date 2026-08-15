@@ -1,7 +1,7 @@
 /* opt_propagate_replace.c -- replace idents with constants (phase 2) */
 
-#include "optimize.h"
-#include "ast_walk.h"
+#include "../optimize.h"
+#include "../ast_walk.h"
 
 #include <string.h>
 

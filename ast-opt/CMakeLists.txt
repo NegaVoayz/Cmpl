@@ -2,13 +2,13 @@ add_library(ast_opt STATIC
     optimize.c
     ast_walk.c
     opt_enum.c
-    opt_fold.c
-    opt_fold_try.c
-    opt_fold_walk.c
-    opt_propagate.c
-    opt_propagate_scan.c
-    opt_propagate_replace.c
     opt_dead.c
+    fold/opt_fold.c
+    fold/opt_fold_try.c
+    fold/opt_fold_walk.c
+    propagate/opt_propagate.c
+    propagate/opt_propagate_scan.c
+    propagate/opt_propagate_replace.c
 )
 
 target_include_directories(ast_opt PUBLIC . ../tokenizer)

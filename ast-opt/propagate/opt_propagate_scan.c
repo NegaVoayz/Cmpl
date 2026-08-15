@@ -1,7 +1,7 @@
 /* opt_propagate_scan.c -- scan passes for constant propagation (phase 1) */
 
-#include "optimize.h"
-#include "ast_walk.h"
+#include "../optimize.h"
+#include "../ast_walk.h"
 
 #include <string.h>
 

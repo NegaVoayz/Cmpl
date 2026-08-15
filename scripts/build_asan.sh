@@ -19,10 +19,10 @@ SOURCES=(
   parser/ll/ll_stmt_ctrl_jump.c parser/ll/ll_type.c parser/ll/decl/ll_declarator.c
   parser/ll/decl/ll_decl.c parser/ll/decl/ll_decl_agg.c parser/ll/decl/ll_decl_struct.c parser/ll/decl/ll_decl_init.c
   parser/parse.c
-  ast-opt/optimize.c ast-opt/ast_walk.c ast-opt/opt_enum.c
-  ast-opt/opt_fold.c ast-opt/opt_fold_walk.c ast-opt/opt_fold_try.c
-  ast-opt/opt_propagate.c ast-opt/opt_propagate_scan.c
-  ast-opt/opt_propagate_replace.c ast-opt/opt_dead.c
+  ast-opt/optimize.c ast-opt/ast_walk.c ast-opt/opt_enum.c ast-opt/opt_dead.c
+  ast-opt/fold/opt_fold.c ast-opt/fold/opt_fold_walk.c ast-opt/fold/opt_fold_try.c
+  ast-opt/propagate/opt_propagate.c ast-opt/propagate/opt_propagate_scan.c
+  ast-opt/propagate/opt_propagate_replace.c
   ir/ir_type.c ir/ir_type_layout.c ir/ir_builder.c ir/ir_builder_const.c ir/ir_builder_cast.c ir/ir_builder_ops.c ir/ir_gen_cuda.c
   ir/gen/ir_gen.c ir/gen/ir_gen_func.c ir/gen/ir_gen_resolve.c ir/gen/ir_gen_const.c ir/gen/ir_gen_expr.c ir/gen/ir_gen_expr_op.c ir/gen/ir_gen_lval.c ir/gen/ir_gen_init.c ir/gen/ir_gen_stmt.c
   ir/dump/ir_dump.c ir/dump/ir_dump_instr.c ir/dump/ir_dump_func.c ir/dump/ir_dump_module.c ir/dump/ir_dump_struct.c ir/dump/ir_dump_str.c

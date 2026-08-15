@@ -1,6 +1,6 @@
 /* opt_fold_try.c -- try folding a single binary or unary node */
 
-#include "optimize.h"
+#include "../optimize.h"
 
 /* from opt_fold.c */
 extern int    is_int_literal_kind(AST_Type t);
