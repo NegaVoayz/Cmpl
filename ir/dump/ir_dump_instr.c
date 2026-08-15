@@ -7,11 +7,7 @@
 
 #include <stdio.h>
 
-/* from ir_dump.c */
-extern void        dump_type(FILE* out, IR_Type* ty);
-extern void        dump_value(FILE* out, IR_Value* val);
-extern const char* cond_str(IR_Cond cond);
-extern const char* fcmp_cond_str(IR_Cond cond);
+#include "ir_dump.h"
 
 /* ---------------------------------------------------------------
  *  Family printers (called by dump_instr below)

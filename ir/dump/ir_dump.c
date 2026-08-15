@@ -5,8 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* from ir_dump_str.c */
-extern int  dump_str_index(String s);
+#include "ir_dump.h"
 
 /* shared anonymous struct name table */
 IR_Type* dump_anon_types[IR_MAX_ANON_TYPES];
