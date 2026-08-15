@@ -85,7 +85,9 @@ void      gen_string_array_init(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type
 IR_Value* gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
                          TypedefEntry* enum_vals);
 
-/* ---- type/struct resolution (ir_gen_resolve.c) ---- */
+/* ---- type/struct resolution (ir_gen_resolve*.c) ---- */
+void resolve_type_tree(Type* t, TypedefEntry* table);
+void resolve_expr_types(AST_Node* e, TypedefEntry* table);
 void resolve_ast_node(AST_Node* n, TypedefEntry* table);
 void resolve_array_sizes(Type* t, TypedefEntry* enum_vals);
 void resolve_struct_refs_type(Type* t, HashMap* struct_map);
