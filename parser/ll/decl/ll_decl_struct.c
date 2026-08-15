@@ -40,25 +40,7 @@ parse_struct_var_list(LR1_Parser* p, Token* stok, Type* stype, int linkage)
             if (p->tok->kind == TOK_LBRACE) {
                 vd->body.var_decl.init = parse_init_list(p);
             } else {
-                /* scan for top-level comma and replace with semicolon
-                 * so multi-declarator init exprs parse correctly */
-                Token* comma = NULL;
-                { int depth = 0;
-                  for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
-                      if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
-                          t->kind == TOK_LBRACE) depth++;
-                      else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
-                               t->kind == TOK_RBRACE) depth--;
-                      else if (depth == 0 && t->kind == TOK_COMMA)
-                          { comma = t; break; }
-                      else if (depth == 0 && t->kind == TOK_SEMI)
-                          break;
-                  }
-                }
-                TokenKind saved = TOK_SEMI;
-                if (comma) { saved = comma->kind; comma->kind = TOK_SEMI; }
-                vd->body.var_decl.init = ll_parse_expr(p);
-                if (comma) comma->kind = saved;
+                vd->body.var_decl.init = parse_init_expr_until(p, TOK_SEMI);
             }
         }
 

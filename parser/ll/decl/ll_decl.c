@@ -69,41 +69,6 @@ infer_array_size_from_string(LR1_Parser* p, Type* full)
     }
 }
 
-/* Parse a scalar initializer expression.  Scan ahead for the top-level
- * comma or semicolon (outside parens/brackets/braces) and replace a
- * top-level comma with a semicolon so the LR parser treats it as the
- * expression terminator.  Fixes multi-declarator initializers like
- * `int a = foo(x), b = 2;` where the comma must not parse as the comma
- * operator.
- *
- * TODO(refactor): near-duplicate of parse_init_element_expr (ll_decl_init.c),
- * differing only in the terminator (TOK_SEMI here vs TOK_RBRACE there). */
-static AST_Node*
-parse_scalar_init(LR1_Parser* p)
-{
-    Token* comma = NULL;
-    int depth = 0;
-
-    for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
-        if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
-            t->kind == TOK_LBRACE) depth++;
-        else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
-                 t->kind == TOK_RBRACE) depth--;
-        else if (depth == 0 && t->kind == TOK_COMMA)
-            { comma = t; break; }
-        else if (depth == 0 && t->kind == TOK_SEMI)
-            break;
-    }
-
-    TokenKind saved = TOK_SEMI;
-    if (comma) { saved = comma->kind; comma->kind = TOK_SEMI; }
-
-    AST_Node* init = ll_parse_expr(p);
-
-    if (comma) comma->kind = saved;
-    return init;
-}
-
 /* ---------------------------------------------------------------
  *  parse_vardef_tail -- build a VAR_DECL (or TYPEDEF) node, parsing
  *  any initializer.  Returns the node to append to the declarator list.
@@ -130,7 +95,7 @@ parse_vardef_tail(LR1_Parser* p, Token* start, Type* full, String dname,
         } else {
             if (p->tok->kind == TOK_STRING_LIT)
                 infer_array_size_from_string(p, full);
-            vd->body.var_decl.init = parse_scalar_init(p);
+            vd->body.var_decl.init = parse_init_expr_until(p, TOK_SEMI);
         }
     }
 

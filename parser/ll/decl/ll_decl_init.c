@@ -69,19 +69,20 @@ parse_designator(LR1_Parser* p, Token** dstart)
     return head;
 }
 
-/* parse one initializer-list expression element; p->tok is at the element's
- * first token.  Returns the parsed expression.
+/* parse one initializer expression element up to `term` (TOK_RBRACE for a
+ * {..} list element, TOK_SEMI for a scalar initializer).  Returns the parsed
+ * expression.
  *
  * The LR expression parser has no "end of initializer element" token, so a
  * top-level ',' would be read as the comma operator and swallow the next
- * element.  Scan ahead for the next depth-0 comma (or the closing '}') and
- * rewrite that one comma to TOK_SEMI so the LR parser stops there, then
- * restore it.  A naive `lr1_stop_at_comma` flag can't be used here: it fires
- * on *any* comma once the LR stack holds a node, so `{ foo(a,b), c }` would
- * mis-parse the ',' inside the call as the element terminator.  Only the
- * depth-aware scan here rewrites a genuine top-level separator. */
+ * element.  Scan ahead for the next depth-0 comma (or `term`) and rewrite
+ * that one comma to TOK_SEMI so the LR parser stops there, then restore it.
+ * A naive `lr1_stop_at_comma` flag can't be used here: it fires on *any*
+ * comma once the LR stack holds a node, so `{ foo(a,b), c }` would mis-parse
+ * the ',' inside the call as the element terminator.  Only the depth-aware
+ * scan here rewrites a genuine top-level separator. */
 AST_Node*
-parse_init_element_expr(LR1_Parser* p)
+parse_init_expr_until(LR1_Parser* p, TokenKind term)
 {
     int depth = 0;
     Token* comma = NULL;
@@ -93,7 +94,7 @@ parse_init_element_expr(LR1_Parser* p)
                  t->kind == TOK_RBRACE) depth--;
         else if (depth == 0 && t->kind == TOK_COMMA)
             { comma = t; break; }
-        else if (depth == 0 && t->kind == TOK_RBRACE)
+        else if (depth == 0 && t->kind == term)
             break;
     }
 
@@ -131,7 +132,7 @@ parse_init_list(LR1_Parser* p)
         if (p->tok->kind == TOK_LBRACE) {
             elem = parse_init_list(p);
         } else {
-            elem = parse_init_element_expr(p);
+            elem = parse_init_expr_until(p, TOK_RBRACE);
         }
 
         if (steps && elem) {
