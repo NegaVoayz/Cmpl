@@ -74,7 +74,13 @@ void dump_value(FILE* out, IR_Value* val)
 
     switch (val->kind) {
     case VAL_CONST_INT:
-        fprintf(out, "%lld", val->body.int_val);
+        /* a zero integer constant of pointer type must dump as `null`
+         * (LLVM rejects `ptr 0` in typed constants) */
+        if (val->type && val->type->kind == IR_PTR &&
+            val->body.int_val == 0)
+            fprintf(out, "null");
+        else
+            fprintf(out, "%lld", val->body.int_val);
         break;
 
     case VAL_CONST_FLOAT:

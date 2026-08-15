@@ -41,8 +41,10 @@ Active development. The compiler parses C source, performs AST and IR optimizati
 invokes `clang` for native codegen (.o/.s), and generates SPIR-V from CUDA kernel code.
 The Vulkan runtime library (`rt/`) is planned but not yet implemented.
 
-**IR self-hosting: 52/54 source files (96%) generate valid LLVM IR** (clang -c clean).
-See the [Testing](#testing) section for the validation harness.
+**IR self-hosting: all 122 compiler sources generate valid LLVM IR** (clang -c clean),
+with byte-identical normalized stage-1↔stage-2↔stage-3 IR (full convergence) and a
+green 89-test corpus through the self-built compiler. See the [Testing](#testing)
+section for the validation harness.
 
 See [CLAUDE.md](CLAUDE.md) for the design rationale and coding conventions.
 
@@ -106,7 +108,8 @@ for f in $(find . -maxdepth 2 -name '*.c' ! -path './test/*' ! -path './build/*'
 done
 ```
 
-**Current status: 52/54 source files pass (96%).**
+**Current status: all 122 compiler sources pass; stage-1↔stage-2 normalized IR is
+122/122 identical; corpus is 89/89 through the self-built compiler.**
 
 ### IR Correctness Test Suite
 

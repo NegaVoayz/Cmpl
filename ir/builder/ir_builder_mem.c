@@ -107,3 +107,18 @@ ir_build_gep(IR_Builder* b, IR_Value* ptr, IR_Value* idx0, IR_Value* idx1)
     append_instr(b, inst);
     return inst->result;
 }
+
+/* base[idx] element pointer.  A raw pointer base (pointee that is NOT an
+ * array) must GEP with a single index: `getelementptr T, ptr %base, i32 %idx`.
+ * The two-index (0, idx) form would index into the aggregate's FIRST member
+ * (cont[1] would become &cont[1].idx, not &cont[1]) — see the const-init
+ * cursor crash fixed by this helper.  Array-typed bases keep the two-index
+ * form (first index selects the array, second the element). */
+IR_Value*
+ir_build_elem_ptr(IR_Builder* b, IR_Value* base, IR_Value* idx)
+{
+    if (base && base->type && base->type->kind == IR_PTR &&
+        base->type->inner && base->type->inner->kind != IR_ARRAY)
+        return ir_build_gep(b, base, idx, NULL);
+    return ir_build_gep(b, base, ir_const_int(b, t_i32, 0), idx);
+}

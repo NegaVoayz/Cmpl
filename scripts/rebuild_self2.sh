@@ -8,6 +8,9 @@ cd "$ROOT"
 C="$ROOT/build/self/cmpl_self"
 OUT="$ROOT/build/self_stage2"
 mkdir -p "$OUT"
+# remove stale artifacts from earlier file layouts (refactors rename .ll/.o;
+# leftovers would be linked in, causing duplicate-symbol link failures)
+rm -f "$OUT"/*.o "$OUT"/*.ll "$OUT"/*.err "$OUT/cmpl_self2"
 
 SOURCES=(
   main.c main_driver.c dump_ast.c dump_ast_decl.c

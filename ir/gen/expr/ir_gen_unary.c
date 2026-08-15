@@ -36,7 +36,7 @@ gen_addr_of(GenCtx* ctx, AST_Node* n)
     if (opnd->type == AST_INDEX) {
         IR_Value* arr = gen_expr(ctx, opnd->body.subscript.array);
         IR_Value* idx = gen_expr(ctx, opnd->body.subscript.index);
-        return ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
+        return ir_build_elem_ptr(b, arr, idx);
     }
 
     /* &ptr->field → return GEP pointer, don't load */

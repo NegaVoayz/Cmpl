@@ -91,6 +91,8 @@ void        ir_build_cond_br(IR_Builder* b, IR_Value* cond,
                              IR_Block* then_blk, IR_Block* else_blk);
 IR_Value*   ir_build_gep(IR_Builder* b, IR_Value* ptr,
                          IR_Value* idx0, IR_Value* idx1);
+IR_Value*   ir_build_elem_ptr(IR_Builder* b, IR_Value* base,
+                              IR_Value* idx);
 IR_Value*   ir_build_bitcast(IR_Builder* b, IR_Value* val, IR_Type* to_ty);
 IR_Value*   ir_build_trunc(IR_Builder* b, IR_Value* val, IR_Type* to_ty);
 IR_Value*   ir_build_zext(IR_Builder* b, IR_Value* val, IR_Type* to_ty);

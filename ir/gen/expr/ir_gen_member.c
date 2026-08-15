@@ -142,7 +142,7 @@ gen_index_expr(GenCtx* ctx, AST_Node* n)
         arr = ir_build_load(b, arr);
     if (!arr) arr = gen_expr(ctx, n->body.subscript.array);
     IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
-    IR_Value* gep = ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
+    IR_Value* gep = ir_build_elem_ptr(b, arr, idx);
     return ir_build_load(b, gep);
 }
 

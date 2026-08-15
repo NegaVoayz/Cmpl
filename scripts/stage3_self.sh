@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # stage3_self.sh -- third-generation self-host check:
-#   cmpl_self2 compiles the 77 sources -> cmpl_self3
+#   cmpl_self2 compiles the compiler sources -> cmpl_self3
 #   corpus via cmpl_self3; normalized diff stage-1 vs stage-3 and
 #   stage-2 vs stage-3 (convergence evidence).
 set -u
@@ -8,12 +8,14 @@ cd "$(dirname "$0")/.."
 C=build/self_stage2/cmpl_self2
 OUT=build/self_stage3
 mkdir -p "$OUT"
+# remove stale artifacts from earlier file layouts (see rebuild_self2.sh)
+rm -f "$OUT"/*.o "$OUT"/*.ll "$OUT"/*.err "$OUT/cmpl_self3"
 INCS="-Iinclude -Ibase -I. -Itokenizer -Ipp -Iparser -Iparser/lr -Iparser/ll \
 -Iast-opt -Iir -Iir-opt -Icuda -Ivulkan -Illvm-codegen"
 
 echo "########## stage-3 compile (cmpl_self2 -> IR) ##########"
 P=0; F=0
-for src in main.c main_driver.c dump_ast.c dump_ast_decl.c base/*.c tokenizer/*.c pp/*.c parser/lr/*.c parser/lr/table/*.c parser/lr/reduce/*.c parser/ll/*.c parser/ll/decl/*.c parser/parse.c ast-opt/*.c ast-opt/fold/*.c ast-opt/propagate/*.c ir/*.c ir/gen/*.c ir/gen/expr/*.c ir/gen/init/*.c ir/dump/*.c ir-opt/*.c cuda/*.c vulkan/*.c llvm-codegen/*.c; do
+for src in main.c main_driver.c dump_ast.c dump_ast_decl.c base/*.c tokenizer/*.c pp/*.c parser/lr/*.c parser/lr/table/*.c parser/lr/reduce/*.c parser/ll/*.c parser/ll/decl/*.c parser/parse.c ast-opt/*.c ast-opt/fold/*.c ast-opt/propagate/*.c ir/*.c ir/builder/*.c ir/type/*.c ir/gen/*.c ir/gen/expr/*.c ir/gen/init/*.c ir/dump/*.c ir/dump/instr/*.c pp/inc/*.c ir-opt/*.c cuda/*.c vulkan/*.c llvm-codegen/*.c; do
     [ -f "$src" ] || continue
     b="$(echo "$src" | tr '/' '_')"
     "$C" -emit-llvm $INCS -o "$OUT/$b.c.ll" "$src" 2>/dev/null || { F=$((F+1)); continue; }
@@ -24,7 +26,7 @@ echo "stage-3 compile: PASS=$P FAIL=$F"
 echo "########## stage-3 clang + link ##########"
 rm -f "$OUT"/*.o
 P=0; F=0
-for src in main.c main_driver.c dump_ast.c dump_ast_decl.c base/*.c tokenizer/*.c pp/*.c parser/lr/*.c parser/lr/table/*.c parser/lr/reduce/*.c parser/ll/*.c parser/ll/decl/*.c parser/parse.c ast-opt/*.c ast-opt/fold/*.c ast-opt/propagate/*.c ir/*.c ir/gen/*.c ir/gen/expr/*.c ir/gen/init/*.c ir/dump/*.c ir-opt/*.c cuda/*.c vulkan/*.c llvm-codegen/*.c; do
+for src in main.c main_driver.c dump_ast.c dump_ast_decl.c base/*.c tokenizer/*.c pp/*.c parser/lr/*.c parser/lr/table/*.c parser/lr/reduce/*.c parser/ll/*.c parser/ll/decl/*.c parser/parse.c ast-opt/*.c ast-opt/fold/*.c ast-opt/propagate/*.c ir/*.c ir/builder/*.c ir/type/*.c ir/gen/*.c ir/gen/expr/*.c ir/gen/init/*.c ir/dump/*.c ir/dump/instr/*.c pp/inc/*.c ir-opt/*.c cuda/*.c vulkan/*.c llvm-codegen/*.c; do
     [ -f "$src" ] || continue
     b="$(echo "$src" | tr '/' '_')"
     clang -c "$OUT/$b.c.ll" -o "$OUT/$b.o" 2>/dev/null || { F=$((F+1)); continue; }
@@ -67,7 +69,7 @@ echo "########## normalized diff stage-1 vs stage-3 ##########"
 SAME=0; DIFF=0; DIFFL=""
 for f in build/self_stage3/*.ll; do
     b="$(basename "$f" .ll)"
-    b1="${b%.c}.ll"
+    b1="${b%.c.c}.ll"
     [ -f "build/self/$b1" ] || continue
     sed 's/p0x[0-9a-f]*//g' "$f" > /tmp/n3.ll
     sed 's/p0x[0-9a-f]*//g' "build/self/$b1" > /tmp/n1b.ll

@@ -160,7 +160,7 @@ gen_store_index_ptr(GenCtx* ctx, AST_Node* n)
         arr = ir_build_load(b, arr);
     if (!arr) arr = gen_expr(ctx, n->body.subscript.array);
     IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
-    return ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
+    return ir_build_elem_ptr(b, arr, idx);
 }
 
 IR_Value*
