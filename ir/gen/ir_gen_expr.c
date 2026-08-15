@@ -886,77 +886,12 @@ gen_store_ptr(GenCtx* ctx, AST_Node* n)
  *  Expression generation
  * --------------------------------------------------------------- */
 
-IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
+static IR_Value*
+gen_unary_expr(GenCtx* ctx, AST_Node* n)
 {
-    if (!n) return NULL;
-
     IR_Builder* b = ctx->b;
 
-    switch (n->type) {
-    case AST_INT_LIT:   return ir_const_int(b, n->body.literal.is_unsigned ? t_u32 : t_i32, n->body.literal.int_val);
-    case AST_LONG_LIT:  return ir_const_int(b, n->body.literal.is_unsigned ? t_u64 : t_i64, n->body.literal.int_val);
-    case AST_CHAR_LIT:  return ir_const_int(b, t_i8, n->body.literal.char_val);
-    case AST_FLOAT_LIT: return ir_const_float(ctx->b->arena, t_f32, n->body.literal.float_val);
-    case AST_DOUBLE_LIT:return ir_const_float(ctx->b->arena, t_f64, n->body.literal.float_val);
-
-    case AST_STRING_LIT:
-    { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-      v->kind = VAL_CONST_STRING; v->type = ir_ptr_type(ctx->b->arena, t_i8, 0);
-      v->body.str_val = n->body.literal.str_val; return v; }
-
-    case AST_IDENT:
-    { IR_Value* ptr = sym_lookup(ctx, n->body.ident.name);
-      if (ptr) return ir_build_load(b, ptr);
-      ptr = global_lookup(ctx->mod, n->body.ident.name);
-      if (ptr) return ir_build_load(b, ptr);
-      /* function name used as a value (function pointer) —
-       * resolves to the global function symbol. */
-      if (ctx->sig_map) {
-          IR_Type* func_ty = func_type_lookup(ctx->sig_map, n->body.ident.name);
-          if (func_ty) {
-              IR_Value* fn_val = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-              fn_val->kind = VAL_GLOBAL;
-              fn_val->name = n->body.ident.name;
-              fn_val->type = ir_ptr_type(ctx->b->arena, func_ty, 0);
-              return fn_val;
-          }
-      }
-      IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-      v->kind = VAL_UNDEF; v->type = t_i32; return v; }
-
-    case AST_BINARY:
-    { TokenKind op = n->body.binary.op;
-      int is_cmpd = (op == TOK_PLUSEQ || op == TOK_MINUSEQ ||
-                     op == TOK_STAREQ || op == TOK_SLASHEQ ||
-                     op == TOK_PERCENTEQ || op == TOK_AMPEQ ||
-                     op == TOK_PIPEEQ || op == TOK_CARETEQ ||
-                     op == TOK_LTLTEQ || op == TOK_GTGTEQ);
-
-      /* logical AND/OR: short-circuit (must not evaluate RHS if LHS
-       * decides the result) */
-      if (op == TOK_AMPAMP || op == TOK_PIPEPIPE)
-          return gen_logical(ctx, op, n->body.binary.left,
-                             n->body.binary.right);
-
-      if (op == TOK_EQ || is_cmpd) {
-          IR_Value* rhs = gen_expr(ctx, n->body.binary.right);
-          IR_Value* ptr = gen_store_ptr(ctx, n->body.binary.left);
-          if (ptr) {
-              IR_Value* result;
-              if (op == TOK_EQ) result = rhs;
-              else { IR_Value* old = ir_build_load(b, ptr);
-                     result = gen_binary_op(ctx, op, old, rhs); }
-              ir_build_store(b, result, ptr);
-              return result; }
-          if (op == TOK_EQ) return rhs;
-          IR_Value* l = gen_expr(ctx, n->body.binary.left);
-          return gen_binary_op(ctx, op, l, rhs); }
-      IR_Value* l = gen_expr(ctx, n->body.binary.left);
-      IR_Value* r = gen_expr(ctx, n->body.binary.right);
-      return gen_binary_op(ctx, op, l, r); }
-
-    case AST_UNARY:
-    { /* address-of (&x): return the address pointer directly, no load */
+    /* address-of (&x): return the address pointer directly, no load */
       if (n->body.unary.op == TOK_AMP) {
           AST_Node* opnd = n->body.unary.operand;
 
@@ -1137,10 +1072,15 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
 	          }
 	          return ir_build_load(b, op);
 	      }
-      return op; }
+      return op;
+}
 
-    case AST_CALL:
-    { int n_args = 0; IR_Value* arg_buf[16]; String cn = {0,0};
+static IR_Value*
+gen_call_expr(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
+
+    int n_args = 0; IR_Value* arg_buf[16]; String cn = {0,0};
       IR_Value* fn_ptr = NULL;
       if (n->body.call.callee->type == AST_IDENT) {
           cn = n->body.call.callee->body.ident.name;
@@ -1226,20 +1166,15 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       { IR_Value* result = ir_build_call(b, nb, ret_t, arg_buf, n_args);
         if (result && result->def_instr)
             result->def_instr->func_type = func_ty;
-        return result; } }
+        return result; }
+}
 
-    case AST_KERNEL_LAUNCH:
-    { AST_Node* cn = n->body.kernel_launch.callee; String kn = {0,0};
-      if (cn && cn->type == AST_IDENT) kn = cn->body.ident.name;
-      char pn[128]; int kl = kn.length > 120 ? 120 : kn.length;
-      memcpy(pn, "__cmpl_kl_", 10); if (kl>0) memcpy(pn+10, kn.data, kl); pn[10+kl] = '\0';
-      int n_args = 0; IR_Value* ab[16];
-      for (AST_Node* c = n->body.kernel_launch.config; c && n_args < 16; c = c->next) ab[n_args++] = gen_expr(ctx, c);
-      for (AST_Node* a = n->body.kernel_launch.args; a && n_args < 16; a = a->next) ab[n_args++] = gen_expr(ctx, a);
-      return ir_build_call(b, pn, t_void, ab, n_args); }
+static IR_Value*
+gen_ternary_expr(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
 
-    case AST_TERNARY:
-    { IR_Value* c = gen_expr(ctx, n->body.ternary.cond);
+    IR_Value* c = gen_expr(ctx, n->body.ternary.cond);
       /* coerce condition to i1 */
       if (c && c->type && c->type->kind != IR_I1) {
           if (c->type->kind == IR_PTR) {
@@ -1349,71 +1284,14 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
       phi->in_vals[0] = t; phi->in_blocks[0] = then_end;
       phi->in_vals[1] = e; phi->in_blocks[1] = else_end;
       append_instr(b, phi);
-      return phi->result; }
+      return phi->result;
+}
 
-    case AST_CAST:
-    { IR_Value* cv = gen_expr(ctx, n->body.cast.cast_expr);
-      if (!cv) return NULL;
-      IR_Type* target = ir_type_from_ast(b->arena, n->body.cast.type_expr);
-      if (!target || !cv->type) return cv;
-      /* already matching types — nothing to do */
-      if (ir_type_eq(cv->type, target)) return cv;
-      /* int ↔ ptr: use bitcast */
-      if (cv->type->kind == IR_PTR || target->kind == IR_PTR)
-          return ir_build_bitcast(b, cv, target);
-      /* float ↔ float: use bitcast (dumper emits fpext/fptrunc) */
-      if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
-          (target->kind == IR_F32 || target->kind == IR_F64))
-          return ir_build_bitcast(b, cv, target);
-      /* int → float: sitofp/uitofp (zext/trunc are invalid across int/float) */
-      if (cv->type->kind >= IR_I1 && cv->type->kind <= IR_I64 &&
-          (target->kind == IR_F32 || target->kind == IR_F64))
-          return widen_zext(cv->type)
-              ? ir_build_uitofp(b, cv, target)
-              : ir_build_sitofp(b, cv, target);
-      /* float → int: fptosi/fptoui (truncates toward zero, as C requires) */
-      if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
-          target->kind >= IR_I1 && target->kind <= IR_I64)
-          return target->is_unsigned
-              ? ir_build_fptoui(b, cv, target)
-              : ir_build_fptosi(b, cv, target);
-      /* int widening: zext (unsigned/i1) or sext (signed) */
-      if (ir_type_size(cv->type) < ir_type_size(target))
-          return widen_zext(cv->type)
-              ? ir_build_zext(b, cv, target)
-              : ir_build_sext(b, cv, target);
-      /* int narrowing: trunc */
-      if (ir_type_size(cv->type) > ir_type_size(target))
-          return ir_build_trunc(b, cv, target);
-      /* same-size int conversion, or struct→struct: bitcast */
-      return ir_build_bitcast(b, cv, target); }
-    case AST_COMPOUND_LIT:
-    { /* (type){init} — temp lvalue: alloca + initializer stores.
-         * Array types decay to a pointer; scalar/struct values load. */
-        IR_Value* ptr = gen_store_ptr(ctx, n);
-        if (!ptr) return NULL;
+static IR_Value*
+gen_member_expr(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
 
-        if (ptr->type && ptr->type->kind == IR_PTR &&
-            ptr->type->inner && ptr->type->inner->kind == IR_ARRAY)
-            return ptr;
-        return ir_build_load(b, ptr); }
-
-    case AST_INDEX:
-    { /* Get the base address via gen_store_ptr, which does NOT decay a
-       * multi-dimensional array to &arr[0].  Using gen_expr here would
-       * decay `table` to &table[0], making the first index step ELEMENTS
-       * instead of ROWS (so table[i][j] reads table[0][i][j]). */
-      IR_Value* arr = gen_store_ptr(ctx, n->body.subscript.array);
-      if (arr && arr->type && arr->type->kind == IR_PTR &&
-          arr->type->inner && arr->type->inner->kind == IR_PTR)
-          arr = ir_build_load(b, arr);
-      if (!arr) arr = gen_expr(ctx, n->body.subscript.array);
-      IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
-      IR_Value* gep = ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
-      return ir_build_load(b, gep); }
-
-    case AST_MEMBER:
-    {
         /* CUDA builtin check (device IR only) */
         if (ctx->is_device && n->body.member.record->type == AST_IDENT) {
             String *rn = &n->body.member.record->body.ident.name,
@@ -1530,7 +1408,155 @@ IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
             ir_const_int(b, t_i32, field_idx));
         gep->type = ir_ptr_type(ctx->b->arena, field_ty, 0);
         return ir_build_load(b, gep);
-    }
+}
+
+IR_Value* gen_expr(GenCtx* ctx, AST_Node* n)
+{
+    if (!n) return NULL;
+
+    IR_Builder* b = ctx->b;
+
+    switch (n->type) {
+    case AST_INT_LIT:   return ir_const_int(b, n->body.literal.is_unsigned ? t_u32 : t_i32, n->body.literal.int_val);
+    case AST_LONG_LIT:  return ir_const_int(b, n->body.literal.is_unsigned ? t_u64 : t_i64, n->body.literal.int_val);
+    case AST_CHAR_LIT:  return ir_const_int(b, t_i8, n->body.literal.char_val);
+    case AST_FLOAT_LIT: return ir_const_float(ctx->b->arena, t_f32, n->body.literal.float_val);
+    case AST_DOUBLE_LIT:return ir_const_float(ctx->b->arena, t_f64, n->body.literal.float_val);
+
+    case AST_STRING_LIT:
+    { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+      v->kind = VAL_CONST_STRING; v->type = ir_ptr_type(ctx->b->arena, t_i8, 0);
+      v->body.str_val = n->body.literal.str_val; return v; }
+
+    case AST_IDENT:
+    { IR_Value* ptr = sym_lookup(ctx, n->body.ident.name);
+      if (ptr) return ir_build_load(b, ptr);
+      ptr = global_lookup(ctx->mod, n->body.ident.name);
+      if (ptr) return ir_build_load(b, ptr);
+      /* function name used as a value (function pointer) —
+       * resolves to the global function symbol. */
+      if (ctx->sig_map) {
+          IR_Type* func_ty = func_type_lookup(ctx->sig_map, n->body.ident.name);
+          if (func_ty) {
+              IR_Value* fn_val = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+              fn_val->kind = VAL_GLOBAL;
+              fn_val->name = n->body.ident.name;
+              fn_val->type = ir_ptr_type(ctx->b->arena, func_ty, 0);
+              return fn_val;
+          }
+      }
+      IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+      v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+
+    case AST_BINARY:
+    { TokenKind op = n->body.binary.op;
+      int is_cmpd = (op == TOK_PLUSEQ || op == TOK_MINUSEQ ||
+                     op == TOK_STAREQ || op == TOK_SLASHEQ ||
+                     op == TOK_PERCENTEQ || op == TOK_AMPEQ ||
+                     op == TOK_PIPEEQ || op == TOK_CARETEQ ||
+                     op == TOK_LTLTEQ || op == TOK_GTGTEQ);
+
+      /* logical AND/OR: short-circuit (must not evaluate RHS if LHS
+       * decides the result) */
+      if (op == TOK_AMPAMP || op == TOK_PIPEPIPE)
+          return gen_logical(ctx, op, n->body.binary.left,
+                             n->body.binary.right);
+
+      if (op == TOK_EQ || is_cmpd) {
+          IR_Value* rhs = gen_expr(ctx, n->body.binary.right);
+          IR_Value* ptr = gen_store_ptr(ctx, n->body.binary.left);
+          if (ptr) {
+              IR_Value* result;
+              if (op == TOK_EQ) result = rhs;
+              else { IR_Value* old = ir_build_load(b, ptr);
+                     result = gen_binary_op(ctx, op, old, rhs); }
+              ir_build_store(b, result, ptr);
+              return result; }
+          if (op == TOK_EQ) return rhs;
+          IR_Value* l = gen_expr(ctx, n->body.binary.left);
+          return gen_binary_op(ctx, op, l, rhs); }
+      IR_Value* l = gen_expr(ctx, n->body.binary.left);
+      IR_Value* r = gen_expr(ctx, n->body.binary.right);
+      return gen_binary_op(ctx, op, l, r); }
+
+    case AST_UNARY: return gen_unary_expr(ctx, n);
+
+    case AST_CALL: return gen_call_expr(ctx, n);
+
+    case AST_KERNEL_LAUNCH:
+    { AST_Node* cn = n->body.kernel_launch.callee; String kn = {0,0};
+      if (cn && cn->type == AST_IDENT) kn = cn->body.ident.name;
+      char pn[128]; int kl = kn.length > 120 ? 120 : kn.length;
+      memcpy(pn, "__cmpl_kl_", 10); if (kl>0) memcpy(pn+10, kn.data, kl); pn[10+kl] = '\0';
+      int n_args = 0; IR_Value* ab[16];
+      for (AST_Node* c = n->body.kernel_launch.config; c && n_args < 16; c = c->next) ab[n_args++] = gen_expr(ctx, c);
+      for (AST_Node* a = n->body.kernel_launch.args; a && n_args < 16; a = a->next) ab[n_args++] = gen_expr(ctx, a);
+      return ir_build_call(b, pn, t_void, ab, n_args); }
+
+    case AST_TERNARY: return gen_ternary_expr(ctx, n);
+
+    case AST_CAST:
+    { IR_Value* cv = gen_expr(ctx, n->body.cast.cast_expr);
+      if (!cv) return NULL;
+      IR_Type* target = ir_type_from_ast(b->arena, n->body.cast.type_expr);
+      if (!target || !cv->type) return cv;
+      /* already matching types — nothing to do */
+      if (ir_type_eq(cv->type, target)) return cv;
+      /* int ↔ ptr: use bitcast */
+      if (cv->type->kind == IR_PTR || target->kind == IR_PTR)
+          return ir_build_bitcast(b, cv, target);
+      /* float ↔ float: use bitcast (dumper emits fpext/fptrunc) */
+      if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
+          (target->kind == IR_F32 || target->kind == IR_F64))
+          return ir_build_bitcast(b, cv, target);
+      /* int → float: sitofp/uitofp (zext/trunc are invalid across int/float) */
+      if (cv->type->kind >= IR_I1 && cv->type->kind <= IR_I64 &&
+          (target->kind == IR_F32 || target->kind == IR_F64))
+          return widen_zext(cv->type)
+              ? ir_build_uitofp(b, cv, target)
+              : ir_build_sitofp(b, cv, target);
+      /* float → int: fptosi/fptoui (truncates toward zero, as C requires) */
+      if ((cv->type->kind == IR_F32 || cv->type->kind == IR_F64) &&
+          target->kind >= IR_I1 && target->kind <= IR_I64)
+          return target->is_unsigned
+              ? ir_build_fptoui(b, cv, target)
+              : ir_build_fptosi(b, cv, target);
+      /* int widening: zext (unsigned/i1) or sext (signed) */
+      if (ir_type_size(cv->type) < ir_type_size(target))
+          return widen_zext(cv->type)
+              ? ir_build_zext(b, cv, target)
+              : ir_build_sext(b, cv, target);
+      /* int narrowing: trunc */
+      if (ir_type_size(cv->type) > ir_type_size(target))
+          return ir_build_trunc(b, cv, target);
+      /* same-size int conversion, or struct→struct: bitcast */
+      return ir_build_bitcast(b, cv, target); }
+    case AST_COMPOUND_LIT:
+    { /* (type){init} — temp lvalue: alloca + initializer stores.
+         * Array types decay to a pointer; scalar/struct values load. */
+        IR_Value* ptr = gen_store_ptr(ctx, n);
+        if (!ptr) return NULL;
+
+        if (ptr->type && ptr->type->kind == IR_PTR &&
+            ptr->type->inner && ptr->type->inner->kind == IR_ARRAY)
+            return ptr;
+        return ir_build_load(b, ptr); }
+
+    case AST_INDEX:
+    { /* Get the base address via gen_store_ptr, which does NOT decay a
+       * multi-dimensional array to &arr[0].  Using gen_expr here would
+       * decay `table` to &table[0], making the first index step ELEMENTS
+       * instead of ROWS (so table[i][j] reads table[0][i][j]). */
+      IR_Value* arr = gen_store_ptr(ctx, n->body.subscript.array);
+      if (arr && arr->type && arr->type->kind == IR_PTR &&
+          arr->type->inner && arr->type->inner->kind == IR_PTR)
+          arr = ir_build_load(b, arr);
+      if (!arr) arr = gen_expr(ctx, n->body.subscript.array);
+      IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
+      IR_Value* gep = ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
+      return ir_build_load(b, gep); }
+
+    case AST_MEMBER: return gen_member_expr(ctx, n);
 
     case AST_SIZEOF_TYPE:
     { IR_Type* t = ir_type_from_ast(ctx->b->arena, n->body.sizeof_type.type_expr);
