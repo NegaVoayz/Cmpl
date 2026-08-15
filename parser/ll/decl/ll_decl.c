@@ -4,7 +4,7 @@
  * definitions, and typedefs.  Delegates sub-expressions to lr1_parse_expr().
  */
 
-#include "ll.h"
+#include "../ll.h"
 #include "cuda.h"
 
 #include <stdio.h>

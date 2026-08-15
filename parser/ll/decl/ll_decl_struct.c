@@ -1,6 +1,6 @@
 /* ll_decl_struct.c -- struct/union definition and declaration parsing */
 
-#include "ll.h"
+#include "../ll.h"
 
 /* from ll.c and ll_decl.c */
 extern void ll_expect(LR1_Parser* p, TokenKind k);

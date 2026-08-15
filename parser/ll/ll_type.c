@@ -2,7 +2,7 @@
  *
  * Parses type specifier chains (int, unsigned long, const, etc.)
  * plus struct/union/enum tag references.
- * Declarator parsing is in ll_declarator.c.
+ * Declarator parsing is in decl/ll_declarator.c.
  */
 
 #include "ll.h"
@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* from ll.c and ll_decl_agg.c */
+/* from ll.c and decl/ll_decl_agg.c */
 extern void      ll_expect(LR1_Parser* p, TokenKind k);
 extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
 

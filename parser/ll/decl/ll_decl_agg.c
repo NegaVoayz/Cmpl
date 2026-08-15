@@ -1,6 +1,6 @@
 /* ll_decl_agg.c -- LL parser for aggregate types: struct/union fields, enum */
 
-#include "ll.h"
+#include "../ll.h"
 
 extern void ll_expect(LR1_Parser* p, TokenKind k);
 

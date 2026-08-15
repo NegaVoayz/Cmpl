@@ -10,7 +10,7 @@
 /* from parser/ll/ll_type.c -- parse type specifiers for cast detection */
 extern Type* ll_parse_type_specs(LR1_Parser* p);
 
-/* from parser/ll/ll_decl.c -- parse {elem,...} into an AST_INIT_LIST */
+/* from parser/ll/decl/ll_decl.c -- parse {elem,...} into an AST_INIT_LIST */
 extern AST_Node* parse_init_list(LR1_Parser* p);
 
 extern LR_Action lr1_error(LR1_Parser* p);

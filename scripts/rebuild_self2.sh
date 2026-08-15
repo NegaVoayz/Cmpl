@@ -21,8 +21,8 @@ SOURCES=(
   parser/lr/lr1_reduce_postfix.c parser/lr/lr1_reduce_passthrough.c
   parser/lr/lr1_table.c
   parser/ll/ll.c parser/ll/ll_stmt.c parser/ll/ll_stmt_ctrl.c
-  parser/ll/ll_stmt_ctrl_jump.c parser/ll/ll_type.c parser/ll/ll_declarator.c
-  parser/ll/ll_decl.c parser/ll/ll_decl_agg.c parser/ll/ll_decl_struct.c
+  parser/ll/ll_stmt_ctrl_jump.c parser/ll/ll_type.c parser/ll/decl/ll_declarator.c
+  parser/ll/decl/ll_decl.c parser/ll/decl/ll_decl_agg.c parser/ll/decl/ll_decl_struct.c
   parser/parse.c
   ast-opt/optimize.c ast-opt/ast_walk.c ast-opt/opt_enum.c
   ast-opt/opt_fold.c ast-opt/opt_fold_walk.c ast-opt/opt_fold_try.c

@@ -6,7 +6,7 @@
  * declarator logic.
  */
 
-#include "ll.h"
+#include "../ll.h"
 
 #include <stdlib.h>
 #include <string.h>
