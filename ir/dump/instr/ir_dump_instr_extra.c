@@ -6,7 +6,7 @@
 
 #include <stdio.h>
 
-#include "ir_dump.h"
+#include "../ir_dump.h"
 
 void
 dump_call(FILE* out, IR_Instr* inst)

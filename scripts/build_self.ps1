@@ -23,9 +23,9 @@ $sources = @(
     "ast-opt/fold/opt_fold.c", "ast-opt/fold/opt_fold_walk.c", "ast-opt/fold/opt_fold_try.c",
     "ast-opt/propagate/opt_propagate.c", "ast-opt/propagate/opt_propagate_scan.c",
     "ast-opt/propagate/opt_propagate_replace.c",
-    "ir/ir_type.c", "ir/ir_type_ast.c", "ir/ir_type_struct.c", "ir/ir_type_layout.c", "ir/ir_builder.c", "ir/ir_builder_block.c", "ir/ir_builder_const.c", "ir/ir_builder_cast.c", "ir/ir_builder_ops.c", "ir/ir_builder_mem.c", "ir/ir_gen_cuda.c",
+    "ir/builder/ir_builder.c", "ir/builder/ir_builder_block.c", "ir/builder/ir_builder_const.c", "ir/builder/ir_builder_cast.c", "ir/builder/ir_builder_ops.c", "ir/builder/ir_builder_mem.c", "ir/type/ir_type.c", "ir/type/ir_type_ast.c", "ir/type/ir_type_struct.c", "ir/type/ir_type_layout.c", "ir/ir_gen_cuda.c",
     "ir/gen/ir_gen.c", "ir/gen/ir_gen_module.c", "ir/gen/ir_gen_module_emit.c", "ir/gen/ir_gen_func.c", "ir/gen/ir_gen_resolve.c", "ir/gen/ir_gen_resolve_ast.c", "ir/gen/ir_gen_resolve_struct.c", "ir/gen/init/ir_gen_const.c", "ir/gen/init/ir_gen_init.c", "ir/gen/ir_gen_stmt.c", "ir/gen/ir_gen_stmt_ctrl.c", "ir/gen/expr/ir_gen_expr.c", "ir/gen/expr/ir_gen_logical.c", "ir/gen/expr/ir_gen_binary.c", "ir/gen/expr/ir_gen_unary.c", "ir/gen/expr/ir_gen_call.c", "ir/gen/expr/ir_gen_cast.c", "ir/gen/expr/ir_gen_ternary.c", "ir/gen/expr/ir_gen_lval.c", "ir/gen/expr/ir_gen_member.c", "ir/gen/init/ir_gen_init_desig.c", "ir/gen/init/ir_gen_const_desig.c", "ir/gen/init/ir_gen_const_cont.c", "ir/gen/init/ir_gen_const_list.c", "ir/gen/init/ir_gen_const_elem.c",
-    "ir/dump/ir_dump.c", "ir/dump/ir_dump_type.c", "ir/dump/ir_dump_instr.c", "ir/dump/ir_dump_instr_extra.c", "ir/dump/ir_dump_instr_gep.c", "ir/dump/ir_dump_func.c", "ir/dump/ir_dump_module.c", "ir/dump/ir_dump_declares.c", "ir/dump/ir_dump_struct.c", "ir/dump/ir_dump_str.c",
+    "ir/dump/ir_dump.c", "ir/dump/ir_dump_type.c", "ir/dump/instr/ir_dump_instr.c", "ir/dump/instr/ir_dump_instr_extra.c", "ir/dump/instr/ir_dump_instr_gep.c", "ir/dump/ir_dump_func.c", "ir/dump/ir_dump_module.c", "ir/dump/ir_dump_declares.c", "ir/dump/ir_dump_struct.c", "ir/dump/ir_dump_str.c",
     "cuda/cuda_qual.c", "cuda/cuda_split.c", "cuda/cuda_launch.c",
     "vulkan/vk_spirv.c", "vulkan/vk_spirv_collect.c", "vulkan/vk_spirv_emit.c",
     "vulkan/vk_spirv_func.c", "vulkan/vk_mock.c",
@@ -77,7 +77,7 @@ foreach ($src in $sources) {
     $objFiles += $objFile
 
     Write-Host "  $src -> $llFile"
-    $result = & $CMPL -emit-llvm -I./include -I./base -I./ir -I./pp/inc -I. -o $llFile $src 2>&1
+    $result = & $CMPL -emit-llvm -I./include -I./base -I./ir -I./ir/builder -I./ir/type -I./ir/dump -I./ir/dump/instr -I./pp/inc -I. -o $llFile $src 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "    FAIL (cmpl): $src"
         Write-Host $result
@@ -133,7 +133,7 @@ Write-Host "SUCCESS: cmpl_self.exe built!"
 
 Write-Host ""
 Write-Host "=== Stage 3: Test cmpl_self.exe ==="
-$testResult = & ./build/self/cmpl_self.exe -emit-llvm -I./include -I./base -I./ir -I./pp/inc -I. -o build/self/test_self.ll test/test.c 2>&1
+$testResult = & ./build/self/cmpl_self.exe -emit-llvm -I./include -I./base -I./ir -I./ir/builder -I./ir/type -I./ir/dump -I./ir/dump/instr -I./pp/inc -I. -o build/self/test_self.ll test/test.c 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "SELF-COMPILATION WORKS!"
 } else {

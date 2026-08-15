@@ -6,7 +6,7 @@
 
 #include <stdio.h>
 
-#include "ir_dump.h"
+#include "../ir_dump.h"
 
 void
 dump_gep(FILE* out, IR_Instr* inst)

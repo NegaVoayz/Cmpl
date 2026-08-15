@@ -6,7 +6,7 @@
 
 #include <stdio.h>
 
-#include "ir_dump.h"
+#include "../ir_dump.h"
 
 /* ---------------------------------------------------------------
  *  Family printers (called by dump_instr below)

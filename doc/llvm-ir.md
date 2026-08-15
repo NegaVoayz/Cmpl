@@ -618,17 +618,17 @@ within each function scope.
 | File | Purpose |
 |---|---|
 | `ir/ir.h` + `ir/ir_api.h` | IR data structures, type singletons, public API declarations |
-| `ir/ir_type.c` | IR_Type constructors, C Type → IR_Type conversion, type size/equality |
-| `ir/ir_builder.c` | IR_Builder lifecycle, block mgmt, alloca/load/store, vreg numbering |
-| `ir/ir_builder_ops.c` | Arithmetic, bitwise, compare, control flow, GEP, cast, select builders |
-| `ir/ir_gen.c` | Module/function generation: global vars, function defs, symbol tables |
-| `ir/ir_gen_expr.c` | Expression AST → IR (literal, ident, binary, unary, call, cast, ternary, ...) |
-| `ir/ir_gen_stmt.c` | Statement AST → IR (block, if, while, for, return, var decl, ...) |
+| `ir/type/ir_type.c` | IR_Type constructors, C Type → IR_Type conversion, type size/equality |
+| `ir/builder/ir_builder.c` | IR_Builder lifecycle, block mgmt, alloca/load/store, vreg numbering |
+| `ir/builder/ir_builder_ops.c` | Arithmetic, bitwise, compare, control flow, GEP, cast, select builders |
+| `ir/gen/ir_gen.c` | Module/function generation: global vars, function defs, symbol tables |
+| `ir/gen/expr/ir_gen_expr.c` | Expression AST → IR (literal, ident, binary, unary, call, cast, ternary, ...) |
+| `ir/gen/ir_gen_stmt.c` | Statement AST → IR (block, if, while, for, return, var decl, ...) |
 | `ir/ir_gen_cuda.c` | CUDA two-module generation (host + device IR split) |
-| `ir/ir_dump.c` | Type printer, value printer, condition string tables, module entry |
-| `ir/ir_dump_instr.c` | Instruction text printer (all IROP_* cases) |
-| `ir/ir_dump_func.c` | Block, function, and module printers; vreg renumbering; declare stubs |
-| `ir/ir_dump_str.c` | String constant table collection and global emission |
+| `ir/dump/ir_dump.c` | Type printer, value printer, condition string tables, module entry |
+| `ir/dump/instr/ir_dump_instr.c` | Instruction text printer (all IROP_* cases) |
+| `ir/dump/ir_dump_func.c` | Block, function, and module printers; vreg renumbering; declare stubs |
+| `ir/dump/ir_dump_str.c` | String constant table collection and global emission |
 
 ## Related
 
