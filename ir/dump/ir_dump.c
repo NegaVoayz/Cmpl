@@ -40,14 +40,20 @@ dump_const_float(FILE* out, IR_Value* val)
 {
     /* LLVM requires a decimal point or exponent in float literals.
      * %.17g round-trips any double (17 significant digits); the default
-     * %g only keeps 6 and silently truncates precision.  %g prints
-     * integral values like 7.0 as "7", which clang rejects as an integer
-     * constant — append ".0" when needed.  %g also prints 4e+09 for
-     * large values — clang's IR reader rejects an exponent without a
+     * %g only keeps 6 and silently truncates precision.  LLVM's IR reader
+     * also requires an f32 literal to downcast EXACTLY, so a f32-typed
+     * constant must be rounded to float precision before printing
+     * ("0.10000000000000001" would be rejected for type float).  %g
+     * prints integral values like 7.0 as "7", which clang rejects as an
+     * integer constant — append ".0" when needed.  %g also prints 4e+09
+     * for large values — clang's IR reader rejects an exponent without a
      * decimal point ("4e+09" is lexed as an integer), so insert ".0"
      * before the exponent. */
+    double d = val->body.float_val;
+    if (val->type && ir_type_size(val->type) == 4)
+        d = (double)(float)d;
     char buf[64];
-    snprintf(buf, sizeof(buf), "%.17g", val->body.float_val);
+    snprintf(buf, sizeof(buf), "%.17g", d);
     char* e = strpbrk(buf, "eE");
     if (e && !strchr(buf, '.')) {
         size_t n = (size_t)(e - buf);
