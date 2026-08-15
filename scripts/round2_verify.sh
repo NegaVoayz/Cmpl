@@ -9,7 +9,7 @@ cd "$ROOT"
 bash scripts/build_bootstrap.sh || exit 1
 
 echo "########## run_tests.sh (A/B/C) ##########"
-bash scripts/run_tests.sh
+STDOUT_DIFF=1 bash scripts/run_tests.sh
 
 echo "########## full_self.sh (corpus via cmpl_self + stage-2) ##########"
 bash scripts/full_self.sh

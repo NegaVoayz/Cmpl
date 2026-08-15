@@ -3,6 +3,8 @@
 #   Stage A: self-build validation (scripts/build_self_linux.sh)
 #   Stage B: every test/*.c -> cmpl -emit-llvm -> clang -c
 #   Stage C: runnable tests (those with main) compiled + executed
+#   STDOUT_DIFF=1: Stage C also byte-compares each runnable test's stdout + exit
+#                  code against a gcc -std=c11 reference (mirrors diff_gcc.sh).
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CMPL="$ROOT/build/bootstrap/cmpl"
@@ -87,13 +89,42 @@ for f in "$ROOT"/test/*.c; do
   want=0
   case "$base" in test_full) want=1 ;; test_lr1_edge) want=14 ;; esac
 
-  "$TMP/$base.exe" >/dev/null 2>&1
-  rc=$?
-  if [ $rc -ne "$want" ]; then
-    CFAIL=$((CFAIL+1)); CFAILED_FILES+=("$base (run rc=$rc want=$want)")
-    continue
+  if [ "${STDOUT_DIFF:-0}" = "1" ] && [ "$INTERNAL" = 0 ]; then
+    "$TMP/$base.exe" >"$TMP/$base.cmpl.out" 2>"$TMP/$base.cmpl.runerr"
+    rc=$?
+    if [ $rc -ne "$want" ]; then
+      CFAIL=$((CFAIL+1)); CFAILED_FILES+=("$base (run rc=$rc want=$want)")
+      continue
+    fi
+
+    if ! gcc -std=c11 "$f" -o "$TMP/$base.gcc.exe" 2>"$TMP/$base.gcc.err"; then
+      CPASS=$((CPASS+1))   # gcc can't build it standalone; cmpl already passed
+      continue
+    fi
+    "$TMP/$base.gcc.exe" >"$TMP/$base.gcc.out" 2>"$TMP/$base.gcc.runerr"
+    gcc_rc=$?
+
+    if [ "$rc" = "$gcc_rc" ] && cmp -s "$TMP/$base.cmpl.out" "$TMP/$base.gcc.out"; then
+      CPASS=$((CPASS+1))
+    else
+      if [ "$rc" != "$gcc_rc" ]; then
+        echo "DIVERGE    $base: exit cmpl=$rc gcc=$gcc_rc"
+      fi
+      if ! cmp -s "$TMP/$base.cmpl.out" "$TMP/$base.gcc.out"; then
+        echo "DIVERGE    $base: stdout"
+        diff -u "$TMP/$base.gcc.out" "$TMP/$base.cmpl.out" || true
+      fi
+      CFAIL=$((CFAIL+1)); CFAILED_FILES+=("$base (stdout-diff)")
+    fi
+  else
+    "$TMP/$base.exe" >/dev/null 2>&1
+    rc=$?
+    if [ $rc -ne "$want" ]; then
+      CFAIL=$((CFAIL+1)); CFAILED_FILES+=("$base (run rc=$rc want=$want)")
+      continue
+    fi
+    CPASS=$((CPASS+1))
   fi
-  CPASS=$((CPASS+1))
 done
 echo "Stage C: PASS=$CPASS FAIL=$CFAIL"
 [ ${#CFAILED_FILES[@]} -gt 0 ] && printf '  failed: %s\n' "${CFAILED_FILES[@]}"
