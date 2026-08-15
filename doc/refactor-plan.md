@@ -1,118 +1,91 @@
-# Cmpl Refactor Plan — round 2 (instructions for Agent B)
+# Cmpl Refactor Plan — round 3 (instructions for Agent B)
 
-**Status: ACTIVE.** Round 1 (56 commits) is done and verified (Stage B 88/88,
-self-build 106/106). The following instructions complete the remaining work.
-Execute them in order; each is one logical unit (one commit).
+**Status: ACTIVE — one instruction left.** Rounds 1–2 done and verified
+(Stage B 88/88, self-build 122/122). Only the directory-count rule (≤9 .c per
+directory) is still violated in `ir/` and `ir/dump/` — see R3-1. Everything
+else is compliant. Each instruction is one logical unit (one commit).
 
-## R2-1 (P1) Dedupe declarator/FUNC_DEF logic + split both decl parsers
+## Completed (do not redo)
 
-- **Files:** parser/ll/decl/ll_decl.c, parser/ll/decl/ll_decl_struct.c, new
-  parser/ll/decl/ll_decl_common.c; update parser/ll/CMakeLists.txt + both
-  self-build scripts.
-- **Change:** extract a shared helper
-  `AST_Node* decl_build_func_def(LR1_Parser* p, Token* start, Type* full,
-  String dname, int linkage, int is_constructor)` covering the identical
-  TYPE_PTR-unwrap loop, TYPE_FUNC detection, pointer-chain rebuild into
-  ret_type, and AST_FUNC_DEF node construction that is currently duplicated in
-  `parse_var_list_decl` (ll_decl.c) and `parse_struct_union_decl`
-  (ll_decl_struct.c). Call it from both parsers; then split each parser into
-  ≤80-line parts (e.g. `parse_func_def_tail`, `parse_vardef_tail`). Finally,
-  if ll_decl.c is still >200, move `parse_attribute` and `ll_parse_decl` into
-  ll_decl_common.c (or a new ll_decl_attr.c).
-- **Why:** two 132/142-line functions with ~40 duplicated lines; both files
-  over the 200-line limit.
-- **Expected:** both functions ≤80 (slightly over ok), both files ≤200, zero
-  behavior change. Verify: Stage B 88/88 + self-build 106/106.
+| Instruction | Commits | Result |
+|---|---|---|
+| R2-1 dedupe decl_build_func_def + split decl parsers | e53bb7a | ✅ both parsers ≤80, dedupe landed |
+| R2-2 unify comma-rewrite → parse_init_expr_until | 5c3f0cc | ✅ one implementation, third copy deleted |
+| R2-3 split lr1.c → lr1_cast.c + lr1_cast_apply.c | f0001bc | ✅ lr1.c ≤200 |
+| R2-4 split ir_type.c → ir_type_ast.c + ir_type_struct.c | 96a458e | ✅ ir_type.c ≤200 |
+| R2-5 split ir_dump_instr.c → instr_extra + instr_gep | a130a47 | ✅ |
+| R2-6 split main.c → main_driver.c | 70f51da | ✅ main.c ≤200 |
+| R2-7 remaining ≤200 splits (ll_declarator, dump_module, dump, builder_ops, builder, pp/inc) | 802821c..f051505 | ✅ all ≤200 (see §3 PASS list for the 7 borderline files) |
+
+## R3-1 (P1) Fix directory-count violations in ir/ (11) and ir/dump/ (10)
+
+- **Files:** move these files (update ir/CMakeLists.txt `add_library` paths,
+  `target_include_directories`, scripts/build_self_linux.sh SOURCES,
+  scripts/build_self.ps1 $sources):
+  1. `git mv` `ir/ir_builder.c ir/ir_builder_block.c ir/ir_builder_cast.c
+     ir/ir_builder_const.c ir/ir_builder_mem.c ir/ir_builder_ops.c` →
+     `ir/builder/` (6 files)
+  2. `git mv` `ir/ir_type.c ir/ir_type_ast.c ir/ir_type_layout.c
+     ir/ir_type_struct.c` → `ir/type/` (4 files)
+  3. `git mv` `ir/dump/ir_dump_instr.c ir/dump/ir_dump_instr_extra.c
+     ir/dump/ir_dump_instr_gep.c` → `ir/dump/instr/` (3 files)
+- **Resulting counts (all ≤9):** ir/ root = ir_gen_cuda.c only (+headers) ·
+  ir/builder/ = 6 · ir/type/ = 4 · ir/dump/ = 7 · ir/dump/instr/ = 3 ·
+  ir/gen/ = 9 · ir/gen/expr/ = 9 · ir/gen/init/ = 7.
+- **Include changes (REQUIRED — the two self-build scripts only pass
+  `-I./ir`, not `-I./ir/dump`):**
+  - In the 3 moved `ir/dump/instr/*.c` files, change `#include "ir_dump.h"`
+    → `#include "../ir_dump.h"` (same convention as `../ir_gen.h` used by
+    ir/gen/expr/). `ir.h` / `ir_api.h` still resolve via `-Iir`.
+  - `ir/builder/*.c` and `ir/type/*.c` keep `#include "ir.h"` /
+    `#include "ir_builder.h"` / `#include "ir_type.h"` — these live in ir/
+    root and resolve via `-Iir`; no change needed. If any moved file uses a
+    same-subdir sibling header, use `../` accordingly.
+  - Top-level `CMakeLists.txt` `include_directories`: add `ir/builder`,
+    `ir/type`, `ir/dump/instr`. `ir/CMakeLists.txt`
+    `target_include_directories(ir PUBLIC ...)`: add the same three dirs.
+  - `scripts/build_self_linux.sh` + `scripts/build_self.ps1`: add
+    `-I./ir/builder -I./ir/type -I./ir/dump/instr` next to the existing
+    `-I./ir` (or rely on `../` includes — prefer the explicit -I for
+    robustness).
+- **Why:** `ir/` has 11 .c and `ir/dump/` has 10 — the only remaining
+  rule violations; the rule mandates submodules when a directory exceeds 9.
+- **Expected:** every directory ≤9 .c; zero behavior change; self-build still
+  passes (sources list must match the new paths exactly — the build_self
+  scripts enumerate files, so a missed path fails the link stage).
+- **Verify:** `cmake --build build/cmake_try -j4` → Stage B 88/88 →
+  `scripts/build_self_linux.sh` Passed 122/122 + link SUCCESS. Then re-run
+  `scripts/dircheck.sh` → no output (no dir over 9).
 - **Deps:** none.
 
-## R2-2 (P1) Unify the comma-rewrite workaround; delete third inline copy
+## Verified state after R3-1 (expected final)
 
-- **Files:** parser/ll/decl/ll_decl.c, parser/ll/decl/ll_decl_init.c,
-  parser/ll/decl/ll_decl_struct.c.
-- **Change:** merge `parse_scalar_init` and `parse_init_element_expr` into one
-  helper `parse_init_expr_until(LR1_Parser* p, TokenKind term)` (TOK_SEMI or
-  TOK_RBRACE); replace the inline scan-replace-restore copy inside
-  `parse_struct_union_decl` (ll_decl_struct.c) with it.
-- **Why:** three copies of the same workaround; the rule says replace
-  inelegant patches with proper logic and dedupe.
-- **Expected:** one comma-rewrite implementation. Verify as R2-1.
-- **Deps:** after R2-1 (same files).
-
-## R2-3 (P1) Split parser/lr/lr1.c (481 lines)
-
-- **Files:** parser/lr/lr1.c, new parser/lr/reduce/lr1_cast.c; update
-  parser/lr/CMakeLists.txt + self-build scripts.
-- **Change:** move `is_cast_start`, `parse_sizeof_type`,
-  `skip_compound_literal`, `try_parse_cast`, `lr1_stop_at_comma`,
-  `apply_pending_cast_at_reduce` into lr1_cast.c; keep
-  `lr1_parse_expr_inner` + parser lifecycle in lr1.c (<200).
-- **Why:** lr1.c is the largest remaining file.
-- **Deps:** none.
-
-## R2-4 (P1) Split ir/ir_type.c (423 lines)
-
-- **Files:** ir/ir_type.c, new ir/ir_type_ast.c; update ir/CMakeLists.txt +
-  self-build scripts.
-- **Change:** move `ast_to_ir_type`, `ast_to_func_type`, `ast_to_struct_type`,
-  `unsigned_of` into ir_type_ast.c (declare in ir_api.h or a new ir_type.h).
-  ir_type.c keeps caches/singletons/constructors (<200).
-- **Why:** ir_type.c is the second-largest remaining file.
-- **Deps:** none.
-
-## R2-5 (P1) Split ir/dump/ir_dump_instr.c (371 lines)
-
-- **Files:** ir/dump/ir_dump_instr.c, new ir/dump/ir_dump_instr_extra.c;
-  update ir/CMakeLists.txt + self-build scripts.
-- **Change:** finish the existing TODO: extract GEP/BITCAST/TRUNC/ZEXT/SEXT/
-  SITOFP/UITOFP/FPTOSI/FPTOUI/SELECT printers and the
-  CALL/RET/BR/COND_BR/PHI/UNREACHABLE printers into the new file; keep
-  alloca/load/store/arith/cmp in ir_dump_instr.c (<200).
-- **Deps:** none.
-
-## R2-6 (P1) Split main.c (287 lines)
-
-- **Files:** main.c, new main_driver.c (add to CMPL_SOURCES in top-level
-  CMakeLists.txt + both self-build scripts).
-- **Change:** move run_cuda_pipeline / run_codegen_pipeline / run_ir_pipeline /
-  run_ast_pipeline into main_driver.c; main.c keeps CmdOpts, parse_args, main.
-- **Why:** main.c grew during round 1 because the pipeline helpers stayed in
-  the same file.
-- **Deps:** none.
-
-## R2-7 (P1) Remaining ≤200 splittings (independent, any order)
-
-- **Files + moves** (each atomic; update the owning dir CMakeLists.txt + both
-  self-build scripts, and -I lists for new subdirs):
-  - parser/ll/decl/ll_declarator.c (274): move ll_parse_params →
-    decl/ll_declarator_params.c
-  - ir/dump/ir_dump_module.c (266): extract dump_fnptr_declares +
-    dump_extern_declares → ir/dump/ir_dump_declares.c
-  - ir/dump/ir_dump.c (228): extract dump_type → ir/dump/ir_dump_type.c
-  - ir/ir_builder_ops.c (236): extract ir_build_gep + cmp builders →
-    ir/ir_builder_mem.c
-  - ir/ir_builder.c (228): extract block mgmt (new_block/set_block/append) →
-    ir/ir_builder_block.c if still over
-  - pp/pp_include.c (251) + pp/pp_directive.c (239): create pp/inc/ subdir,
-    move include-resolve path helpers → pp/inc/pp_include_paths.c and
-    handle_define → pp/inc/pp_define.c (keeps pp/ root ≤9 .c)
-- **Deps:** none.
+- Directory .c counts: all ≤9 ✅
+- Files >200 lines: only the 7 borderline files below (≤218, "slightly over
+  is acceptable", TODO-tagged) ✅
+- Functions >80 lines: only the 4 PASS items below (table-init data, lookup
+  table, big switch) ✅
+- No duplicate code; K&R clean; Stage B 88/88; self-build 122/122 ✅
 
 ## Explicitly marked PASS — do not refactor
 
 - lr1_table_init_goto (118) / lr1_table_init_reds (104): table-init data.
 - token_kind_name (92, main_pp.c): designated-initializer lookup table.
 - walk_launch_children (88, cuda/cuda_launch.c): big switch, trivial cases.
-- Files at 205–218 lines: ir_gen_stmt_ctrl.c, ir_opt_dce.c, ir_gen_binary.c,
-  ir_gen_init_desig.c, ir_gen_unary.c, lexer.c, pp.c — "slightly over is
-  acceptable"; leave the existing TODO(refactor) markers in place.
-- ll_parse_decl (84, ll_decl.c): slightly over, acceptable.
+- ll_parse_decl (84, parser/ll/decl/ll_decl_dispatch.c): slightly over,
+  acceptable.
+- Borderline files at 205–218 lines: ir/gen/ir_gen_stmt_ctrl.c (218),
+  ir-opt/ir_opt_dce.c (215), ir/gen/expr/ir_gen_binary.c (214),
+  ir/gen/init/ir_gen_init_desig.c (209), ir/gen/expr/ir_gen_unary.c (208),
+  tokenizer/lexer.c (205), pp/pp.c (205) — leave the existing
+  TODO(refactor) markers in place.
 
 ## Verification protocol (run after EVERY instruction)
 
 1. `cmake --build build/cmake_try -j4`
 2. `bash scripts/stageB_check.sh ./build/cmake_try/cmpl` → expect PASS=88 FAIL=0
 3. If ir/, parser/, ast-opt/, pp/, tokenizer/ touched:
-   `bash scripts/build_self_linux.sh` → expect Passed 106/106 + link SUCCESS
+   `bash scripts/build_self_linux.sh` → expect Passed 122/122 + link SUCCESS
 4. Never delete a failing test; add a regression test first if behavior changes.
 
 ## Standing rules for B
