@@ -15,78 +15,219 @@
 /* AST debug dump -- defined in dump_ast.c */
 extern void dump_ast_public(AST_Node* n, int depth);
 
-int
-main(int argc, char** argv)
-{
-    const char* filename = NULL;
-    int         dump_ir = 0;
-    int         cuda_mode = 0;
-    int         dump_spv = 0;
-    int         opt_level = 0;
-    int         codegen_mode = 0;
-    const char* out_file = NULL;
-    int         dump_preprocess = 0;
-    PPCtx       pp_ctx;
+typedef struct {
+    const char* filename;
+    int         dump_ir;
+    int         cuda_mode;
+    int         dump_spv;
+    int         opt_level;
+    int         codegen_mode;
+    const char* out_file;
+    int         dump_preprocess;
+} CmdOpts;
 
-    pp_ctx_init(&pp_ctx);
+/* Parse command-line flags into opts and set up the preprocessor include
+ * paths (bundled stubs + self-hosting source directories). */
+static void
+parse_args(int argc, char** argv, PPCtx* pp_ctx, CmdOpts* opts)
+{
+    memset(opts, 0, sizeof(*opts));
 
     /* Add bundled include stubs for system headers */
-    pp_add_include_path(&pp_ctx, "../include");
+    pp_add_include_path(pp_ctx, "../include");
 
     /* Add all source directories for self-hosting cross-directory includes.
      * Paths are relative to the build directory (where cmpl is normally run). */
-    pp_add_include_path(&pp_ctx, "../base");
-    pp_add_include_path(&pp_ctx, "../tokenizer");
-    pp_add_include_path(&pp_ctx, "../ir");
-    pp_add_include_path(&pp_ctx, "../pp");
-    pp_add_include_path(&pp_ctx, "../parser");
-    pp_add_include_path(&pp_ctx, "../ast-opt");
-    pp_add_include_path(&pp_ctx, "../ir-opt");
-    pp_add_include_path(&pp_ctx, "../vulkan");
-    pp_add_include_path(&pp_ctx, "../cuda");
-    pp_add_include_path(&pp_ctx, "../llvm-codegen");
+    pp_add_include_path(pp_ctx, "../base");
+    pp_add_include_path(pp_ctx, "../tokenizer");
+    pp_add_include_path(pp_ctx, "../ir");
+    pp_add_include_path(pp_ctx, "../pp");
+    pp_add_include_path(pp_ctx, "../parser");
+    pp_add_include_path(pp_ctx, "../ast-opt");
+    pp_add_include_path(pp_ctx, "../ir-opt");
+    pp_add_include_path(pp_ctx, "../vulkan");
+    pp_add_include_path(pp_ctx, "../cuda");
+    pp_add_include_path(pp_ctx, "../llvm-codegen");
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ir") == 0) {
-            dump_ir = 1;
+            opts->dump_ir = 1;
         } else if (strcmp(argv[i], "-cuda") == 0) {
-            cuda_mode = 1;
+            opts->cuda_mode = 1;
         } else if (strcmp(argv[i], "-S") == 0) {
             /* -S: SPIR-V dump in CUDA mode, native asm in normal mode */
-            if (cuda_mode)
-                dump_spv = 1;
+            if (opts->cuda_mode)
+                opts->dump_spv = 1;
             else
-                codegen_mode = CG_OUT_ASM;
+                opts->codegen_mode = CG_OUT_ASM;
         } else if (strncmp(argv[i], "-O", 2) == 0 && argv[i][2] >= '0'
                    && argv[i][2] <= '2' && argv[i][3] == '\0') {
-            opt_level = argv[i][2] - '0';
+            opts->opt_level = argv[i][2] - '0';
         } else if (strcmp(argv[i], "-c") == 0) {
-            codegen_mode = CG_OUT_OBJECT;
+            opts->codegen_mode = CG_OUT_OBJECT;
         } else if (strcmp(argv[i], "-E") == 0) {
-            dump_preprocess = 1;
+            opts->dump_preprocess = 1;
         } else if (strcmp(argv[i], "-emit-llvm") == 0) {
-            codegen_mode = CG_OUT_LLVM_IR;
+            opts->codegen_mode = CG_OUT_LLVM_IR;
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
-            out_file = argv[++i];
+            opts->out_file = argv[++i];
         } else if (argv[i][0] == '-' && argv[i][1] == 'I' && argv[i][2] != '\0') {
-            pp_add_include_path(&pp_ctx, argv[i] + 2);
+            pp_add_include_path(pp_ctx, argv[i] + 2);
         } else if (argv[i][0] == '-' && argv[i][1] == 'I' && argv[i][2] == '\0'
                    && i + 1 < argc) {
-            pp_add_include_path(&pp_ctx, argv[++i]);
+            pp_add_include_path(pp_ctx, argv[++i]);
         } else {
-            filename = argv[i];
+            opts->filename = argv[i];
         }
     }
+}
 
-    if (!filename) {
+/* CUDA pipeline: split → IR gen → mock → SPIR-V. */
+static void
+run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
+                  int opt_level)
+{
+    CudaSplit cs;
+
+    cuda_split(root, &cs);
+
+    printf("\n--- Device/Host Split ---\n");
+    printf("Host decls: %s\n", cs.host_decls ? "yes" : "none");
+    printf("Device decls: %s\n", cs.device_decls ? "yes" : "none");
+
+    /* generate two IR modules */
+    IR_Module *host_mod = NULL, *device_mod = NULL;
+
+    ir_gen_cuda_modules(cs.host_decls, cs.device_decls, &host_mod, &device_mod);
+
+    /* run IR optimizer on both modules */
+    if (host_mod)  ir_optimize(host_mod, opt_level);
+    if (device_mod) ir_optimize(device_mod, opt_level);
+
+    /* collect kernel launches from host AST */
+    int n_launches = 0;
+    KernelLaunch* launches = cuda_collect_launches(cs.host_decls, &n_launches);
+
+    /* insert Vulkan mock calls in host IR */
+    vk_mock_insert(host_mod, launches, n_launches);
+
+    /* dump host IR */
+    if (host_mod) {
+        printf("\n--- Host IR ---\n");
+        ir_dump_module(host_mod, stdout);
+    }
+
+    /* SPIR-V emission for device */
+    if (device_mod) {
+        SPV_Writer spv;
+
+        spv_init(&spv);
+
+        if (dump_spv) {
+            printf("\n--- Device IR (pre-SPIRV) ---\n");
+            ir_dump_module(device_mod, stdout);
+        }
+
+        spv_emit_module(&spv, device_mod);
+
+        /* write .spv file */
+        char spv_name[256];
+
+        snprintf(spv_name, sizeof(spv_name), "%s.spv", filename);
+        if (spv_write_file(&spv, spv_name))
+            printf("\n--- SPIR-V written to %s (%d words) ---\n",
+                   spv_name, spv.len);
+        else
+            printf("\n--- Failed to write %s ---\n", spv_name);
+
+        spv_free(&spv);
+    }
+
+    free(launches);
+    if (host_mod)  arena_free(host_mod->arena);
+    if (device_mod) arena_free(device_mod->arena);
+}
+
+/* LLVM codegen path: IR gen → optimize → clang subprocess. */
+static void
+run_codegen_pipeline(AST_Node* root, const char* filename, const char* out_file,
+                     int codegen_mode, int opt_level)
+{
+    printf("\n--- Generating IR for codegen ---\n");
+    IR_Module* mod = ir_gen_program(root);
+
+    if (mod) {
+        ir_optimize(mod, opt_level);
+
+        /* derive output name from source if not specified */
+        char default_out[256];
+        const char* output = out_file;
+
+        if (!output) {
+            const char* dot = strrchr(filename, '.');
+            int baselen = dot ? (int)(dot - filename) : (int)strlen(filename);
+            const char* ext;
+
+            switch (codegen_mode) {
+            case CG_OUT_OBJECT:  ext = ".o";  break;
+            case CG_OUT_ASM:     ext = ".s";  break;
+            case CG_OUT_LLVM_IR: ext = ".ll"; break;
+            default:             ext = ".o";  break;
+            }
+            snprintf(default_out, sizeof(default_out), "%.*s%s",
+                     baselen, filename, ext);
+            output = default_out;
+        }
+
+        int result = cg_compile(mod, output, codegen_mode, opt_level);
+
+        if (result != 0)
+            fprintf(stderr, "Codegen failed.\n");
+        arena_free(mod->arena);
+    }
+}
+
+/* IR dump path. */
+static void
+run_ir_pipeline(AST_Node* root, int opt_level)
+{
+    printf("\n--- IR ---\n");
+    IR_Module* mod = ir_gen_program(root);
+
+    if (mod) {
+        ir_optimize(mod, opt_level);
+        ir_dump_module(mod, stdout);
+        arena_free(mod->arena);
+    }
+}
+
+/* AST dump path. */
+static void
+run_ast_pipeline(AST_Node* root)
+{
+    printf("\nAST:\n");
+    dump_ast_public(root, 0);
+}
+
+int
+main(int argc, char** argv)
+{
+    CmdOpts opts;
+    PPCtx   pp_ctx;
+
+    pp_ctx_init(&pp_ctx);
+    parse_args(argc, argv, &pp_ctx, &opts);
+
+    if (!opts.filename) {
         fprintf(stderr, "Usage: %s [-E] [-I dir]... [-ir] [-cuda] [-c|-S|-emit-llvm] [-o outfile]\n              [-O0|-O1|-O2] <source-file>\n",
                 argv[0]);
         pp_ctx_free(&pp_ctx);
         return 1;
     }
 
-    if (dump_preprocess) {
-        char* pp_code = pp_preprocess(&pp_ctx, filename);
+    if (opts.dump_preprocess) {
+        char* pp_code = pp_preprocess(&pp_ctx, opts.filename);
+
         if (pp_code) {
             fputs(pp_code, stdout);
             free(pp_code);
@@ -95,7 +236,7 @@ main(int argc, char** argv)
         return 0;
     }
 
-    char* code = pp_preprocess(&pp_ctx, filename);
+    char* code = pp_preprocess(&pp_ctx, opts.filename);
 
     if (!code) {
         pp_ctx_free(&pp_ctx);
@@ -103,7 +244,7 @@ main(int argc, char** argv)
     }
 
     if (!code[0]) {
-        fprintf(stderr, "pp: empty preprocessor output for '%s'\n", filename);
+        fprintf(stderr, "pp: empty preprocessor output for '%s'\n", opts.filename);
         pp_ctx_free(&pp_ctx);
         free(code);
         return 1;
@@ -124,116 +265,15 @@ main(int argc, char** argv)
     printf("\n--- Optimizing ---\n");
     root = optimize(root);
 
-    if (cuda_mode) {
-        /* -------------------------------------------------------
-         *  CUDA pipeline: split → IR gen → mock → SPIR-V
-         * ------------------------------------------------------- */
-        CudaSplit cs;
-        cuda_split(root, &cs);
-
-        printf("\n--- Device/Host Split ---\n");
-        printf("Host decls: %s\n", cs.host_decls ? "yes" : "none");
-        printf("Device decls: %s\n", cs.device_decls ? "yes" : "none");
-
-        /* generate two IR modules */
-        IR_Module *host_mod = NULL, *device_mod = NULL;
-        ir_gen_cuda_modules(cs.host_decls, cs.device_decls,
-                            &host_mod, &device_mod);
-
-        /* run IR optimizer on both modules */
-        if (host_mod)
-            ir_optimize(host_mod, opt_level);
-        if (device_mod)
-            ir_optimize(device_mod, opt_level);
-
-        /* collect kernel launches from host AST */
-        int n_launches = 0;
-        KernelLaunch* launches = cuda_collect_launches(cs.host_decls,
-                                                       &n_launches);
-
-        /* insert Vulkan mock calls in host IR */
-        vk_mock_insert(host_mod, launches, n_launches);
-
-        /* dump host IR */
-        if (host_mod) {
-            printf("\n--- Host IR ---\n");
-            ir_dump_module(host_mod, stdout);
-        }
-
-        /* SPIR-V emission for device */
-        if (device_mod) {
-            SPV_Writer spv;
-            spv_init(&spv);
-
-            if (dump_spv) {
-                printf("\n--- Device IR (pre-SPIRV) ---\n");
-                ir_dump_module(device_mod, stdout);
-            }
-
-            spv_emit_module(&spv, device_mod);
-
-            /* write .spv file */
-            char spv_name[256];
-            snprintf(spv_name, sizeof(spv_name), "%s.spv", filename);
-            if (spv_write_file(&spv, spv_name))
-                printf("\n--- SPIR-V written to %s (%d words) ---\n",
-                       spv_name, spv.len);
-            else
-                printf("\n--- Failed to write %s ---\n", spv_name);
-
-            spv_free(&spv);
-        }
-
-        free(launches);
-        if (host_mod)  arena_free(host_mod->arena);
-        if (device_mod) arena_free(device_mod->arena);
-    } else if (codegen_mode) {
-        /* -------------------------------------------------------
-         *  LLVM codegen path: IR gen → optimize → clang subprocess
-         * ------------------------------------------------------- */
-        printf("\n--- Generating IR for codegen ---\n");
-        IR_Module* mod = ir_gen_program(root);
-
-        if (mod) {
-            ir_optimize(mod, opt_level);
-
-            /* derive output name from source if not specified */
-            char default_out[256];
-            const char* output = out_file;
-            if (!output) {
-                const char* dot = strrchr(filename, '.');
-                int baselen = dot ? (int)(dot - filename)
-                                  : (int)strlen(filename);
-                const char* ext;
-                switch (codegen_mode) {
-                case CG_OUT_OBJECT:  ext = ".o";  break;
-                case CG_OUT_ASM:     ext = ".s";  break;
-                case CG_OUT_LLVM_IR: ext = ".ll"; break;
-                default:             ext = ".o";  break;
-                }
-                snprintf(default_out, sizeof(default_out),
-                         "%.*s%s", baselen, filename, ext);
-                output = default_out;
-            }
-
-            int result = cg_compile(mod, output, codegen_mode, opt_level);
-            if (result != 0)
-                fprintf(stderr, "Codegen failed.\n");
-            arena_free(mod->arena);
-        }
-    } else if (dump_ir) {
-        printf("\n--- IR ---\n");
-        IR_Module* mod = ir_gen_program(root);
-
-        if (mod) {
-            ir_optimize(mod, opt_level);
-            ir_dump_module(mod, stdout);
-            arena_free(mod->arena);
-        }
-    } else {
-        printf("\nAST:\n");
-        dump_ast_public(root, 0);
-    }
+    if (opts.cuda_mode)
+        run_cuda_pipeline(root, opts.filename, opts.dump_spv, opts.opt_level);
+    else if (opts.codegen_mode)
+        run_codegen_pipeline(root, opts.filename, opts.out_file,
+                             opts.codegen_mode, opts.opt_level);
+    else if (opts.dump_ir)
+        run_ir_pipeline(root, opts.opt_level);
+    else
+        run_ast_pipeline(root);
 
     pp_ctx_free(&pp_ctx);
 
