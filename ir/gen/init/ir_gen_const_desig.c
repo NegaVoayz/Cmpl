@@ -118,10 +118,12 @@ gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
     return ir_const_aggregate(a, ty, elems, n);
 }
 
-/* store a value into a union's single largest-member slot.  accepted only
- * when the initialized member's type matches the largest member (a
- * constant-space bitcast across differing types is not expressible in the
- * current dump); otherwise warn and leave the slot zero. */
+/* store a value into a union's single largest-member slot.  when the
+ * initialized member's type matches the largest member, store it directly;
+ * otherwise reinterpret the member value's low bits into the largest type
+ * (the member sits at offset 0 of the union's storage, so the high bytes are
+ * zero-filled).  unsupported operands (aggregates/pointers) fall back to a
+ * zero-filled slot. */
 void
 gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
                       IR_Type* member_ty, AST_Node* steps, AST_Node* val,
@@ -130,9 +132,11 @@ gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
     IR_Type* largest = ir_union_largest_member(target);
     if (largest && member_ty && ir_type_eq(largest, member_ty)) {
         elems[0] = gen_const_desig(a, largest, steps, val, enum_vals);
+    } else if (largest && member_ty) {
+        IR_Value* mv = gen_const_desig(a, member_ty, steps, val, enum_vals);
+        IR_Value* cv = ir_const_reinterpret(a, mv, largest);
+        elems[0] = cv ? cv : gen_const_zero(a, largest);
     } else if (largest) {
-        fprintf(stderr, "cmpl: warning: union member with differing type"
-                " not supported in const init; zero-filled\n");
         elems[0] = gen_const_zero(a, largest);
     }
 }

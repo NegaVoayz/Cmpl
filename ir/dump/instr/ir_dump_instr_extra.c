@@ -118,6 +118,23 @@ dump_cast(FILE* out, IR_Instr* inst, const char* mnemonic)
     dump_type(out, inst->type);
 }
 
+/* constant-expression form of a const bitcast (VAL_CONST_BITCAST).  unlike
+ * the instruction dump_bitcast above, the operand is a typed constant
+ * expression: it is wrapped in parens with its operand type spelled out,
+ * e.g. bitcast (i32 1 to float). */
+void
+dump_const_cast(FILE* out, IR_Value* val, const char* mnemonic)
+{
+    IR_Value* sub = val->body.cast_val;
+    fprintf(out, "%s (", mnemonic);
+    dump_type(out, sub->type);
+    fprintf(out, " ");
+    dump_value(out, sub);
+    fprintf(out, " to ");
+    dump_type(out, val->type);
+    fprintf(out, ")");
+}
+
 void
 dump_select(FILE* out, IR_Instr* inst)
 {

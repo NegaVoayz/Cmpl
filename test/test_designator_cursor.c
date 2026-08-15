@@ -26,7 +26,7 @@ struct T { struct P p[2]; int b; };
 struct T g4 = {.p[0] = 1, 2, 3, 4};       /* const: p={{1,2},{3,4}}, b=0 */
 
 union U { int a; double b; };
-union U gu = {1, 2};                      /* const: documented limitation */
+union U gu = {1, 2};                      /* const: a=1 (first member), excess 2 ignored */
 union U gu2 = {.b = 7.0, 2};              /* const: b=7, excess 2 ignored */
 
 int main(void)
@@ -71,7 +71,7 @@ int main(void)
     if (g4.p[0].x != 1 || g4.p[0].y != 2 || g4.p[1].x != 3 || g4.p[1].y != 4 || g4.b != 0)
         { printf("g4 %d,%d,%d,%d b=%d\n", g4.p[0].x, g4.p[0].y,
                  g4.p[1].x, g4.p[1].y, g4.b); rc |= 1024; }
-    if (gu.a != 0)                        /* documented limitation */
+    if (gu.a != 1)
         { printf("gu.a=%d\n", gu.a); rc |= 2048; }
     if (gu2.b != 7.0)
         { printf("gu2.b=%g\n", gu2.b); rc |= 4096; }

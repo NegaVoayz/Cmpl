@@ -56,6 +56,8 @@ IR_Value*   ir_const_float(Arena* a, IR_Type* ty, double val);
 IR_Value*   ir_const_null(Arena* a, IR_Type* ty);
 IR_Value*   ir_const_aggregate(Arena* a, IR_Type* ty,
                                IR_Value** elems, int count);
+IR_Value*   ir_const_bitcast(Arena* a, IR_Type* to, IR_Value* v);
+IR_Value*   ir_const_reinterpret(Arena* a, IR_Value* v, IR_Type* to);
 
 /* instruction builders */
 IR_Value*   ir_build_alloca(IR_Builder* b, IR_Type* ty);

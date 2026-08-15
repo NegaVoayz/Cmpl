@@ -144,6 +144,10 @@ void dump_value(FILE* out, IR_Value* val)
         dump_const_aggregate(out, val);
         break;
 
+    case VAL_CONST_BITCAST:
+        dump_const_cast(out, val, "bitcast");
+        break;
+
     default: fprintf(out, "?"); break;
     }
 }

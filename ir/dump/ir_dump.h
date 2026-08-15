@@ -31,6 +31,7 @@ void dump_call(FILE* out, IR_Instr* inst);
 void dump_term_op(FILE* out, IR_Instr* inst);
 void dump_bitcast(FILE* out, IR_Instr* inst);
 void dump_cast(FILE* out, IR_Instr* inst, const char* mnemonic);
+void dump_const_cast(FILE* out, IR_Value* val, const char* mnemonic);
 void dump_select(FILE* out, IR_Instr* inst);
 void dump_phi(FILE* out, IR_Instr* inst);
 void dump_gep(FILE* out, IR_Instr* inst);

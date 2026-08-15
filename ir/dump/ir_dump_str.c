@@ -73,6 +73,8 @@ static void collect_from_value(IR_Value* val)
         for (int i = 0; i < val->body.aggregate.count; i++)
             collect_from_value(val->body.aggregate.elems[i]);
     }
+    else if (val->kind == VAL_CONST_BITCAST)
+        collect_from_value(val->body.cast_val);
 }
 
 void

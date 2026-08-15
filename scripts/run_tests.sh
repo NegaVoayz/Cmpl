@@ -66,9 +66,6 @@ for f in "$ROOT"/test/*.c; do
       fi
       continue ;;
     test_arena_only|test_hash_init|test_main_min|test_pp_init|test_pp_init2|test_pp_step|test_pp_step2) INTERNAL=1; GCC_SKIP=0 ;;
-    # union const-path excess initializer ({1,2}) is a documented cmpl limitation
-    # that intentionally diverges from gcc -> exempt from the gcc stdout-diff.
-    test_designator_cursor) INTERNAL=0; GCC_SKIP=1 ;;
     *) INTERNAL=0; GCC_SKIP=0 ;;
   esac
 
