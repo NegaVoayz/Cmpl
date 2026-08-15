@@ -8,40 +8,14 @@
  *  Recursive walker -- collect all AST_KERNEL_LAUNCH nodes
  * --------------------------------------------------------------- */
 
+static void walk_launches(AST_Node* node, KernelLaunch** buf, int* count, int* cap);
+static void walk_launch_children(AST_Node* node, KernelLaunch** buf, int* count, int* cap);
+
+/* Recurse into a node's typed children (statements/expressions) looking for
+ * nested kernel-launch sites. */
 static void
-walk_launches(AST_Node* node, KernelLaunch** buf, int* count, int* cap)
+walk_launch_children(AST_Node* node, KernelLaunch** buf, int* count, int* cap)
 {
-    if (!node) return;
-
-    if (node->type == AST_KERNEL_LAUNCH) {
-        /* grow buffer if needed */
-        if (*count >= *cap) {
-            *cap = (*cap == 0) ? 4 : (*cap) * 2;
-            *buf = realloc(*buf, (*cap) * sizeof(KernelLaunch));
-        }
-
-        KernelLaunch* kl = &(*buf)[*count];
-        AST_Node*     callee = node->body.kernel_launch.callee;
-
-        kl->kernel_name.data = NULL;
-        kl->kernel_name.length = 0;
-
-        if (callee && callee->type == AST_IDENT)
-            kl->kernel_name = callee->body.ident.name;
-
-        /* config is a comma-separated chain: grid, block, [shared], [stream] */
-        AST_Node* cfg = node->body.kernel_launch.config;
-
-        kl->grid_dim   = cfg;
-        kl->block_dim  = cfg ? cfg->next : NULL;
-        kl->shared_mem = kl->block_dim ? kl->block_dim->next : NULL;
-        kl->stream     = kl->shared_mem ? kl->shared_mem->next : NULL;
-        kl->args       = node->body.kernel_launch.args;
-
-        (*count)++;
-    }
-
-    /* walk children based on node type */
     switch (node->type) {
     case AST_PROGRAM:
         walk_launches(node->body.program.decls, buf, count, cap);
@@ -128,6 +102,42 @@ walk_launches(AST_Node* node, KernelLaunch** buf, int* count, int* cap)
     default:
         break;
     }
+}
+
+static void
+walk_launches(AST_Node* node, KernelLaunch** buf, int* count, int* cap)
+{
+    if (!node) return;
+
+    if (node->type == AST_KERNEL_LAUNCH) {
+        /* grow buffer if needed */
+        if (*count >= *cap) {
+            *cap = (*cap == 0) ? 4 : (*cap) * 2;
+            *buf = realloc(*buf, (*cap) * sizeof(KernelLaunch));
+        }
+
+        KernelLaunch* kl = &(*buf)[*count];
+        AST_Node*     callee = node->body.kernel_launch.callee;
+
+        kl->kernel_name.data = NULL;
+        kl->kernel_name.length = 0;
+
+        if (callee && callee->type == AST_IDENT)
+            kl->kernel_name = callee->body.ident.name;
+
+        /* config is a comma-separated chain: grid, block, [shared], [stream] */
+        AST_Node* cfg = node->body.kernel_launch.config;
+
+        kl->grid_dim   = cfg;
+        kl->block_dim  = cfg ? cfg->next : NULL;
+        kl->shared_mem = kl->block_dim ? kl->block_dim->next : NULL;
+        kl->stream     = kl->shared_mem ? kl->shared_mem->next : NULL;
+        kl->args       = node->body.kernel_launch.args;
+
+        (*count)++;
+    }
+
+    walk_launch_children(node, buf, count, cap);
 
     /* walk sibling chain */
     if (node->next && node->next != node)  /* safety: avoid circular */
