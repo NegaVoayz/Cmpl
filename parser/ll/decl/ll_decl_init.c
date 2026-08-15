@@ -69,6 +69,47 @@ parse_designator(LR1_Parser* p, Token** dstart)
     return head;
 }
 
+/* parse one initializer-list expression element; p->tok is at the element's
+ * first token.  Returns the parsed expression.
+ *
+ * The LR expression parser has no "end of initializer element" token, so a
+ * top-level ',' would be read as the comma operator and swallow the next
+ * element.  Scan ahead for the next depth-0 comma (or the closing '}') and
+ * rewrite that one comma to TOK_SEMI so the LR parser stops there, then
+ * restore it.  A naive `lr1_stop_at_comma` flag can't be used here: it fires
+ * on *any* comma once the LR stack holds a node, so `{ foo(a,b), c }` would
+ * mis-parse the ',' inside the call as the element terminator.  Only the
+ * depth-aware scan here rewrites a genuine top-level separator. */
+AST_Node*
+parse_init_element_expr(LR1_Parser* p)
+{
+    int depth = 0;
+    Token* comma = NULL;
+
+    for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
+        if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
+            t->kind == TOK_LBRACE) depth++;
+        else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
+                 t->kind == TOK_RBRACE) depth--;
+        else if (depth == 0 && t->kind == TOK_COMMA)
+            { comma = t; break; }
+        else if (depth == 0 && t->kind == TOK_RBRACE)
+            break;
+    }
+
+    TokenKind saved = TOK_COMMA;
+    if (comma) {
+        saved = comma->kind;
+        comma->kind = TOK_SEMI;
+    }
+
+    AST_Node* elem = ll_parse_expr(p);
+
+    if (comma)
+        comma->kind = saved;
+    return elem;
+}
+
 /* parse an initializer list {elem, elem, ...} recursively.
  * called when p->tok points to TOK_LBRACE.  advances past the
  * closing TOK_RBRACE and returns an AST_INIT_LIST node. */
@@ -90,30 +131,7 @@ parse_init_list(LR1_Parser* p)
         if (p->tok->kind == TOK_LBRACE) {
             elem = parse_init_list(p);
         } else {
-            /* parse one expression element.
-             * scan ahead for the next top-level comma or }
-             * so the LR parser treats comma as terminator. */
-            { int depth = 0;
-              Token* comma = NULL;
-              for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
-                  if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
-                      t->kind == TOK_LBRACE) depth++;
-                  else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
-                           t->kind == TOK_RBRACE) depth--;
-                  else if (depth == 0 && t->kind == TOK_COMMA)
-                      { comma = t; break; }
-                  else if (depth == 0 && t->kind == TOK_RBRACE)
-                      break;
-              }
-              if (comma) {
-                  TokenKind saved = comma->kind;
-                  comma->kind = TOK_SEMI;
-                  elem = ll_parse_expr(p);
-                  comma->kind = saved;
-              } else {
-                  elem = ll_parse_expr(p);
-              }
-            }
+            elem = parse_init_element_expr(p);
         }
 
         if (steps && elem) {

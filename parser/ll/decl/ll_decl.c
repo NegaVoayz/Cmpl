@@ -130,7 +130,10 @@ infer_array_size_from_string(LR1_Parser* p, Type* full)
  * top-level comma with a semicolon so the LR parser treats it as the
  * expression terminator.  Fixes multi-declarator initializers like
  * `int a = foo(x), b = 2;` where the comma must not parse as the comma
- * operator. */
+ * operator.
+ *
+ * TODO(refactor): near-duplicate of parse_init_element_expr (ll_decl_init.c),
+ * differing only in the terminator (TOK_SEMI here vs TOK_RBRACE there). */
 static AST_Node*
 parse_scalar_init(LR1_Parser* p)
 {
