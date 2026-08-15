@@ -16,10 +16,6 @@ int dump_anon_count = 0;
  *  Type printer
  * --------------------------------------------------------------- */
 
-/* ---------------------------------------------------------------
- *  Type printer
- * --------------------------------------------------------------- */
-
 void dump_type(FILE* out, IR_Type* ty)
 {
     if (!ty) { fprintf(out, "void"); return; }
@@ -96,6 +92,54 @@ void dump_type(FILE* out, IR_Type* ty)
  *  Value printer
  * --------------------------------------------------------------- */
 
+static void
+dump_const_float(FILE* out, IR_Value* val)
+{
+    /* LLVM requires a decimal point or exponent in float literals.
+     * %g prints integral values like 7.0 as "7", which clang
+     * rejects as an integer constant — append ".0" when needed.
+     * %g also prints 4e+09 for large values — clang's IR reader
+     * rejects an exponent without a decimal point ("4e+09" is
+     * lexed as an integer), so insert ".0" before the exponent. */
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%g", val->body.float_val);
+    char* e = strpbrk(buf, "eE");
+    if (e && !strchr(buf, '.')) {
+        size_t n = (size_t)(e - buf);
+        memmove(e + 2, e, strlen(e) + 1);
+        buf[n] = '.';
+        buf[n + 1] = '0';
+    }
+    fprintf(out, "%s", buf);
+    if (!strchr(buf, '.') && !strchr(buf, 'e') &&
+        !strchr(buf, 'E') && !strchr(buf, 'i') &&
+        !strchr(buf, 'n'))
+        fprintf(out, ".0");
+}
+
+static void
+dump_const_aggregate(FILE* out, IR_Value* val)
+{
+    /* emit values with per-element types (no outer type).
+     * arrays: [T v0, T v1, ...]
+     * structs: {T v0, T v1, ...}
+     * the type is provided by the caller (global line or parent). */
+    if (val->body.aggregate.count == 0) {
+        fprintf(out, "zeroinitializer");
+    } else {
+        fprintf(out, val->type->kind == IR_STRUCT ||
+                val->type->kind == IR_UNION ? "{" : "[");
+        for (int i = 0; i < val->body.aggregate.count; i++) {
+            if (i > 0) fprintf(out, ", ");
+            dump_type(out, val->body.aggregate.elems[i]->type);
+            fprintf(out, " ");
+            dump_value(out, val->body.aggregate.elems[i]);
+        }
+        fprintf(out, val->type->kind == IR_STRUCT ||
+                val->type->kind == IR_UNION ? "}" : "]");
+    }
+}
+
 void dump_value(FILE* out, IR_Value* val)
 {
     if (!val) { fprintf(out, "void"); return; }
@@ -106,28 +150,7 @@ void dump_value(FILE* out, IR_Value* val)
         break;
 
     case VAL_CONST_FLOAT:
-        /* LLVM requires a decimal point or exponent in float literals.
-         * %g prints integral values like 7.0 as "7", which clang
-         * rejects as an integer constant — append ".0" when needed.
-         * %g also prints 4e+09 for large values — clang's IR reader
-         * rejects an exponent without a decimal point ("4e+09" is
-         * lexed as an integer), so insert ".0" before the exponent. */
-        {
-            char buf[64];
-            snprintf(buf, sizeof(buf), "%g", val->body.float_val);
-            char* e = strpbrk(buf, "eE");
-            if (e && !strchr(buf, '.')) {
-                size_t n = (size_t)(e - buf);
-                memmove(e + 2, e, strlen(e) + 1);
-                buf[n] = '.';
-                buf[n + 1] = '0';
-            }
-            fprintf(out, "%s", buf);
-            if (!strchr(buf, '.') && !strchr(buf, 'e') &&
-                !strchr(buf, 'E') && !strchr(buf, 'i') &&
-                !strchr(buf, 'n'))
-                fprintf(out, ".0");
-        }
+        dump_const_float(out, val);
         break;
 
     case VAL_CONST_NULL:
@@ -161,24 +184,7 @@ void dump_value(FILE* out, IR_Value* val)
         break;
 
     case VAL_CONST_AGGREGATE:
-        /* emit values with per-element types (no outer type).
-         * arrays: [T v0, T v1, ...]
-         * structs: {T v0, T v1, ...}
-         * the type is provided by the caller (global line or parent). */
-        if (val->body.aggregate.count == 0) {
-            fprintf(out, "zeroinitializer");
-        } else {
-            fprintf(out, val->type->kind == IR_STRUCT ||
-                    val->type->kind == IR_UNION ? "{" : "[");
-            for (int i = 0; i < val->body.aggregate.count; i++) {
-                if (i > 0) fprintf(out, ", ");
-                dump_type(out, val->body.aggregate.elems[i]->type);
-                fprintf(out, " ");
-                dump_value(out, val->body.aggregate.elems[i]);
-            }
-            fprintf(out, val->type->kind == IR_STRUCT ||
-                    val->type->kind == IR_UNION ? "}" : "]");
-        }
+        dump_const_aggregate(out, val);
         break;
 
     default: fprintf(out, "?"); break;
