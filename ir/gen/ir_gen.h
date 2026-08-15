@@ -68,6 +68,7 @@ void      sym_scope_pop(GenCtx* ctx);
 /* ---- statement / expression entry points ---- */
 void      gen_stmt(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_store_ptr(GenCtx* ctx, AST_Node* n);
 
 /* ---- runtime initializers (ir_gen_expr.c) ---- */
 void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty);
@@ -86,8 +87,15 @@ void resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map);
 int  resolve_compound_lit_type_cb(AST_Node* n, void* ctx);
 int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 
-/* ---- shared helpers ---- */
+/* ---- expression operators + coercion (ir_gen_expr_op.c) ---- */
 IR_Value* coerce_to_i1(IR_Builder* b, IR_Value* v);
+IR_Value* coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target);
+IR_Value* gen_logical(GenCtx* ctx, TokenKind op, AST_Node* l, AST_Node* r);
+IR_Value* gen_binary_op(GenCtx* ctx, TokenKind op, IR_Value* lhs, IR_Value* rhs);
+IR_Value* gen_unary_expr(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_call_expr(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_ternary_expr(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_cast(GenCtx* ctx, AST_Node* n);
 
 /* from ir_builder.c (shared internal helper) */
 void append_instr(IR_Builder* b, IR_Instr* inst);
