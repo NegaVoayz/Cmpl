@@ -70,6 +70,15 @@ void      gen_stmt(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_store_ptr(GenCtx* ctx, AST_Node* n);
 
+/* ---- statement control flow (ir_gen_stmt.c / ir_gen_stmt_ctrl.c) ---- */
+int  ir_is_terminator(IR_Opcode op);
+void link_blocks(IR_Func* f, IR_Block* b);
+void gen_stmt_if(GenCtx* ctx, AST_Node* n);
+void gen_stmt_switch(GenCtx* ctx, AST_Node* n);
+void gen_stmt_while(GenCtx* ctx, AST_Node* n);
+void gen_stmt_do_while(GenCtx* ctx, AST_Node* n);
+void gen_stmt_for(GenCtx* ctx, AST_Node* n);
+
 /* ---- lvalue / member readers (ir/gen/expr/) ---- */
 IR_Value* gen_member_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_index_expr(GenCtx* ctx, AST_Node* n);
