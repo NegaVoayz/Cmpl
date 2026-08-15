@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # diff_gcc.sh -- differential battery: compile each test/diff_gcc/*.c with
-# both cmpl and gcc, run them, and diff exit codes.
+# both cmpl and gcc, run them, and diff exit codes AND stdout.
 #
 #   cmpl path: cmpl -emit-llvm -> clang link -> run
 #   gcc  path: gcc -> run
@@ -28,20 +28,27 @@ for f in "$CORPUS"/*.c; do
   if ! clang "$TMP/$base.ll" -o "$TMP/$base.cmpl.exe" 2>"$TMP/$base.clang.err"; then
     echo "CLANG-FAIL $base"; FAIL=$((FAIL+1)); DIVERGED="$DIVERGED $base(clang)"; continue
   fi
-  "$TMP/$base.cmpl.exe" >/dev/null 2>&1
+  "$TMP/$base.cmpl.exe" >"$TMP/$base.cmpl.out" 2>"$TMP/$base.cmpl.runerr"
   cmpl_rc=$?
 
   # gcc reference
   if ! gcc -std=c11 "$f" -o "$TMP/$base.gcc.exe" 2>"$TMP/$base.gcc.err"; then
     echo "GCC-FAIL   $base"; FAIL=$((FAIL+1)); DIVERGED="$DIVERGED $base(gcc)"; continue
   fi
-  "$TMP/$base.gcc.exe" >/dev/null 2>&1
+  "$TMP/$base.gcc.exe" >"$TMP/$base.gcc.out" 2>"$TMP/$base.gcc.runerr"
   gcc_rc=$?
 
-  if [ "$cmpl_rc" = "$gcc_rc" ]; then
+  if [ "$cmpl_rc" = "$gcc_rc" ] &&
+     cmp -s "$TMP/$base.cmpl.out" "$TMP/$base.gcc.out"; then
     PASS=$((PASS+1))
   else
-    echo "DIVERGE    $base: cmpl=$cmpl_rc gcc=$gcc_rc"
+    if [ "$cmpl_rc" != "$gcc_rc" ]; then
+      echo "DIVERGE    $base: exit cmpl=$cmpl_rc gcc=$gcc_rc"
+    fi
+    if ! cmp -s "$TMP/$base.cmpl.out" "$TMP/$base.gcc.out"; then
+      echo "DIVERGE    $base: stdout"
+      diff -u "$TMP/$base.gcc.out" "$TMP/$base.cmpl.out" || true
+    fi
     FAIL=$((FAIL+1)); DIVERGED="$DIVERGED $base"
   fi
 done
