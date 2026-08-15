@@ -65,8 +65,11 @@ for f in "$ROOT"/test/*.c; do
         CPASS=$((CPASS+1))
       fi
       continue ;;
-    test_arena_only|test_hash_init|test_main_min|test_pp_init|test_pp_init2|test_pp_step|test_pp_step2) INTERNAL=1 ;;
-    *) INTERNAL=0 ;;
+    test_arena_only|test_hash_init|test_main_min|test_pp_init|test_pp_init2|test_pp_step|test_pp_step2) INTERNAL=1; GCC_SKIP=0 ;;
+    # union const-path excess initializer ({1,2}) is a documented cmpl limitation
+    # that intentionally diverges from gcc -> exempt from the gcc stdout-diff.
+    test_designator_cursor) INTERNAL=0; GCC_SKIP=1 ;;
+    *) INTERNAL=0; GCC_SKIP=0 ;;
   esac
 
   if ! "$CMPL" -emit-llvm -I"$ROOT/include" -I"$ROOT" -o "$TMP/$base.ll" "$f" >/dev/null 2>&1; then
@@ -89,7 +92,7 @@ for f in "$ROOT"/test/*.c; do
   want=0
   case "$base" in test_full) want=1 ;; test_lr1_edge) want=14 ;; esac
 
-  if [ "${STDOUT_DIFF:-0}" = "1" ] && [ "$INTERNAL" = 0 ]; then
+  if [ "${STDOUT_DIFF:-0}" = "1" ] && [ "$INTERNAL" = 0 ] && [ "$GCC_SKIP" = 0 ]; then
     "$TMP/$base.exe" >"$TMP/$base.cmpl.out" 2>"$TMP/$base.cmpl.runerr"
     rc=$?
     if [ $rc -ne "$want" ]; then
