@@ -1,0 +1,109 @@
+/* ll_decl_common.c -- shared declaration helpers: the FUNC_DEF constructor
+ * and the declaration-start token detector. */
+
+#include "../ll.h"
+
+/* helpers from ll.c */
+extern void ll_expect(LR1_Parser* p, TokenKind k);
+extern AST_Node* ll_parse_stmt(LR1_Parser* p);
+
+/* ---------------------------------------------------------------
+ *  decl_build_func_def -- build an AST_FUNC_DEF for a function-type
+ *  declarator, or return NULL when full is not a function type.
+ *  Handles the pointer-chain rebuild into ret_type (int* f(void)).
+ * --------------------------------------------------------------- */
+
+AST_Node*
+decl_build_func_def(LR1_Parser* p, Token* start, Type* full, String dname,
+                    int linkage, int is_constructor)
+{
+    Type* scan = full;
+    int n_ptr = 0;
+
+    while (scan && scan->kind == TYPE_PTR) {
+        n_ptr++;
+        scan = scan->inner;
+    }
+
+    if (!(scan && scan->kind == TYPE_FUNC))
+        return NULL;
+
+    AST_Node* params = scan->params;
+    Type* ret_type;
+
+    if (n_ptr > 0) {
+        /* rebuild pointer chain → FUNC.inner */
+        ret_type = type_new(p->arena, TYPE_PTR);
+        Type* tail = ret_type;
+
+        for (int i = 1; i < n_ptr; i++) {
+            tail->inner = type_new(p->arena, TYPE_PTR);
+            tail = tail->inner;
+        }
+        tail->inner = scan->inner;
+    } else {
+        ret_type = scan->inner;
+    }
+
+    AST_Node* fn = ast_node_new(p->arena, AST_FUNC_DEF,
+                                start->loc.line, start->loc.col);
+    fn->body.func_def.ret_type = ret_type;
+    fn->body.func_def.name = dname;
+    fn->body.func_def.params = params;
+    fn->body.func_def.linkage = linkage;
+    fn->body.func_def.is_variadic = scan->is_variadic;
+
+    if (p->tok->kind == TOK_LBRACE) {
+        fn->body.func_def.is_constructor = is_constructor;
+        fn->body.func_def.body = ll_parse_stmt(p);
+    } else {
+        fn->body.func_def.is_constructor = 0;
+        fn->body.func_def.body = NULL;
+        ll_expect(p, TOK_SEMI);
+    }
+    return fn;
+}
+
+/* ---------------------------------------------------------------
+ *  is_type_start -- tokens that begin a declaration
+ * --------------------------------------------------------------- */
+
+int is_type_start(Token* tok)
+{
+    TokenKind k = tok->kind;
+
+    if (k == TOK_INT     || k == TOK_CHAR    || k == TOK_VOID ||
+        k == TOK_SHORT   || k == TOK_LONG    || k == TOK_FLOAT ||
+        k == TOK_DOUBLE  || k == TOK_SIGNED  || k == TOK_UNSIGNED ||
+        k == TOK_STRUCT  || k == TOK_UNION   || k == TOK_ENUM ||
+        k == TOK_STATIC  || k == TOK_EXTERN  || k == TOK_CONST ||
+        k == TOK_VOLATILE|| k == TOK_REGISTER|| k == TOK_TYPEDEF ||
+        k == TOK_KW_GLOBAL || k == TOK_KW_DEVICE || k == TOK_KW_HOST ||
+        k == TOK_KW_SHARED || k == TOK_KW_CONSTANT ||
+        k == TOK_ATTRIBUTE)
+        return 1;
+
+    /* User-defined types: peek past stars/qualifiers for another ident.
+     * Pattern:  TypeName  *...*  VarName  ( | [ | = | , | ; )
+     * Example:  Macro* macro_lookup(...)  or  Buffer* b;  */
+    if (k == TOK_IDENT) {
+        Token* peek = tok->next;
+
+        while (peek && (peek->kind == TOK_STAR ||
+                        peek->kind == TOK_CONST ||
+                        peek->kind == TOK_VOLATILE))
+            peek = peek->next;
+
+        if (peek && peek->kind == TOK_IDENT) {
+            Token* peek2 = peek->next;
+
+            if (peek2 &&
+                (peek2->kind == TOK_LPAREN  || peek2->kind == TOK_LBRACKET ||
+                 peek2->kind == TOK_EQ      || peek2->kind == TOK_COMMA ||
+                 peek2->kind == TOK_SEMI    || peek2->kind == TOK_COLON))
+                return 1;
+        }
+    }
+
+    return 0;
+}

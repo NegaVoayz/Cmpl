@@ -17,6 +17,10 @@ AST_Node* ll_parse_stmt(LR1_Parser* p);
 /* parse a declaration (var/func/struct/union/enum/typedef) */
 AST_Node* ll_parse_decl(LR1_Parser* p);
 
+/* build an AST_FUNC_DEF for a function-type declarator; NULL otherwise */
+AST_Node* decl_build_func_def(LR1_Parser* p, Token* start, Type* full,
+                              String dname, int linkage, int is_constructor);
+
 /* parse an initializer list {elem, elem, ...} (p->tok at '{') */
 AST_Node* parse_init_list(LR1_Parser* p);
 

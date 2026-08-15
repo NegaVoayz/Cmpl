@@ -1,73 +1,17 @@
-/* ll_decl.c -- LL declaration parser
+/* ll_decl.c -- LL declaration parser: variable declarations and function
+ * definitions.  Struct/union/enum and the shared func-def helper live in
+ * ll_decl_struct.c / ll_decl_common.c.
  *
- * Variable declarations, function definitions, struct/union/enum
- * definitions, and typedefs.  Delegates sub-expressions to lr1_parse_expr().
+ * Delegates sub-expressions to lr1_parse_expr().
  */
 
 #include "../ll.h"
-#include "cuda.h"
 
-#include <stdio.h>
-#include <string.h>
-
-/* helpers from ll.c */
+/* from ll.c */
 extern void ll_expect(LR1_Parser* p, TokenKind k);
-extern AST_Node* ll_parse_stmt(LR1_Parser* p);
-
-/* aggregate helpers from ll_decl_agg.c and ll_decl_struct.c */
-extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
-extern AST_Node* ll_parse_enum_def(LR1_Parser* p);
-extern AST_Node* parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
-                                          int linkage, int addr_space);
 
 /* ---------------------------------------------------------------
- *  is_type_start -- tokens that begin a declaration
- * --------------------------------------------------------------- */
-
-int is_type_start(Token* tok)
-{
-    TokenKind k = tok->kind;
-
-    if (k == TOK_INT     || k == TOK_CHAR    || k == TOK_VOID ||
-        k == TOK_SHORT   || k == TOK_LONG    || k == TOK_FLOAT ||
-        k == TOK_DOUBLE  || k == TOK_SIGNED  || k == TOK_UNSIGNED ||
-        k == TOK_STRUCT  || k == TOK_UNION   || k == TOK_ENUM ||
-        k == TOK_STATIC  || k == TOK_EXTERN  || k == TOK_CONST ||
-        k == TOK_VOLATILE|| k == TOK_REGISTER|| k == TOK_TYPEDEF ||
-        k == TOK_KW_GLOBAL || k == TOK_KW_DEVICE || k == TOK_KW_HOST ||
-        k == TOK_KW_SHARED || k == TOK_KW_CONSTANT ||
-        k == TOK_ATTRIBUTE)
-        return 1;
-
-    /* User-defined types: peek past stars/qualifiers for another ident.
-     * Pattern:  TypeName  *...*  VarName  ( | [ | = | , | ; )
-     * Example:  Macro* macro_lookup(...)  or  Buffer* b;  */
-    if (k == TOK_IDENT) {
-        Token* peek = tok->next;
-
-        while (peek && (peek->kind == TOK_STAR ||
-                        peek->kind == TOK_CONST ||
-                        peek->kind == TOK_VOLATILE))
-            peek = peek->next;
-
-        if (peek && peek->kind == TOK_IDENT) {
-            Token* peek2 = peek->next;
-
-            if (peek2 &&
-                (peek2->kind == TOK_LPAREN  || peek2->kind == TOK_LBRACKET ||
-                 peek2->kind == TOK_EQ      || peek2->kind == TOK_COMMA ||
-                 peek2->kind == TOK_SEMI    || peek2->kind == TOK_COLON))
-                return 1;
-        }
-    }
-
-    return 0;
-}
-
-/* (parse_struct_union_decl moved to ll_decl_struct.c) */
-
-/* ---------------------------------------------------------------
- *  parse_var_list_decl -- declarator list (var decls, func defs)
+ *  Array-size inference from initializers
  * --------------------------------------------------------------- */
 
 /* Count a braced initializer's elements to infer an unsized array's
@@ -160,9 +104,53 @@ parse_scalar_init(LR1_Parser* p)
     return init;
 }
 
+/* ---------------------------------------------------------------
+ *  parse_vardef_tail -- build a VAR_DECL (or TYPEDEF) node, parsing
+ *  any initializer.  Returns the node to append to the declarator list.
+ * --------------------------------------------------------------- */
+
 static AST_Node*
+parse_vardef_tail(LR1_Parser* p, Token* start, Type* full, String dname,
+                  int is_typedef, int linkage, int addr_space)
+{
+    AST_Node* vd = ast_node_new(p->arena, AST_VAR_DECL,
+                                start->loc.line, start->loc.col);
+    vd->body.var_decl.var_type = full;
+    vd->body.var_decl.name = dname;
+    vd->body.var_decl.addr_space = addr_space;
+    vd->body.var_decl.linkage = linkage;
+    vd->body.var_decl.init = NULL;
+
+    if (p->tok->kind == TOK_EQ) {
+        p->tok = p->tok->next;
+
+        if (p->tok->kind == TOK_LBRACE) {
+            infer_array_size_from_brace(p, full);
+            vd->body.var_decl.init = parse_init_list(p);
+        } else {
+            if (p->tok->kind == TOK_STRING_LIT)
+                infer_array_size_from_string(p, full);
+            vd->body.var_decl.init = parse_scalar_init(p);
+        }
+    }
+
+    if (is_typedef) {
+        AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
+                                    start->loc.line, start->loc.col);
+        td->body.typedef_decl.aliased_type = full;
+        td->body.typedef_decl.name = dname;
+        return td;
+    }
+    return vd;
+}
+
+/* ---------------------------------------------------------------
+ *  parse_var_list_decl -- declarator list (var decls, func defs)
+ * --------------------------------------------------------------- */
+
+AST_Node*
 parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
-                     int linkage, int addr_space, int is_constructor)
+                    int linkage, int addr_space, int is_constructor)
 {
     AST_Node* head = NULL;
     AST_Node** tail = &head;
@@ -171,120 +159,28 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
         String dname = {NULL, 0};
         Type* full = ll_parse_declarator(p, base, &dname, 0);
 
-        /* find function type through pointer layers (int* f(void) → PTR→FUNC→INT) */
-        {
-            Type* scan = full;
-            int n_ptr = 0;
-
-            while (scan && scan->kind == TYPE_PTR) {
-                n_ptr++;
-                scan = scan->inner;
-            }
-
-            if (scan && scan->kind == TYPE_FUNC) {
-                /* pointer-to-function: TYPE_FUNC->TYPE_PTR->...
-                 * e.g. void (*f)(void) — treat as variable/typedef, not func def. */
-                if (n_ptr == 0 && scan->inner && scan->inner->kind == TYPE_PTR) {
-                    ll_expect(p, TOK_SEMI);
-                    /* inline variable/typedef creation (same logic as below) */
-                    { AST_Node* vd = ast_node_new(p->arena, AST_VAR_DECL,
-                                                  start->loc.line, start->loc.col);
-                      vd->body.var_decl.var_type = full;
-                      vd->body.var_decl.name = dname;
-                      vd->body.var_decl.addr_space = addr_space;
-                      vd->body.var_decl.linkage = linkage;
-                      vd->body.var_decl.init = NULL;
-                      if (is_typedef) {
-                          AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
-                                                      start->loc.line, start->loc.col);
-                          td->body.typedef_decl.aliased_type = full;
-                          td->body.typedef_decl.name = dname;
-                          vd = td;
-                      }
-                      *tail = vd;
-                      tail = &vd->next;
-                      if (p->tok->kind == TOK_COMMA) p->tok = p->tok->next;
-                      else { if (!head) head = vd; return head; }
-                    }
-                }
-
-                AST_Node* params = scan->params;
-                Type* ret_type;
-
-                if (n_ptr > 0) {
-                    /* rebuild pointer chain → FUNC.inner */
-                    ret_type = type_new(p->arena, TYPE_PTR);
-                    Type* tail = ret_type;
-
-                    for (int i = 1; i < n_ptr; i++) {
-                        tail->inner = type_new(p->arena, TYPE_PTR);
-                        tail = tail->inner;
-                    }
-                    tail->inner = scan->inner;
-                } else {
-                    ret_type = scan->inner;
-                }
-
-            if (p->tok->kind == TOK_LBRACE) {
-                AST_Node* fn = ast_node_new(p->arena, AST_FUNC_DEF,
-                                            start->loc.line, start->loc.col);
-                fn->body.func_def.ret_type = ret_type;
-                fn->body.func_def.name = dname;
-                fn->body.func_def.params = params;
-                fn->body.func_def.linkage = linkage;
-                fn->body.func_def.is_constructor = is_constructor;
-                fn->body.func_def.is_variadic = scan->is_variadic;
-                fn->body.func_def.body = ll_parse_stmt(p);
-                *tail = fn;
-                return head ? head : fn;
-            }
-
+        /* pointer-to-function: TYPE_FUNC->TYPE_PTR->...
+         * e.g. void (*f)(void) — treat as variable/typedef, not func def. */
+        if (full->kind == TYPE_FUNC && full->inner &&
+            full->inner->kind == TYPE_PTR) {
             ll_expect(p, TOK_SEMI);
-            AST_Node* fd = ast_node_new(p->arena, AST_FUNC_DEF,
-                                        start->loc.line, start->loc.col);
-            fd->body.func_def.ret_type = ret_type;
-            fd->body.func_def.name = dname;
-            fd->body.func_def.params = params;
-            fd->body.func_def.linkage = linkage;
-            fd->body.func_def.is_constructor = 0;
-            fd->body.func_def.is_variadic = scan->is_variadic;
-            fd->body.func_def.body = NULL;
-            *tail = fd;
-            return head ? head : fd;
-            }
+            AST_Node* vd = parse_vardef_tail(p, start, full, dname,
+                                             is_typedef, linkage, addr_space);
+            *tail = vd;
+            tail = &vd->next;
+            if (p->tok->kind == TOK_COMMA) p->tok = p->tok->next;
+            else { if (!head) head = vd; return head; }
         }
 
-        /* Variable declaration */
-        AST_Node* vd = ast_node_new(p->arena, AST_VAR_DECL,
-                                    start->loc.line, start->loc.col);
-        vd->body.var_decl.var_type = full;
-        vd->body.var_decl.name = dname;
-        vd->body.var_decl.addr_space = addr_space;
-        vd->body.var_decl.linkage = linkage;
-        vd->body.var_decl.init = NULL;
-
-        if (p->tok->kind == TOK_EQ) {
-            p->tok = p->tok->next;
-
-            if (p->tok->kind == TOK_LBRACE) {
-                infer_array_size_from_brace(p, full);
-                /* parse the initializer into an AST_INIT_LIST */
-                vd->body.var_decl.init = parse_init_list(p);
-            } else {
-                if (p->tok->kind == TOK_STRING_LIT)
-                    infer_array_size_from_string(p, full);
-                vd->body.var_decl.init = parse_scalar_init(p);
-            }
+        AST_Node* fn = decl_build_func_def(p, start, full, dname,
+                                           linkage, is_constructor);
+        if (fn) {
+            *tail = fn;
+            return head ? head : fn;
         }
 
-        if (is_typedef) {
-            AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
-                                        start->loc.line, start->loc.col);
-            td->body.typedef_decl.aliased_type = full;
-            td->body.typedef_decl.name = dname;
-            vd = td;
-        }
-
+        AST_Node* vd = parse_vardef_tail(p, start, full, dname,
+                                         is_typedef, linkage, addr_space);
         *tail = vd;
         tail = &vd->next;
 
@@ -294,124 +190,4 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
 
     ll_expect(p, TOK_SEMI);
     return head;
-}
-
-/* ---------------------------------------------------------------
- *  Attribute parser: __attribute__((constructor))
- * --------------------------------------------------------------- */
-
-static int
-parse_attribute(LR1_Parser* p)
-{
-    if (p->tok->kind != TOK_ATTRIBUTE)
-        return 0;
-
-    p->tok = p->tok->next;  /* skip __attribute__ */
-    ll_expect(p, TOK_LPAREN);
-    ll_expect(p, TOK_LPAREN);
-
-    int has_constructor = 0;
-
-    if (p->tok->kind == TOK_IDENT) {
-        /* check for "constructor" */
-        if (p->tok->body.ident.length == 11 &&
-            memcmp(p->tok->body.ident.data, "constructor", 11) == 0)
-            has_constructor = 1;
-        p->tok = p->tok->next;
-    }
-
-    ll_expect(p, TOK_RPAREN);
-    ll_expect(p, TOK_RPAREN);
-
-    return has_constructor;
-}
-
-/* ---------------------------------------------------------------
- *  Main declaration parser
- * --------------------------------------------------------------- */
-
-AST_Node* ll_parse_decl(LR1_Parser* p)
-{
-    Token* start = p->tok;
-    int is_typedef = 0;
-    int is_constructor = parse_attribute(p);
-    int linkage = cuda_parse_qualifiers(p);
-    int addr_space = cuda_parse_var_qualifiers(p);
-
-    while (p->tok->kind == TOK_TYPEDEF || p->tok->kind == TOK_STATIC ||
-           p->tok->kind == TOK_EXTERN  || p->tok->kind == TOK_REGISTER) {
-        if (p->tok->kind == TOK_TYPEDEF) is_typedef = 1;
-        if (p->tok->kind == TOK_STATIC) linkage = 4;   /* LINK_STATIC */
-        if (p->tok->kind == TOK_EXTERN) linkage = 5;   /* LINK_EXTERN */
-        p->tok = p->tok->next;
-    }
-
-    if (p->tok->kind == TOK_STRUCT || p->tok->kind == TOK_UNION) {
-        int is_struct = (p->tok->kind == TOK_STRUCT);
-        Token* stok = p->tok;
-        p->tok = p->tok->next;
-        AST_Node* n = parse_struct_union_decl(p, stok, is_struct, linkage, addr_space);
-
-        /* wrap in typedef if needed */
-        if (is_typedef && n) {
-            /* find the variable decl at end of chain to convert */
-            AST_Node* last = n;
-            while (last->next) last = last->next;
-
-            if (last->type == AST_VAR_DECL) {
-                AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
-                                            last->loc.line, last->loc.col);
-                td->body.typedef_decl.aliased_type = last->body.var_decl.var_type;
-                td->body.typedef_decl.name = last->body.var_decl.name;
-
-                if (last == n)
-                    n = td;
-                else {
-                    AST_Node* prev = n;
-                    while (prev->next != last) prev = prev->next;
-                    prev->next = td;
-                }
-            } else if (last->type == AST_STRUCT_DEF ||
-                       last->type == AST_UNION_DEF) {
-                /* typedef struct Foo Foo; — bare struct/union, create
-                 * a typedef entry so the tag name is usable as a type */
-                AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
-                                            last->loc.line, last->loc.col);
-                td->body.typedef_decl.name = last->body.struct_def.name;
-                Type* aliased = type_new(p->arena,
-                    (last->type == AST_STRUCT_DEF) ? TYPE_STRUCT : TYPE_UNION);
-                aliased->name = last->body.struct_def.name;
-                aliased->params = last->body.struct_def.fields;
-                td->body.typedef_decl.aliased_type = aliased;
-                /* return both the struct def and the typedef */
-                last->next = td;
-            }
-        }
-        return n;
-    }
-
-    if (p->tok->kind == TOK_ENUM) {
-        AST_Node* n = ll_parse_enum_def(p);
-
-        /* typedef enum {..} Name — register Name as a typedef so it
-         * resolves to the enum type during IR gen (otherwise the
-         * TYPE_NAMED → ptr heuristic fires). */
-        if (is_typedef && n && n->type == AST_ENUM_DEF && n->body.enum_def.name.data) {
-            AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
-                                        n->loc.line, n->loc.col);
-            Type* etype = type_new(p->arena, TYPE_ENUM);
-            etype->name = n->body.enum_def.name;
-            td->body.typedef_decl.aliased_type = etype;
-            td->body.typedef_decl.name = n->body.enum_def.name;
-            n->next = td;
-        }
-        return n;
-    }
-
-    Type* base = ll_parse_type_specs(p);
-    if (!base) { p->tok = p->tok->next; return NULL; }
-    if (p->tok->kind == TOK_SEMI) { p->tok = p->tok->next; return NULL; }
-
-    return parse_var_list_decl(p, start, base, is_typedef, linkage, addr_space,
-                                is_constructor);
 }
