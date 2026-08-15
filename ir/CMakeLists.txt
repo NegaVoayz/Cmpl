@@ -1,5 +1,5 @@
 add_library(ir
-    ir_type.c ir_type_layout.c ir_builder.c ir_builder_const.c ir_builder_cast.c ir_builder_ops.c ir_gen_cuda.c
+    ir_type.c ir_type_ast.c ir_type_struct.c ir_type_layout.c ir_builder.c ir_builder_const.c ir_builder_cast.c ir_builder_ops.c ir_gen_cuda.c
     gen/ir_gen.c gen/ir_gen_module.c gen/ir_gen_module_emit.c gen/ir_gen_func.c gen/ir_gen_resolve.c gen/ir_gen_resolve_ast.c gen/ir_gen_resolve_struct.c gen/init/ir_gen_const.c gen/init/ir_gen_init.c gen/ir_gen_stmt.c gen/ir_gen_stmt_ctrl.c
     gen/expr/ir_gen_expr.c
     gen/expr/ir_gen_logical.c
