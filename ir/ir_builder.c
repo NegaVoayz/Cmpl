@@ -1,9 +1,10 @@
-/* ir_builder.c -- IR builder: lifecycle, block mgmt, basic instructions */
+/* ir_builder.c -- IR builder: lifecycle, internal helpers, memory instructions.
+ *
+ * Block management (ir_builder_new_block / ir_builder_set_block) and
+ * append_instr live in ir_builder_block.c.
+ */
 
 #include "ir.h"
-
-#include <stdlib.h>
-#include <string.h>
 
 #include "arena.h"
 
@@ -23,35 +24,6 @@ ir_builder_new(IR_Module* mod, Arena* a)
     b->entry_block = NULL;
     b->arena = a;
     return b;
-}
-
-/* ---------------------------------------------------------------
- *  Block management
- * --------------------------------------------------------------- */
-
-IR_Block*
-ir_builder_new_block(IR_Builder* b, const char* name)
-{
-    IR_Block* blk = arena_alloc(b->arena, sizeof(IR_Block));
-
-    if (name) {
-        /* make label unique by appending a counter to avoid collisions
-         * when multiple blocks share the same logical name (e.g. nested for loops) */
-        char buf[64];
-        int id = b->next_label_id++;
-        int n = snprintf(buf, sizeof(buf), "%s.%d", name, id);
-        char* copy = arena_alloc(b->arena, n + 1);
-        memcpy(copy, buf, n + 1);
-        blk->name.data = copy;
-        blk->name.length = n;
-    }
-    return blk;
-}
-
-void
-ir_builder_set_block(IR_Builder* b, IR_Block* block)
-{
-    b->cur_block = block;
 }
 
 /* ---------------------------------------------------------------
@@ -84,20 +56,6 @@ make_instr(IR_Builder* b, IR_Opcode op, IR_Type* ty)
     inst->in_vals = NULL;
     inst->in_blocks = NULL;
     return inst;
-}
-
-void
-append_instr(IR_Builder* b, IR_Instr* inst)
-{
-    IR_Block* blk = b->cur_block;
-
-    if (!blk->first) {
-        blk->first = inst;
-        blk->last = inst;
-    } else {
-        blk->last->next = inst;
-        blk->last = inst;
-    }
 }
 
 /* ---------------------------------------------------------------
