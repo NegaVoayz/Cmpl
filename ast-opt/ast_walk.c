@@ -10,8 +10,8 @@
  *  walk_children -- recurse into every AST_Node* child of 'n'
  * --------------------------------------------------------------- */
 
-static int walk_children(AST_Node* n, AST_Walker pre, AST_Walker post,
-                         void* ctx)
+static int walk_expr_children(AST_Node* n, AST_Walker pre, AST_Walker post,
+                              void* ctx)
 {
     int ch = 0;
 
@@ -56,6 +56,18 @@ static int walk_children(AST_Node* n, AST_Walker pre, AST_Walker post,
         ch |= ast_walk(n->body.member.record, pre, post, ctx); break;
     case AST_SIZEOF_EXPR:
         ch |= ast_walk(n->body.sizeof_expr.expr, pre, post, ctx); break;
+    default: break;
+    }
+
+    return ch;
+}
+
+static int walk_stmt_children(AST_Node* n, AST_Walker pre, AST_Walker post,
+                              void* ctx)
+{
+    int ch = 0;
+
+    switch (n->type) {
     case AST_EXPR_STMT:
         if (n->body.expr_stmt.expr)
             ch |= ast_walk(n->body.expr_stmt.expr, pre, post, ctx); break;
@@ -100,6 +112,17 @@ static int walk_children(AST_Node* n, AST_Walker pre, AST_Walker post,
         ch |= ast_walk(n->body.program.decls, pre, post, ctx); break;
     default: break;
     }
+
+    return ch;
+}
+
+static int walk_children(AST_Node* n, AST_Walker pre, AST_Walker post,
+                         void* ctx)
+{
+    int ch = 0;
+
+    ch |= walk_expr_children(n, pre, post, ctx);
+    ch |= walk_stmt_children(n, pre, post, ctx);
 
     return ch;
 }
