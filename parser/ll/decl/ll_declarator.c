@@ -239,6 +239,15 @@ static AST_Node* ll_parse_params(LR1_Parser* p, int* is_variadic)
         String name = {NULL, 0};
         Type* full = ll_parse_declarator(p, base, &name, 0);
 
+        /* C11 6.7.6.3p7: an array parameter decays to a pointer to its
+         * element type (int a[] and int a[N] both mean int* a). */
+        if (full->kind == TYPE_ARRAY) {
+            Type* ptr = type_new(p->arena, TYPE_PTR);
+
+            ptr->inner = full->inner;
+            full = ptr;
+        }
+
         AST_Node* param = ast_node_new(p->arena, AST_PARAM_DECL,
                                        p->tok->loc.line, p->tok->loc.col);
 
