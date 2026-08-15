@@ -70,7 +70,13 @@ void      gen_stmt(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_store_ptr(GenCtx* ctx, AST_Node* n);
 
-/* ---- runtime initializers (ir_gen_expr.c) ---- */
+/* ---- lvalue / expression helpers (ir_gen_lval.c) ---- */
+IR_Value* gen_member_expr(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_index_expr(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_compound_lit(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_postfix_expr(GenCtx* ctx, AST_Node* n);
+
+/* ---- runtime initializers (ir_gen_init.c) ---- */
 void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty);
 void      ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty);
 void      gen_string_array_init(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty);

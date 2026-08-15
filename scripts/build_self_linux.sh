@@ -31,7 +31,7 @@ SOURCES=(
   ast-opt/opt_propagate.c ast-opt/opt_propagate_scan.c
   ast-opt/opt_propagate_replace.c ast-opt/opt_dead.c
   ir/ir_type.c ir/ir_builder.c ir/ir_builder_ops.c ir/ir_gen_cuda.c
-  ir/gen/ir_gen.c ir/gen/ir_gen_func.c ir/gen/ir_gen_resolve.c ir/gen/ir_gen_const.c ir/gen/ir_gen_expr.c ir/gen/ir_gen_expr_op.c ir/gen/ir_gen_stmt.c
+  ir/gen/ir_gen.c ir/gen/ir_gen_func.c ir/gen/ir_gen_resolve.c ir/gen/ir_gen_const.c ir/gen/ir_gen_expr.c ir/gen/ir_gen_expr_op.c ir/gen/ir_gen_lval.c ir/gen/ir_gen_init.c ir/gen/ir_gen_stmt.c
   ir/dump/ir_dump.c ir/dump/ir_dump_instr.c ir/dump/ir_dump_func.c ir/dump/ir_dump_str.c
   cuda/cuda_qual.c cuda/cuda_split.c cuda/cuda_launch.c
   vulkan/vk_spirv.c vulkan/vk_spirv_collect.c vulkan/vk_spirv_emit.c
