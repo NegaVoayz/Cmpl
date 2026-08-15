@@ -51,4 +51,11 @@ AST_Node* gen_const_absorb(AST_Node* val, AST_Node* list_next, IR_Type* inner,
                            AST_Node** last, AST_Node** old_val_next);
 IR_Type*  gen_const_desig_inner_type(IR_Type* ct, AST_Node* steps);
 
+/* ---- const continuation cursor (ir_gen_const_cont.c) ---- */
+
+IR_Type* gen_const_cont_build(IR_Type* ty, AST_Node* steps,
+                              ContLevel* cont, int* depth);
+void     gen_const_cont_set(IR_Value* root, ContLevel* cont, int depth,
+                            IR_Value* v);
+
 #endif /* IR_GEN_INIT_H */
