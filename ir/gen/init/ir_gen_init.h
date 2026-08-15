@@ -29,4 +29,13 @@ IR_Value* cont_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
 /* advance a continuation path past its just-filled slot. */
 void cont_advance(ContLevel* cont, int* depth);
 
+/* resolve the destination slot for one init-list element (designator /
+ * continuation / positional); returns 0 when the element is consumed
+ * inline (a skip, *sub already advanced), 1 when *slot is a destination
+ * to fill. */
+int init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
+                          AST_Node** sub, int is_desig, IR_Value** slot,
+                          IR_Type** child, AST_Node** val, int* pos,
+                          ContLevel* cont, int* depth);
+
 #endif /* IR_GEN_INIT_H */

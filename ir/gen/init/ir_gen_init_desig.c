@@ -1,4 +1,5 @@
-/* ir_gen_init_desig.c -- runtime designator-walk helpers. */
+/* ir_gen_init_desig.c -- runtime designator-walk helpers.
+ * TODO(refactor): 208 lines > 200 limit — split further if init/ gains room. */
 
 #include "../ir_gen.h"
 #include "ir_gen_init.h"
@@ -134,4 +135,75 @@ cont_advance(ContLevel* cont, int* depth)
         if (L->idx < ir_agg_count(L->agg)) return;
         (*depth)--;
     }
+}
+
+/* resolve the destination slot for one init-list element `*sub`.  A
+ * designator walks its steps; an active continuation descends its
+ * recorded path; otherwise the element is positional.  Returns 0 when
+ * the element is consumed inline (a skip — union excess, whole-array
+ * string fill, or beyond-capacity excess — with *sub advanced past it),
+ * 1 when *slot holds a destination to fill. */
+int
+init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
+                      AST_Node** sub, int is_desig, IR_Value** slot,
+                      IR_Type** child, AST_Node** val, int* pos,
+                      ContLevel* cont, int* depth)
+{
+    IR_Builder* b = ctx->b;
+
+    if (is_desig) {
+        int top_idx = -1;
+        *depth = 0;
+        *val = (*sub)->body.designator.value;
+        *slot = desig_walk_slot(ctx, dst, ty, (*sub)->body.designator.steps,
+                                child, &top_idx, cont, depth);
+        if (!*slot) { *depth = 0; *sub = (*sub)->next; return 0; }
+        if (*depth < 2) *depth = 0;   /* single-step: no continuation */
+        *pos = top_idx + 1;
+        return 1;
+    }
+
+    if (*depth >= 2) {
+        /* continue inside the innermost designated subobject */
+        *slot = cont_walk_slot(ctx, dst, ty, cont, *depth, child);
+        return 1;
+    }
+
+    /* a union has a single slot: only the first positional element
+     * initializes it; later ones are excess elements (gcc ignores them —
+     * and a per-member GEP would be invalid on the one-slot union type) */
+    if (ty->kind == IR_UNION && *pos > 0) {
+        (*pos)++;
+        *sub = (*sub)->next;
+        return 0;
+    }
+    /* a string literal directly inside a char array's brace list fills
+     * the WHOLE array (C11 6.7.9p14); the cursor jumps past it */
+    if ((*val)->type == AST_STRING_LIT && ty->kind == IR_ARRAY &&
+        ty->size > 0 && ty->inner && ty->inner->kind == IR_I8) {
+        gen_string_array_init(ctx, dst, *val, ty);
+        *pos += ty->size;
+        *sub = (*sub)->next;
+        return 0;
+    }
+    *child = init_child_type(ty, *pos);
+    if ((ty->kind == IR_ARRAY || ty->kind == IR_STRUCT ||
+         ty->kind == IR_UNION) &&
+        (!*child || (ty->kind == IR_ARRAY && *pos >= ty->size))) {
+        /* excess initializer beyond the aggregate's capacity: gcc ignores
+         * it (with a warning).  Scalars have no capacity — (int){9} still
+         * stores its single element. */
+        (*pos)++;
+        *sub = (*sub)->next;
+        return 0;
+    }
+    if (*child) {
+        *slot = ir_build_gep(b, dst, ir_const_int(b, t_i32, 0),
+                             ir_const_int(b, t_i32, *pos));
+        /* union slot is emitted as the largest member; bitcast to the
+         * first member's type for a positional init */
+        if (ty->kind == IR_UNION)
+            *slot = ir_build_bitcast(b, *slot, ir_ptr_type(b->arena, *child, 0));
+    }
+    return 1;
 }
