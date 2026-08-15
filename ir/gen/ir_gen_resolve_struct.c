@@ -27,6 +27,16 @@ void resolve_struct_refs_type(Type* t, HashMap* struct_map)
             for (AST_Node* f = t->params; f && f->type == AST_VAR_DECL; f = f->next)
                 resolve_struct_refs_type(f->body.var_decl.var_type, struct_map);
         }
+    } else if ((t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) &&
+               !t->name.data) {
+        /* anonymous struct/union members also need resolution: a named
+         * struct referenced only inside an anonymous struct (e.g.
+         * struct { struct IN in; } or a union's anonymous largest member)
+         * would otherwise keep params==NULL, so its %struct.IN definition
+         * never gets emitted.  anonymous structs have no tag to recurse
+         * through, so this is the only path to their member types. */
+        for (AST_Node* f = t->params; f && f->type == AST_VAR_DECL; f = f->next)
+            resolve_struct_refs_type(f->body.var_decl.var_type, struct_map);
     }
     resolve_struct_refs_type(t->inner, struct_map);
     resolve_struct_refs_type(t->next, struct_map);
