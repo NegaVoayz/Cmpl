@@ -20,4 +20,11 @@ IR_Value* build_phi2(IR_Builder* b, IR_Type* ty,
                      IR_Value* v0, IR_Block* b0,
                      IR_Value* v1, IR_Block* b1);
 
+/* Resolve a member access's record expression to its struct/union
+ * pointer + type.  Returns 1 on success, 0 when the record is not a
+ * usable struct/union lvalue.  Shared by gen_store_ptr (lval) and
+ * gen_member_expr (value read). */
+int resolve_member_record(GenCtx* ctx, AST_Node* record, TokenKind op,
+                          IR_Value** struct_ptr, IR_Type** struct_ty);
+
 #endif /* IR_GEN_EXPR_H */

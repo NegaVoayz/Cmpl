@@ -70,7 +70,7 @@ void      gen_stmt(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_store_ptr(GenCtx* ctx, AST_Node* n);
 
-/* ---- lvalue / expression helpers (ir_gen_lval.c) ---- */
+/* ---- lvalue / member readers (ir/gen/expr/) ---- */
 IR_Value* gen_member_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_index_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_compound_lit(GenCtx* ctx, AST_Node* n);

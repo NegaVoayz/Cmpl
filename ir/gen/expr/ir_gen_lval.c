@@ -6,8 +6,9 @@
 
 /* Resolve the record expression of a member access to its struct/union
  * pointer + type, without emitting the field access.  Returns 1 on
- * success, 0 when the record is not a usable struct/union lvalue. */
-static int
+ * success, 0 when the record is not a usable struct/union lvalue.
+ * Shared with gen_member_expr via expr/ir_gen_expr.h. */
+int
 resolve_member_record(GenCtx* ctx, AST_Node* record, TokenKind op,
                       IR_Value** struct_ptr, IR_Type** struct_ty)
 {
