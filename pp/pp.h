@@ -131,6 +131,9 @@ int try_sys_dirs(const char* inc_path, char* out);
 /* Directive handler: process one directive at *pp, advance *pp past it */
 int handle_directive(PPCtx* ctx, const char** pp, const char* end);
 
+/* #define handler (in inc/pp_define.c) */
+void handle_define(PPCtx* ctx, const char** pp, const char* end);
+
 /* Conditional directive handlers (in pp_if.c) */
 int  is_cond_directive(const char* name, int len);
 void handle_ifdef(PPCtx* ctx, const char** pp, const char* end, int is_ifdef);

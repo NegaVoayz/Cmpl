@@ -9,6 +9,7 @@ add_library(pp STATIC
     pp_include.c
     pp_eval.c
     inc/pp_include_paths.c
+    inc/pp_define.c
 )
 
 target_include_directories(pp PUBLIC . inc)
