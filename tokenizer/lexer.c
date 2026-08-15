@@ -89,13 +89,12 @@ read_ident_or_keyword(Lexer* lex)
     return tok;
 }
 
-Token*
-read_operator(Lexer* lex)
+/* read a (possibly multi-char) operator whose first char `c` was already
+ * consumed.  Handles compound-assignment and doubled operators that need
+ * one or two characters of lookahead (+, -, <, >, &, |, etc.). */
+static Token*
+read_compound_op(Lexer* lex, int line, int col, char c)
 {
-    int line = lex->line, col = lex->col;
-    char c = peek(lex);
-
-    advance(lex);
     switch (c) {
     case '+':
         if (peek(lex) == '+') { advance(lex); return token_new(lex,TOK_PLUSPLUS, line, col); }
@@ -156,6 +155,22 @@ read_operator(Lexer* lex)
     case '^':
         if (peek(lex) == '=') { advance(lex); return token_new(lex,TOK_CARETEQ, line, col); }
         return token_new(lex,TOK_CARET, line, col);
+    }
+
+    return token_new(lex,TOK_ERROR, line, col);  /* unreachable */
+}
+
+Token*
+read_operator(Lexer* lex)
+{
+    int line = lex->line, col = lex->col;
+    char c = peek(lex);
+
+    advance(lex);
+    switch (c) {
+    case '+': case '-': case '*': case '/': case '%': case '=':
+    case '!': case '<': case '>': case '&': case '|': case '^':
+        return read_compound_op(lex, line, col, c);
     case '~': return token_new(lex,TOK_TILDE, line, col);
     case '(': return token_new(lex,TOK_LPAREN, line, col);
     case ')': return token_new(lex,TOK_RPAREN, line, col);
