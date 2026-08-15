@@ -20,9 +20,9 @@ static void dump_lit(AST_Node* n)
 {
     switch (n->type) {
     case AST_INT_LIT:
-        printf("INT_LIT: %ld\n", n->body.literal.int_val); break;
+        printf("INT_LIT: %lld\n", n->body.literal.int_val); break;
     case AST_LONG_LIT:
-        printf("LONG_LIT: %ldL\n", n->body.literal.int_val); break;
+        printf("LONG_LIT: %lldL\n", n->body.literal.int_val); break;
     case AST_CHAR_LIT:
         printf("CHAR_LIT: '%c'\n", n->body.literal.char_val); break;
     case AST_STRING_LIT:

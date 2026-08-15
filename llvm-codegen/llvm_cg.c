@@ -36,7 +36,7 @@ run_clang(const char* ll_path, const char* out_path,
 {
     char cmd[1024];
     const char* mode_flag = asm_mode ? "-S" : "-c";
-    char opt_flag[8];
+    char opt_flag[16];
 
     if (opt_level > 0)
         snprintf(opt_flag, sizeof(opt_flag), "-O%d", opt_level);
