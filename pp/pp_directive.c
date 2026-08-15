@@ -7,7 +7,7 @@
 
 #include "arena.h"
 
-static void
+void
 skip_to_eol(const char** pp, const char* end)
 {
     while (*pp < end && **pp != '\n')

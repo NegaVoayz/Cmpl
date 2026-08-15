@@ -81,14 +81,6 @@ resolve_defined(MacroTable* mt, const char* src, const char* end, Buffer* out)
     }
 }
 
-static void
-skip_to_eol(const char** pp, const char* end)
-{
-    while (*pp < end && **pp != '\n')
-        (*pp)++;
-    if (*pp < end) (*pp)++;
-}
-
 /* --- Directive handlers --- */
 
 void

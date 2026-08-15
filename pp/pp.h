@@ -84,6 +84,9 @@ int expr_eval(const char* src, const char* end, long* result);
 char* read_file(const char* path, int* out_len);
 void  dir_of(const char* path, char* dir, int dir_sz);
 
+/* Skip to end of line: advance *pp past the next newline (or to end). */
+void  skip_to_eol(const char** pp, const char* end);
+
 /* Preprocessor context (shared across all pp/ files) */
 typedef struct PPCtx {
     MacroTable macros;
