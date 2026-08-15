@@ -17,6 +17,9 @@ AST_Node* ll_parse_stmt(LR1_Parser* p);
 /* parse a declaration (var/func/struct/union/enum/typedef) */
 AST_Node* ll_parse_decl(LR1_Parser* p);
 
+/* parse an initializer list {elem, elem, ...} (p->tok at '{') */
+AST_Node* parse_init_list(LR1_Parser* p);
+
 /* dispatch: declaration if token starts a type, else statement */
 AST_Node* ll_parse_decl_or_stmt(LR1_Parser* p);
 

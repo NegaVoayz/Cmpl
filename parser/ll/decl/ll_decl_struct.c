@@ -2,10 +2,9 @@
 
 #include "../ll.h"
 
-/* from ll.c and ll_decl.c */
+/* from ll.c and ll_decl_agg.c */
 extern void ll_expect(LR1_Parser* p, TokenKind k);
 extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
-extern AST_Node* parse_init_list(LR1_Parser* p);
 
 /* ---------------------------------------------------------------
  *  parse_struct_union_decl -- struct/union definition or declaration

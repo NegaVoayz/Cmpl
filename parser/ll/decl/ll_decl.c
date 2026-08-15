@@ -70,147 +70,91 @@ int is_type_start(Token* tok)
  *  parse_var_list_decl -- declarator list (var decls, func defs)
  * --------------------------------------------------------------- */
 
-/* parse an initializer list {elem, elem, ...} recursively.
- * called when p->tok points to TOK_LBRACE.  advances past the
- * closing TOK_RBRACE and returns an AST_INIT_LIST node. */
-
-/* parse a bracketed constant index expression `[expr]` in a designator.
- * p->tok is at '['; consumes through ']' and returns the AST node (NOT
- * folded — enum/const folding happens later in the opt passes).  mirrors
- * the bracket-rewrite pattern in ll_declarator.c. */
-static AST_Node*
-parse_designator_index(LR1_Parser* p)
+/* Count a braced initializer's elements to infer an unsized array's
+ * length (int a[] = {1,2,3}), mirroring C99.  p->tok is at the '{'. */
+static void
+infer_array_size_from_brace(LR1_Parser* p, Type* full)
 {
-    p->tok = p->tok->next;  /* skip '[' */
-    Token* rbrack = p->tok;
-    while (rbrack && rbrack->kind != TOK_RBRACKET)
-        rbrack = rbrack->next;
-    if (rbrack) rbrack->kind = TOK_SEMI;
-    AST_Node* expr = ll_parse_expr(p);
-    if (rbrack) rbrack->kind = TOK_RBRACKET;
-    if (p->tok->kind == TOK_RBRACKET)
-        p->tok = p->tok->next;  /* skip ']' */
-    return expr;
-}
+    int depth = 1, elem_count = 0, has_elem = 0;
+    Token* init_tok = p->tok->next;
 
-/* parse a C99 designator prefix: a chain of `.field` and `[index]` steps,
- * e.g. `.a.b[2].c` or `[i][j]`.  p->tok is at the first step; consumes the
- * chain and the trailing '=' and returns a linked list of AST_DESIG_STEP
- * nodes (NULL when no designator is present).  p->tok then points at the
- * value.  Consumed here (before the value's comma-rewrite) so the
- * designator's '=' is never misread as assignment. */
-static AST_Node*
-parse_designator(LR1_Parser* p, Token** dstart)
-{
-    *dstart = p->tok;
-
-    AST_Node* head = NULL;
-    AST_Node** tail = &head;
-
-    for (;;) {
-        AST_Node* step;
-
-        if (p->tok->kind == TOK_LBRACKET) {
-            step = ast_node_new(p->arena, AST_DESIG_STEP,
-                                p->tok->loc.line, p->tok->loc.col);
-            step->body.desig_step.index_expr = parse_designator_index(p);
-        } else if (p->tok->kind == TOK_DOT) {
-            step = ast_node_new(p->arena, AST_DESIG_STEP,
-                                p->tok->loc.line, p->tok->loc.col);
-            p->tok = p->tok->next;  /* skip '.' */
-            if (p->tok->kind == TOK_IDENT) {
-                step->body.desig_step.field_name = p->tok->body.ident;
-                p->tok = p->tok->next;
-            }
-        } else {
-            break;
+    while (init_tok->kind != TOK_EOF && depth > 0) {
+        if (init_tok->kind == TOK_LBRACE) {
+            depth++;
+            if (depth == 2) has_elem = 1;
         }
-
-        *tail = step;
-        tail = &step->next;
+        if (init_tok->kind == TOK_RBRACE) depth--;
+        if (depth == 1 && init_tok->kind == TOK_COMMA) {
+            elem_count++; has_elem = 0;
+        }
+        if (depth == 1 && init_tok->kind != TOK_COMMA &&
+            init_tok->kind != TOK_LBRACE &&
+            init_tok->kind != TOK_RBRACE)
+            has_elem = 1;
+        if (depth > 0) init_tok = init_tok->next;
     }
+    if (has_elem) elem_count++;
 
-    if (!head)
-        return NULL;
-
-    if (p->tok->kind == TOK_EQ)
-        p->tok = p->tok->next;  /* skip '=' */
-
-    return head;
+    /* set array size from initializer count */
+    if (elem_count > 0) {
+        Type* scan = full;
+        while (scan && scan->kind == TYPE_PTR)
+            scan = scan->inner;
+        if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0) {
+            scan->arr_size = elem_count;
+            scan->size_inferred = 1;
+        }
+    }
 }
 
-AST_Node*
-parse_init_list(LR1_Parser* p)
+/* char a[] = "s": infer an unsized char array's length from the string
+ * literal (chars + NUL), like the brace-count path above.  p->tok is at
+ * the TOK_STRING_LIT. */
+static void
+infer_array_size_from_string(LR1_Parser* p, Type* full)
 {
-    Token* start = p->tok;
+    Type* scan = full;
 
-    p->tok = p->tok->next;  /* skip { */
+    while (scan && scan->kind == TYPE_PTR)
+        scan = scan->inner;
 
-    AST_Node* head = NULL;
-    AST_Node** tail = &head;
+    if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0 &&
+        scan->inner && scan->inner->kind == TYPE_CHAR) {
+        scan->arr_size = (int)(p->tok->body.str_val.length + 1);
+        scan->size_inferred = 1;
+    }
+}
 
-    while (p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
-        AST_Node* elem = NULL;
-        Token* dstart = NULL;
-        AST_Node* steps = parse_designator(p, &dstart);
+/* Parse a scalar initializer expression.  Scan ahead for the top-level
+ * comma or semicolon (outside parens/brackets/braces) and replace a
+ * top-level comma with a semicolon so the LR parser treats it as the
+ * expression terminator.  Fixes multi-declarator initializers like
+ * `int a = foo(x), b = 2;` where the comma must not parse as the comma
+ * operator. */
+static AST_Node*
+parse_scalar_init(LR1_Parser* p)
+{
+    Token* comma = NULL;
+    int depth = 0;
 
-        if (p->tok->kind == TOK_LBRACE) {
-            elem = parse_init_list(p);
-        } else {
-            /* parse one expression element.
-             * scan ahead for the next top-level comma or }
-             * so the LR parser treats comma as terminator. */
-            { int depth = 0;
-              Token* comma = NULL;
-              for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
-                  if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
-                      t->kind == TOK_LBRACE) depth++;
-                  else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
-                           t->kind == TOK_RBRACE) depth--;
-                  else if (depth == 0 && t->kind == TOK_COMMA)
-                      { comma = t; break; }
-                  else if (depth == 0 && t->kind == TOK_RBRACE)
-                      break;
-              }
-              if (comma) {
-                  TokenKind saved = comma->kind;
-                  comma->kind = TOK_SEMI;
-                  elem = ll_parse_expr(p);
-                  comma->kind = saved;
-              } else {
-                  elem = ll_parse_expr(p);
-              }
-            }
-        }
-
-        if (steps && elem) {
-            AST_Node* d = ast_node_new(p->arena, AST_DESIGNATOR,
-                                       dstart->loc.line, dstart->loc.col);
-            d->body.designator.value = elem;
-            d->body.designator.steps = steps;
-            elem = d;
-        }
-
-        if (elem) {
-            *tail = elem;
-            tail = &elem->next;
-        }
-
-        if (p->tok->kind == TOK_COMMA)
-            p->tok = p->tok->next;
-        else if (p->tok->kind != TOK_RBRACE)
+    for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
+        if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
+            t->kind == TOK_LBRACE) depth++;
+        else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
+                 t->kind == TOK_RBRACE) depth--;
+        else if (depth == 0 && t->kind == TOK_COMMA)
+            { comma = t; break; }
+        else if (depth == 0 && t->kind == TOK_SEMI)
             break;
     }
 
-    ll_expect(p, TOK_RBRACE);
+    TokenKind saved = TOK_SEMI;
+    if (comma) { saved = comma->kind; comma->kind = TOK_SEMI; }
 
-    AST_Node* n = ast_node_new(p->arena, AST_INIT_LIST, start->loc.line, start->loc.col);
-    n->body.init_list.elems = head;
-    /* walk to last element for last_elem */
-    { AST_Node* last = head;
-      while (last && last->next) last = last->next;
-      n->body.init_list.last_elem = last; }
-    return n;
+    AST_Node* init = ll_parse_expr(p);
+
+    if (comma) comma->kind = saved;
+    return init;
 }
 
 static AST_Node*
@@ -320,80 +264,13 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             p->tok = p->tok->next;
 
             if (p->tok->kind == TOK_LBRACE) {
-                /* count initializer elements for array size inference */
-                { int depth = 1, elem_count = 0, has_elem = 0;
-                  Token* init_tok = p->tok->next;
-                  while (init_tok->kind != TOK_EOF && depth > 0) {
-                      if (init_tok->kind == TOK_LBRACE) {
-                          depth++;
-                          if (depth == 2) has_elem = 1;
-                      }
-                      if (init_tok->kind == TOK_RBRACE) depth--;
-                      if (depth == 1 && init_tok->kind == TOK_COMMA) {
-                          elem_count++; has_elem = 0;
-                      }
-                      if (depth == 1 && init_tok->kind != TOK_COMMA &&
-                          init_tok->kind != TOK_LBRACE &&
-                          init_tok->kind != TOK_RBRACE)
-                          has_elem = 1;
-                      if (depth > 0) init_tok = init_tok->next;
-                  }
-                  if (has_elem) elem_count++;
-                  /* set array size from initializer count */
-                  if (elem_count > 0) {
-                      Type* scan = full;
-                      while (scan && scan->kind == TYPE_PTR)
-                          scan = scan->inner;
-                      if (scan && scan->kind == TYPE_ARRAY &&
-                          scan->arr_size == 0) {
-                          scan->arr_size = elem_count;
-                          scan->size_inferred = 1;
-                      }
-                  }
-                }
+                infer_array_size_from_brace(p, full);
                 /* parse the initializer into an AST_INIT_LIST */
                 vd->body.var_decl.init = parse_init_list(p);
             } else {
-                /* char a[] = "s": infer the array size from the string
-                 * literal (chars + NUL), like the brace-count path above. */
-                if (p->tok->kind == TOK_STRING_LIT) {
-                    Type* scan = full;
-                    while (scan && scan->kind == TYPE_PTR)
-                        scan = scan->inner;
-                    if (scan && scan->kind == TYPE_ARRAY &&
-                        scan->arr_size == 0 && scan->inner &&
-                        scan->inner->kind == TYPE_CHAR) {
-                        scan->arr_size =
-                            (int)(p->tok->body.str_val.length + 1);
-                        scan->size_inferred = 1;
-                    }
-                }
-                /* Scan ahead to find the terminating comma or semicolon
-                 * at the top level (outside parens/brackets/braces).
-                 * Replace a top-level comma with semicolon so the LR
-                 * parser treats it as the expression terminator.
-                 * This fixes multi-declarator initializers like
-                 * `int a = foo(x), b = 2;` where the comma between
-                 * declarators must not be parsed as a comma operator. */
-                Token* comma = NULL;
-                { int depth = 0;
-                  for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
-                      if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
-                          t->kind == TOK_LBRACE) depth++;
-                      else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
-                               t->kind == TOK_RBRACE) depth--;
-                      else if (depth == 0 && t->kind == TOK_COMMA)
-                          { comma = t; break; }
-                      else if (depth == 0 && t->kind == TOK_SEMI)
-                          break;
-                  }
-                }
-                TokenKind saved = TOK_SEMI;
-                if (comma) { saved = comma->kind; comma->kind = TOK_SEMI; }
-
-                vd->body.var_decl.init = ll_parse_expr(p);
-
-                if (comma) comma->kind = saved;
+                if (p->tok->kind == TOK_STRING_LIT)
+                    infer_array_size_from_string(p, full);
+                vd->body.var_decl.init = parse_scalar_init(p);
             }
         }
 
