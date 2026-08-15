@@ -49,6 +49,40 @@ static TypeKind kw_to_typekind(TokenKind k)
 }
 
 /* ---------------------------------------------------------------
+ *  Struct / union specifier
+ *
+ *  Parses `struct Foo`, `union Bar`, or an inline definition
+ *  `struct { int x; }` / `union { int a; }`.  Returns NULL unless the
+ *  current token starts a struct/union specifier.
+ * --------------------------------------------------------------- */
+
+static Type* ll_parse_struct_union_spec(LR1_Parser* p)
+{
+    if (p->tok->kind != TOK_STRUCT && p->tok->kind != TOK_UNION)
+        return NULL;
+
+    TypeKind tk = (p->tok->kind == TOK_STRUCT) ? TYPE_STRUCT : TYPE_UNION;
+
+    p->tok = p->tok->next;
+
+    Type* t = type_new(p->arena, tk);
+
+    if (p->tok->kind == TOK_IDENT) {
+        t->name = p->tok->body.ident;
+        p->tok = p->tok->next;
+    }
+
+    /* inline body: struct { ... } or union { ... } */
+    if (p->tok->kind == TOK_LBRACE) {
+        p->tok = p->tok->next;
+        t->params = ll_parse_struct_fields(p);
+        ll_expect(p, TOK_RBRACE);
+    }
+
+    return t;
+}
+
+/* ---------------------------------------------------------------
  *  Type specifiers
  *
  *  Consumes a chain of type keywords (int, unsigned long, ...)
@@ -97,27 +131,12 @@ Type* ll_parse_type_specs(LR1_Parser* p)
         head = t;
     }
 
-    /* Struct / union tag reference or inline definition:
-       `struct Foo`, `union Bar`, `struct { int x; }`, `union { int a; }` */
-    if (!head && (p->tok->kind == TOK_STRUCT || p->tok->kind == TOK_UNION)) {
-        TypeKind tk = (p->tok->kind == TOK_STRUCT) ? TYPE_STRUCT : TYPE_UNION;
+    /* Struct / union tag reference or inline definition */
+    if (!head) {
+        Type* t = ll_parse_struct_union_spec(p);
 
-        p->tok = p->tok->next;
-
-        Type* t = type_new(p->arena, tk);
-
-        if (p->tok->kind == TOK_IDENT) {
-            t->name = p->tok->body.ident;
-            p->tok = p->tok->next;
-        }
-
-        /* inline body: struct { ... } or union { ... } */
-        if (p->tok->kind == TOK_LBRACE) {
-            p->tok = p->tok->next;
-            t->params = ll_parse_struct_fields(p);
-            ll_expect(p, TOK_RBRACE);
-        }
-        head = t;
+        if (t)
+            head = t;
     }
 
     /* Enum tag reference: `enum Color` */
