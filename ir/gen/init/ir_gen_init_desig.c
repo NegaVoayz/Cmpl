@@ -1,5 +1,5 @@
 /* ir_gen_init_desig.c -- runtime designator-walk helpers.
- * TODO(refactor): 208 lines > 200 limit — split further if init/ gains room. */
+ * TODO(refactor): 209 lines > 200 limit — split further if init/ gains room. */
 
 #include "../ir_gen.h"
 #include "ir_gen_init.h"
