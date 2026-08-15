@@ -16,7 +16,7 @@ OUT="${1:-$ROOT/build/bootstrap/cmpl}"
 mkdir -p "$(dirname "$OUT")"
 
 SOURCES=(
-  main.c dump_ast.c
+  main.c dump_ast.c dump_ast_decl.c
   base/arena.c base/hash.c
   tokenizer/parse.c tokenizer/lexer.c tokenizer/number.c tokenizer/ast.c
   pp/pp.c pp/pp_expand.c pp/pp_if.c pp/pp_eval.c pp/pp_cond.c

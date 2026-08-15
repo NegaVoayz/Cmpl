@@ -11,7 +11,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 MODOBJS=()
 for o in "$MODDIR"/*.o; do
-  case "$(basename "$o")" in main.o|main.c.o|dump_ast.o|dump_ast.c.o) ;; *) MODOBJS+=("$o");; esac
+  case "$(basename "$o")" in main.o|main.c.o|dump_ast.o|dump_ast.c.o|dump_ast_decl.o|dump_ast_decl.c.o) ;; *) MODOBJS+=("$o");; esac
 done
 
 CPASS=0; CFAIL=0; CFAILED=()
