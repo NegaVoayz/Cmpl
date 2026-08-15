@@ -60,6 +60,10 @@ void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty);
 void      ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty);
 void      gen_string_array_init(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty);
 
+/* ---- constant initializer lowering (ir_gen_const.c) ---- */
+IR_Value* gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
+                         TypedefEntry* enum_vals);
+
 /* ---- shared helpers ---- */
 IR_Value* coerce_to_i1(IR_Builder* b, IR_Value* v);
 
