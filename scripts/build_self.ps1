@@ -16,7 +16,7 @@ $sources = @(
     "parser/lr/reduce/lr1_reduce_postfix.c", "parser/lr/reduce/lr1_reduce_passthrough.c",
     "parser/lr/table/lr1_table.c", "parser/lr/table/lr1_table_acts.c", "parser/lr/table/lr1_table_goto.c", "parser/lr/table/lr1_table_reds.c",
     "parser/ll/ll.c", "parser/ll/ll_stmt.c", "parser/ll/ll_stmt_ctrl.c",
-    "parser/ll/ll_stmt_ctrl_jump.c", "parser/ll/ll_type.c", "parser/ll/decl/ll_declarator.c",
+    "parser/ll/ll_stmt_ctrl_jump.c", "parser/ll/ll_type.c", "parser/ll/decl/ll_declarator.c", "parser/ll/decl/ll_declarator_params.c",
     "parser/ll/decl/ll_decl.c", "parser/ll/decl/ll_decl_common.c", "parser/ll/decl/ll_decl_dispatch.c", "parser/ll/decl/ll_decl_agg.c", "parser/ll/decl/ll_decl_struct.c", "parser/ll/decl/ll_decl_init.c",
     "parser/parse.c",
     "ast-opt/optimize.c", "ast-opt/ast_walk.c", "ast-opt/opt_enum.c", "ast-opt/opt_dead.c",

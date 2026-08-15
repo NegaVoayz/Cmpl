@@ -36,6 +36,9 @@ Type* ll_parse_type_specs(LR1_Parser* p);
 /* parse a C declarator (*x, x[10], f(int), etc.), returns full Type and fills name */
 Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth);
 
+/* parse a comma-separated parameter list inside ( ... ), leaving p->tok after ')' */
+AST_Node* ll_parse_params(LR1_Parser* p, int* is_variadic);
+
 /* check if a token kind starts a type/declaration */
 int is_type_start(Token* tok);
 

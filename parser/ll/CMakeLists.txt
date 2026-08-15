@@ -11,6 +11,7 @@ add_library(parser_ll STATIC
     decl/ll_decl_init.c
     ll_type.c
     decl/ll_declarator.c
+    decl/ll_declarator_params.c
 )
 
 target_include_directories(parser_ll PUBLIC . ../lr ../../tokenizer ../../cuda)
