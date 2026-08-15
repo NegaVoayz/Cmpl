@@ -47,4 +47,8 @@ void emit_struct_types(FILE* out, IR_Module* mod);
 /* --- block / function printers (ir_dump_func.c) --- */
 void dump_func(FILE* out, IR_Func* func);
 
+/* --- external callee / fn-pointer declare passes (ir_dump_declares.c) --- */
+void dump_extern_declares(FILE* out, IR_Module* mod);
+void dump_fnptr_declares(FILE* out, IR_Module* mod);
+
 #endif /* IR_DUMP_H */
