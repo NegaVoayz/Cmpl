@@ -1,25 +1,9 @@
-/* ir_gen_expr_op.c -- scalar coercion + cast for the AST->IR walker.
- *
- * Being emptied by the P2 split: the operator and ternary files have
- * already moved to expr/.  Remaining here: coerce_to (initializer-store
- * scalar coercion) and gen_cast (explicit cast), both of which move to
- * expr/ir_gen_cast.c next.
- */
+/* ir_gen_cast.c -- scalar coercion + explicit cast lowering. */
 
-#include "ir.h"
+#include "../ir_gen.h"
+#include "ir_gen_expr.h"
 
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-#include "ast.h"
-#include "arena.h"
-#include "ir_gen.h"
-#include "expr/ir_gen_expr.h"
-
-/* ---------------------------------------------------------------
- *  Scalar coercion for initializer stores
- * --------------------------------------------------------------- */
 
 /* coerce any scalar/pointer value to 'target' (mirrors AST_CAST).
  * signedness-aware: int widening uses sext for signed (zext for i1/

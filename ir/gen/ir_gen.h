@@ -93,7 +93,7 @@ void resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map);
 int  resolve_compound_lit_type_cb(AST_Node* n, void* ctx);
 int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 
-/* ---- expression operators + coercion (ir_gen_expr_op.c) ---- */
+/* ---- expression operators + coercion (ir/gen/expr/) ---- */
 IR_Value* coerce_to_i1(IR_Builder* b, IR_Value* v);
 IR_Value* coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target);
 IR_Value* gen_logical(GenCtx* ctx, TokenKind op, AST_Node* l, AST_Node* r);
