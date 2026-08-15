@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-typedef struct { String name; long value; int is_unsigned; int is_long; int active; } ConstEntry;
+typedef struct { String name; long long value; int is_unsigned; int is_long; int active; } ConstEntry;
 
 /* context passed through walker */
 typedef struct {
@@ -14,7 +14,7 @@ typedef struct {
 } ScanCtx;
 
 /* from opt_propagate.c */
-extern void add_entry(ConstEntry* map, int* count, String name, long value,
+extern void add_entry(ConstEntry* map, int* count, String name, long long value,
                       int is_unsigned, int is_long);
 extern void kill_entry(ConstEntry* map, int count, String name);
 

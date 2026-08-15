@@ -4,14 +4,14 @@
 
 /* from opt_fold.c */
 extern int    is_int_literal_kind(AST_Type t);
-extern long   fold_binary_int(TokenKind op, long a, long b,
-                              int unsigned_any, int is_long);
+extern long long fold_binary_int(TokenKind op, long long a, long long b,
+                                 int unsigned_any, int is_long);
 extern double fold_binary_float(TokenKind op, double a, double b);
 
 /* (make_* helpers defined static in opt_fold.c -- duplicated here) */
-static void make_int_lit(AST_Node* n, long val)
+static void make_int_lit(AST_Node* n, long long val)
 { n->type = AST_INT_LIT; n->body.literal.int_val = val; }
-static void make_long_lit(AST_Node* n, long val)
+static void make_long_lit(AST_Node* n, long long val)
 { n->type = AST_LONG_LIT; n->body.literal.int_val = val; }
 static void make_float_lit(AST_Node* n, double val)
 { n->type = AST_FLOAT_LIT; n->body.literal.float_val = val; }
@@ -61,13 +61,13 @@ int try_fold_binary(AST_Node* n)
         return 0;
 
     if (is_int_literal_kind(left->type) && is_int_literal_kind(right->type)) {
-        long a = left->body.literal.int_val;
-        long b = right->body.literal.int_val;
+        long long a = left->body.literal.int_val;
+        long long b = right->body.literal.int_val;
         int unsigned_any = left->body.literal.is_unsigned
                         || right->body.literal.is_unsigned;
         int is_long = (left->type == AST_LONG_LIT ||
                        right->type == AST_LONG_LIT);
-        long result = fold_binary_int(op, a, b, unsigned_any, is_long);
+        long long result = fold_binary_int(op, a, b, unsigned_any, is_long);
 
         if (is_long)
             make_long_lit(n, result);
@@ -102,7 +102,7 @@ int try_fold_unary(AST_Node* n)
     if (subtree_has_side_effect(operand)) return 0;
 
     if (is_int_literal_kind(operand->type)) {
-        long v = operand->body.literal.int_val;
+        long long v = operand->body.literal.int_val;
         int is_long = operand->type == AST_LONG_LIT;
         int is_unsigned = operand->body.literal.is_unsigned;
 
@@ -110,7 +110,7 @@ int try_fold_unary(AST_Node* n)
         case TOK_MINUS:
             if (is_unsigned) {
                 if (is_long)
-                    make_long_lit(n, (long)(0UL - (unsigned long)v));
+                    make_long_lit(n, (long long)(0ULL - (unsigned long long)v));
                 else
                     make_int_lit(n, (long)(0U - (unsigned int)v));
             } else if (is_long) make_long_lit(n, -v);
@@ -121,7 +121,7 @@ int try_fold_unary(AST_Node* n)
         case TOK_TILDE:
             if (is_unsigned) {
                 if (is_long)
-                    make_long_lit(n, (long)~(unsigned long)v);
+                    make_long_lit(n, (long long)~(unsigned long long)v);
                 else
                     make_int_lit(n, (long)(unsigned)~v);
             } else if (is_long) make_long_lit(n, ~v);

@@ -50,7 +50,7 @@ static AST_Node* find_tail(AST_Node* n)
 static int prune_const_branch(AST_Node** prev, AST_Node* cur)
 {
     AST_Node* repl;
-    long cond_val;
+    long long cond_val;
 
     if (cur->type == AST_IF
         && cur->body.if_stmt.condition

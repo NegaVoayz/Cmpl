@@ -16,7 +16,7 @@ fold_binary(IR_Opcode op, IR_Value* lhs, IR_Value* rhs, IR_Type* ty)
     if (lhs->kind != VAL_CONST_INT || rhs->kind != VAL_CONST_INT)
         return NULL;
 
-    long a = lhs->body.int_val, b = rhs->body.int_val, r = 0;
+    long long a = lhs->body.int_val, b = rhs->body.int_val, r = 0;
 
     switch (op) {
     case IROP_ADD:  r = a + b; break;
@@ -28,7 +28,7 @@ fold_binary(IR_Opcode op, IR_Value* lhs, IR_Value* rhs, IR_Type* ty)
     case IROP_OR:   r = a | b; break;
     case IROP_XOR:  r = a ^ b; break;
     case IROP_SHL:  r = a << b; break;
-    case IROP_LSHR: r = (unsigned long)a >> b; break;
+    case IROP_LSHR: r = (unsigned long long)a >> b; break;
     case IROP_ASHR: r = a >> b; break;
     default: return NULL;
     }
@@ -48,8 +48,8 @@ simplify(IR_Opcode op, IR_Value* lhs, IR_Value* rhs)
 {
     int lc = (lhs && lhs->kind == VAL_CONST_INT);
     int rc = (rhs && rhs->kind == VAL_CONST_INT);
-    long lv = lc ? lhs->body.int_val : 0;
-    long rv = rc ? rhs->body.int_val : 0;
+    long long lv = lc ? lhs->body.int_val : 0;
+    long long rv = rc ? rhs->body.int_val : 0;
 
     switch (op) {
     case IROP_ADD:
@@ -132,7 +132,7 @@ fold_func(IR_Func* fn)
                 if (v0->kind != VAL_CONST_INT ||
                     v1->kind != VAL_CONST_INT) break;
 
-                long a = v0->body.int_val, b = v1->body.int_val;
+                long long a = v0->body.int_val, b = v1->body.int_val;
                 int r = 0;
 
                 switch (inst->cond) {

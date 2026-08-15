@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-typedef struct { String name; long value; int is_unsigned; int is_long; int active; } ConstEntry;
+typedef struct { String name; long long value; int is_unsigned; int is_long; int active; } ConstEntry;
 
 typedef struct {
     ConstEntry* map;

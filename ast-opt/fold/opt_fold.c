@@ -22,12 +22,12 @@ int is_int_literal_kind(AST_Type t)
 
 /* C usual arithmetic conversions for constant folding: when either
  * operand is unsigned, the operation happens in the unsigned domain
- * (32-bit int or 64-bit long).  Comparisons must then be unsigned and
+ * (32-bit int or 64-bit long long).  Comparisons must then be unsigned and
  * div/rem/shift must use unsigned semantics. */
-static long
-fold_unsigned_long_op(TokenKind op, unsigned long ua, unsigned long ub, long b)
+static long long
+fold_unsigned_long_op(TokenKind op, unsigned long long ua, unsigned long long ub, long long b)
 {
-    unsigned long r;
+    unsigned long long r;
 
     /* NOTE: no parenthesized 'a * b' here — the LR parser's
      * (IDENT*) cast heuristic misfires on (a * b) (see is_cast_start) */
@@ -53,11 +53,11 @@ fold_unsigned_long_op(TokenKind op, unsigned long ua, unsigned long ub, long b)
     case TOK_COMMA:    return b;
     default:           return 0;
     }
-    return (long)r;
+    return (long long)r;
 }
 
-static long
-fold_unsigned_int_op(TokenKind op, unsigned int ua, unsigned int ub, long b)
+static long long
+fold_unsigned_int_op(TokenKind op, unsigned int ua, unsigned int ub, long long b)
 {
     unsigned int r;
 
@@ -83,11 +83,11 @@ fold_unsigned_int_op(TokenKind op, unsigned int ua, unsigned int ub, long b)
     case TOK_COMMA:    return b;
     default:           return 0;
     }
-    return (long)r;
+    return (long long)r;
 }
 
-static long
-fold_signed_op(TokenKind op, long a, long b)
+static long long
+fold_signed_op(TokenKind op, long long a, long long b)
 {
     switch (op) {
     case TOK_PLUS:     return a + b;
@@ -113,13 +113,13 @@ fold_signed_op(TokenKind op, long a, long b)
     }
 }
 
-long fold_binary_int(TokenKind op, long a, long b,
-                     int unsigned_any, int is_long)
+long long fold_binary_int(TokenKind op, long long a, long long b,
+                          int unsigned_any, int is_long)
 {
     if (unsigned_any) {
         if (is_long) {
-            unsigned long ua = (unsigned long)a;
-            unsigned long ub = (unsigned long)b;
+            unsigned long long ua = (unsigned long long)a;
+            unsigned long long ub = (unsigned long long)b;
             return fold_unsigned_long_op(op, ua, ub, b);
         }
         unsigned int ua = (unsigned int)a;
