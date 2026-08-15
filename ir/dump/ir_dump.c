@@ -20,17 +20,34 @@ int dump_anon_count = 0;
  *  Value printer
  * --------------------------------------------------------------- */
 
+/* print an integer constant as two's-complement within its type width:
+ * a u32 value >= 2^31 is stored as a positive long long but must dump as
+ * a negative i32 (LLVM integer literals are signed decimal). */
+static long long sign_extend_int(long long v, IR_Type* ty)
+{
+    int bits = ty ? ir_type_size(ty) * 8 : 64;
+    if (bits >= 64) return v;
+
+    long long mask = (1LL << bits) - 1;
+    v &= mask;
+    if (v & (1LL << (bits - 1)))
+        v -= (1LL << bits);
+    return v;
+}
+
 static void
 dump_const_float(FILE* out, IR_Value* val)
 {
     /* LLVM requires a decimal point or exponent in float literals.
-     * %g prints integral values like 7.0 as "7", which clang
-     * rejects as an integer constant — append ".0" when needed.
-     * %g also prints 4e+09 for large values — clang's IR reader
-     * rejects an exponent without a decimal point ("4e+09" is
-     * lexed as an integer), so insert ".0" before the exponent. */
+     * %.17g round-trips any double (17 significant digits); the default
+     * %g only keeps 6 and silently truncates precision.  %g prints
+     * integral values like 7.0 as "7", which clang rejects as an integer
+     * constant — append ".0" when needed.  %g also prints 4e+09 for
+     * large values — clang's IR reader rejects an exponent without a
+     * decimal point ("4e+09" is lexed as an integer), so insert ".0"
+     * before the exponent. */
     char buf[64];
-    snprintf(buf, sizeof(buf), "%g", val->body.float_val);
+    snprintf(buf, sizeof(buf), "%.17g", val->body.float_val);
     char* e = strpbrk(buf, "eE");
     if (e && !strchr(buf, '.')) {
         size_t n = (size_t)(e - buf);
@@ -80,7 +97,7 @@ void dump_value(FILE* out, IR_Value* val)
             val->body.int_val == 0)
             fprintf(out, "null");
         else
-            fprintf(out, "%lld", val->body.int_val);
+            fprintf(out, "%lld", sign_extend_int(val->body.int_val, val->type));
         break;
 
     case VAL_CONST_FLOAT:
