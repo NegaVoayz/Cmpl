@@ -34,6 +34,34 @@ is_straight_line(IR_Func* fn)
  *  Inline one call site
  * --------------------------------------------------------------- */
 
+/* Replace callee parameter references in a cloned instruction with the
+ * mapped call-site argument values (both in operands and call args). */
+static void
+remap_params(IR_Instr* copy, IR_Func* callee, IR_Value** param_map)
+{
+    for (int o = 0; o < 3; o++) {
+        if (copy->operands[o] && copy->operands[o]->kind == VAL_PARAM) {
+            for (int p = 0; p < callee->n_params; p++) {
+                if (copy->operands[o] == callee->params[p] &&
+                    param_map[p])
+                    copy->operands[o] = param_map[p];
+            }
+        }
+    }
+    /* fix call args too */
+    if (copy->opcode == IROP_CALL) {
+        for (int a = 0; a < copy->n_call_args; a++) {
+            if (copy->call_args[a] &&
+                copy->call_args[a]->kind == VAL_PARAM) {
+                for (int p = 0; p < callee->n_params; p++)
+                    if (copy->call_args[a] == callee->params[p] &&
+                        param_map[p])
+                        copy->call_args[a] = param_map[p];
+            }
+        }
+    }
+}
+
 static int
 inline_call(IR_Func* caller, IR_Block* blk, IR_Instr* call, IR_Func* callee,
             Arena* arena)
@@ -78,28 +106,7 @@ inline_call(IR_Func* caller, IR_Block* blk, IR_Instr* call, IR_Func* callee,
         memcpy(copy, ci, sizeof(IR_Instr));
         copy->next = NULL;
 
-        /* replace param references with arg values */
-        for (int o = 0; o < 3; o++) {
-            if (copy->operands[o] && copy->operands[o]->kind == VAL_PARAM) {
-                for (int p = 0; p < callee->n_params; p++) {
-                    if (copy->operands[o] == callee->params[p] &&
-                        param_map[p])
-                        copy->operands[o] = param_map[p];
-                }
-            }
-        }
-        /* fix call args too */
-        if (copy->opcode == IROP_CALL) {
-            for (int a = 0; a < copy->n_call_args; a++) {
-                if (copy->call_args[a] &&
-                    copy->call_args[a]->kind == VAL_PARAM) {
-                    for (int p = 0; p < callee->n_params; p++)
-                        if (copy->call_args[a] == callee->params[p] &&
-                            param_map[p])
-                            copy->call_args[a] = param_map[p];
-                }
-            }
-        }
+        remap_params(copy, callee, param_map);
 
         if (!cloned_first) cloned_first = copy;
         if (cloned_last) cloned_last->next = copy;
