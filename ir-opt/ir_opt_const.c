@@ -134,6 +134,7 @@ fold_func(IR_Func* fn)
 
                 long long a = v0->body.int_val, b = v1->body.int_val;
                 int r = 0;
+                int u64 = (v0->type && v0->type->kind == IR_I64);
 
                 switch (inst->cond) {
                 case IR_COND_EQ:  r = (a == b); break;
@@ -142,6 +143,20 @@ fold_func(IR_Func* fn)
                 case IR_COND_SGE: r = (a >= b); break;
                 case IR_COND_SLT: r = (a < b);  break;
                 case IR_COND_SLE: r = (a <= b); break;
+                case IR_COND_UGT:
+                case IR_COND_UGE:
+                case IR_COND_ULT:
+                case IR_COND_ULE:
+                {
+                    unsigned long long ua = (unsigned long long)a;
+                    unsigned long long ub = (unsigned long long)b;
+                    if (!u64) { ua = (unsigned int)ua; ub = (unsigned int)ub; }
+                    r = (inst->cond == IR_COND_UGT) ? ua >  ub
+                      : (inst->cond == IR_COND_UGE) ? ua >= ub
+                      : (inst->cond == IR_COND_ULT) ? ua <  ub
+                      : ua <= ub;
+                    break;
+                }
                 default: break;
                 }
                 inst->result->kind = VAL_CONST_INT;

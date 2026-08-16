@@ -67,7 +67,14 @@ LR_Action reduce_unary_rhs(LR1_Parser* p)
 LR_Action lr1_handle_comma(LR1_Parser* p)
 {
     for (int i = p->sp; i >= 0; i--) {
-        if (p->stack[i].state == S_POSTFIX_LPAREN) {
+        int s = p->stack[i].state;
+
+        /* an intervening paren-expr means the comma is a comma operator
+         * inside (...), not a call-argument separator */
+        if (s == S_LPAREN)
+            return shift_assign_op(p);
+
+        if (s == S_POSTFIX_LPAREN) {
             AST_Node* expr = p->stack[p->sp].node;
 
             /* consume pending cast: (type)arg0, arg1 — the cast

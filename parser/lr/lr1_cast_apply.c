@@ -5,6 +5,9 @@
 
 #include "lr1.h"
 
+/* from lr1_table.c */
+extern int is_binary_op(TokenKind k);
+
 /* Parse sizeof(type).  p->tok at '(', peek at the type.  Consumes the type
  * and ')' and reduces the S_SIZEOF frame to an AST_SIZEOF_TYPE node. */
 static void
@@ -147,9 +150,14 @@ apply_pending_cast_at_reduce(LR1_Parser* p)
     int st = p->stack[p->sp].state;
     int apply_at_unary_rhs = (st == S_UNARY_RHS &&
                               p->sp >= 1 && p->sp - 1 <= p->cast_sp);
+    /* latch the cast onto the primary/postfix operand immediately following
+     * (T) when a binary op is about to take it as LHS; otherwise the stranded
+     * cast wraps the binary RHS instead (e.g. (int)3u < 5 -> 3u < (int)5). */
+    int apply_at_primary_binop = ((st == HS_PRIMARY || st == HS_POSTFIX) &&
+                                  is_binary_op(p->tok->kind));
 
     if (p->pending_cast && !defer_for_postfix && !in_nested_parens &&
-        (is_cast_level(st) || apply_at_unary_rhs)) {
+        (is_cast_level(st) || apply_at_unary_rhs || apply_at_primary_binop)) {
         AST_Node* inner = p->stack[p->sp].node;
 
         if (inner) {

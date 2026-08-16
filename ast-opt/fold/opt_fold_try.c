@@ -63,17 +63,27 @@ int try_fold_binary(AST_Node* n)
     if (is_int_literal_kind(left->type) && is_int_literal_kind(right->type)) {
         long long a = left->body.literal.int_val;
         long long b = right->body.literal.int_val;
-        int unsigned_any = left->body.literal.is_unsigned
-                        || right->body.literal.is_unsigned;
-        int is_long = (left->type == AST_LONG_LIT ||
-                       right->type == AST_LONG_LIT);
-        long long result = fold_binary_int(op, a, b, unsigned_any, is_long);
+        int l_unsigned = left->body.literal.is_unsigned;
+        int r_unsigned = right->body.literal.is_unsigned;
+        int l_long = (left->type == AST_LONG_LIT);
+        int r_long = (right->type == AST_LONG_LIT);
+        int is_long = l_long || r_long;
+
+        /* C usual arithmetic conversions: a wider (64-bit) signed operand
+         * beats a narrower (32-bit) unsigned one, so the op stays signed;
+         * otherwise any unsigned operand makes the op unsigned. */
+        int wide_signed_beats = (l_long && !l_unsigned && r_unsigned && !r_long)
+                             || (r_long && !r_unsigned && l_unsigned && !l_long);
+        int eff_unsigned = (l_unsigned || r_unsigned) && !wide_signed_beats;
+        int u_is_long = (l_unsigned && l_long) || (r_unsigned && r_long);
+
+        long long result = fold_binary_int(op, a, b, eff_unsigned, u_is_long);
 
         if (is_long)
             make_long_lit(n, result);
         else
             make_int_lit(n, result);
-        n->body.literal.is_unsigned = unsigned_any;
+        n->body.literal.is_unsigned = eff_unsigned;
         return 1;
     }
 
