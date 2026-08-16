@@ -27,6 +27,7 @@ typedef struct SymSave {
 typedef struct {
     IR_Builder*     b;
     HashMap         syms;       /* local variables: name -> IR_Value* (alloca) */
+    HashMap         labels;     /* function-scope label -> IR_Block* (goto target) */
     HashMap*        sig_map;    /* module-level: func name -> IR_Type* (func type) */
     IR_Block*       break_blk;  /* target for break */
     IR_Block*       cont_blk;   /* target for continue */
@@ -78,6 +79,8 @@ void gen_stmt_switch(GenCtx* ctx, AST_Node* n);
 void gen_stmt_while(GenCtx* ctx, AST_Node* n);
 void gen_stmt_do_while(GenCtx* ctx, AST_Node* n);
 void gen_stmt_for(GenCtx* ctx, AST_Node* n);
+void gen_stmt_goto(GenCtx* ctx, AST_Node* n);
+void gen_stmt_label(GenCtx* ctx, AST_Node* n);
 
 /* ---- lvalue / member readers (ir/gen/expr/) ---- */
 IR_Value* gen_member_expr(GenCtx* ctx, AST_Node* n);

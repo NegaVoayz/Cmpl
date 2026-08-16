@@ -93,9 +93,18 @@ static int process_block_stmts(AST_Node** head_ptr)
         AST_Node* cur = *prev;
 
         if (seen_term) {
-            *prev = NULL;
+            /* a label after a terminator is a landing pad: keep it and
+             * resume live processing (a goto can target it) */
+            if (cur->type == AST_LABEL) {
+                seen_term = 0;
+                prev = &cur->next;
+                continue;
+            }
+            /* dead statement between a terminator and a later label:
+             * splice it out, but keep scanning for a label */
+            *prev = cur->next;
             changed = 1;
-            break;
+            continue;
         }
 
         if (prune_const_branch(prev, cur)) {

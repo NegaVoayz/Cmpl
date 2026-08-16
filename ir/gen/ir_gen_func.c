@@ -92,6 +92,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     GenCtx      ctx;
 
     hashmap_init(&ctx.syms, a, 32);
+    hashmap_init(&ctx.labels, a, 32);
     ctx.b = b;
     ctx.sig_map = sig_map;
     ctx.break_blk = NULL;

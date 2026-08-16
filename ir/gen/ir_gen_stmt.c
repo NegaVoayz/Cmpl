@@ -223,6 +223,8 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
         for (AST_Node* s = n->body.case_stmt.stmt; s; s = s->next)
             gen_stmt(ctx, s);
         break;
+    case AST_GOTO: gen_stmt_goto(ctx, n); break;
+    case AST_LABEL: gen_stmt_label(ctx, n); break;
     default: break;
     }
 }
