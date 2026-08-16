@@ -30,7 +30,7 @@ SOURCES=(
   parser/ll/decl/ll_decl.c parser/ll/decl/ll_decl_common.c parser/ll/decl/ll_decl_dispatch.c parser/ll/decl/ll_decl_agg.c parser/ll/decl/ll_decl_struct.c parser/ll/decl/ll_decl_init.c
   parser/parse.c
   ast-opt/optimize.c ast-opt/ast_walk.c ast-opt/opt_enum.c ast-opt/opt_dead.c
-  ast-opt/fold/opt_fold.c ast-opt/fold/opt_fold_walk.c ast-opt/fold/opt_fold_try.c
+  ast-opt/fold/opt_fold.c ast-opt/fold/opt_fold_walk.c ast-opt/fold/opt_fold_try.c ast-opt/fold/opt_fold_cast.c
   ast-opt/propagate/opt_propagate.c ast-opt/propagate/opt_propagate_scan.c
   ast-opt/propagate/opt_propagate_replace.c
   ir/builder/ir_builder.c ir/builder/ir_builder_block.c ir/builder/ir_builder_const.c ir/builder/ir_builder_cast.c ir/builder/ir_builder_ops.c ir/builder/ir_builder_mem.c ir/type/ir_type.c ir/type/ir_type_ast.c ir/type/ir_type_struct.c ir/type/ir_type_layout.c ir/ir_gen_cuda.c

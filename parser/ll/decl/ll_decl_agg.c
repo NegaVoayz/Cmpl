@@ -99,9 +99,12 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
 
         if (p->tok->kind == TOK_EQ) {
             p->tok = p->tok->next;
-            p->stop_at_comma = 1;
-            en->body.enumerator.value = lr1_parse_expr(p);
-            p->stop_at_comma = 0;
+            /* Parse the value up to the next depth-0 comma (or closing '}').
+             * A naive stop_at_comma fires on *any* comma once the LR stack
+             * holds a node, truncating `1 + 2` to `2`; the depth-aware scan
+             * in parse_init_expr_until rewrites the separator to a terminator
+             * so the LR parser fully reduces the expression first. */
+            en->body.enumerator.value = parse_init_expr_until(p, TOK_RBRACE);
         }
 
         *tail = en;

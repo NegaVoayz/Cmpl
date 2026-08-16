@@ -59,7 +59,8 @@ collect_enum_vals(Arena* a, AST_Node* root)
         for (AST_Node* en = decl->body.enum_def.enumerators;
              en && en->type == AST_ENUMERATOR; en = en->next) {
             if (en->body.enumerator.value &&
-                en->body.enumerator.value->type == AST_INT_LIT)
+                (en->body.enumerator.value->type == AST_INT_LIT ||
+                 en->body.enumerator.value->type == AST_LONG_LIT))
                 val = (int)en->body.enumerator.value->body.literal.int_val;
             TypedefEntry* ev = arena_alloc(a, sizeof(TypedefEntry));
             ev->name = en->body.enumerator.name;

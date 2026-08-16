@@ -11,6 +11,9 @@
 
 #include <string.h>
 
+/* from ast-opt/fold/opt_fold_cast.c -- fold a (T)int_literal cast */
+extern int try_fold_cast(AST_Node* n);
+
 /* ---------------------------------------------------------------
  *  Enum value table
  * --------------------------------------------------------------- */
@@ -66,9 +69,16 @@ int opt_enum(AST_Node* root)
         for (AST_Node* en = decl->body.enum_def.enumerators;
              en && en->type == AST_ENUMERATOR; en = en->next) {
 
-            if (en->body.enumerator.value &&
-                en->body.enumerator.value->type == AST_INT_LIT)
-                val = (int)en->body.enumerator.value->body.literal.int_val;
+            AST_Node* value = en->body.enumerator.value;
+            if (value) {
+                /* resolve refs to earlier enumerators, then fold the
+                 * expression so binary/unary/cast values become a literal */
+                ast_walk(value, replace_cb, NULL, entries);
+                opt_fold(value);
+                try_fold_cast(value);
+                if (is_int_literal_kind(value->type))
+                    val = (int)value->body.literal.int_val;
+            }
 
             int skip = 0;
             for (int i = 0; i < n_entries; i++) {

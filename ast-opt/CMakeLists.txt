@@ -6,6 +6,7 @@ add_library(ast_opt STATIC
     fold/opt_fold.c
     fold/opt_fold_try.c
     fold/opt_fold_walk.c
+    fold/opt_fold_cast.c
     propagate/opt_propagate.c
     propagate/opt_propagate_scan.c
     propagate/opt_propagate_replace.c
