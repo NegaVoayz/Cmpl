@@ -42,6 +42,7 @@ int init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
 
 IR_Value* gen_const_zero(Arena* a, IR_Type* ty);
 IR_Type*  gen_const_child_type(IR_Type* ty, int idx);
+IR_Value* gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv);
 IR_Value* gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
                           AST_Node* val, TypedefEntry* enum_vals);
 void      gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
@@ -50,6 +51,7 @@ void      gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
 IR_Value* gen_const_union_aggregate(Arena* a, IR_Type* agg, IR_Value* mv);
 IR_Value* gen_const_union_scalar_from_agg(Arena* a, IR_Value* mv,
                                           IR_Type* member_ty, IR_Type* largest);
+IR_Value* gen_const_convert(Arena* a, IR_Value* v, IR_Type* to);
 AST_Node* gen_const_absorb(AST_Node* val, AST_Node* list_next, IR_Type* inner,
                            AST_Node** last, AST_Node** old_val_next);
 IR_Type*  gen_const_desig_inner_type(IR_Type* ct, AST_Node* steps);

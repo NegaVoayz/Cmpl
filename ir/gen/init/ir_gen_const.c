@@ -45,7 +45,7 @@ gen_const_string(Arena* a, AST_Node* init, IR_Type* target_type)
  * literal initializing a float member must convert (C semantics) —
  * emitting VAL_CONST_INT with a float type would dump "{double 1}",
  * which clang rejects.  float -> int truncates toward zero (gcc parity). */
-static IR_Value*
+IR_Value*
 gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv)
 {
     IR_Value* v = arena_alloc(a, sizeof(IR_Value));
@@ -178,10 +178,12 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
         return gen_const_ident(a, init, target_type, enum_vals);
 
     case AST_CAST:
-        /* evaluate the inner expression, then cast */
-    {   IR_Value* inner = gen_const_init(a, init->body.cast.cast_expr,
-                                          target_type, enum_vals);
-        return inner;
+        /* apply the cast type first, then convert to the member type
+         * (mirrors gen_cast): {(int)2.5} in a double member is 2.0 */
+    {   IR_Type* cty = ir_type_from_ast(a, init->body.cast.type_expr);
+        IR_Value* inner = gen_const_init(a, init->body.cast.cast_expr,
+                                         cty ? cty : target_type, enum_vals);
+        return gen_const_convert(a, inner, target_type);
     }
 
     case AST_UNARY:

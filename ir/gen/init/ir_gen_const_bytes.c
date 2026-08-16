@@ -125,6 +125,40 @@ gen_const_member_bits(IR_Value* v, IR_Type* ty, uint64_t* out)
     return 1;
 }
 
+/* convert a constant `v` of one type to `to` in value space (mirrors the
+ * runtime coerce_to but for constants): int<->float via gen_const_scalar
+ * (float->int truncates toward zero), normalized to the SOURCE type's
+ * width/precision first — {(char)300} is 44, {(float)0.1} is the f32
+ * rounding.  same-type, aggregate, and pointer constants pass through. */
+IR_Value*
+gen_const_convert(Arena* a, IR_Value* v, IR_Type* to)
+{
+    if (!v || !v->type || !to || ir_type_eq(v->type, to)) return v;
+
+    if (v->kind == VAL_CONST_INT) {
+        long long iv = v->body.int_val;
+        if (v->type->kind >= IR_I1 && v->type->kind <= IR_I64) {
+            int bits = ir_type_size(v->type) * 8;
+            if (bits < 64) {
+                long long mask = (1LL << bits) - 1;
+                iv &= mask;
+                if (iv & (1LL << (bits - 1)))
+                    iv -= (1LL << bits);
+            }
+        }
+        return gen_const_scalar(a, to, iv, (double)iv);
+    }
+
+    if (v->kind == VAL_CONST_FLOAT) {
+        double fv = v->body.float_val;
+        if (v->type->kind == IR_F32)
+            fv = (double)(float)fv;
+        return gen_const_scalar(a, to, (long long)fv, fv);
+    }
+
+    return v;
+}
+
 /* reinterpret an aggregate union member into a scalar largest member: assemble
  * the member's low bytes into an i64, then ir_const_reinterpret into `largest`
  * (bitcast to double/int, inttoptr to ptr).  NULL -> caller zero-fills. */
