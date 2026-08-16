@@ -84,12 +84,75 @@ static void gen_stmt_return(GenCtx* ctx, AST_Node* n)
 }
 
 /* ---------------------------------------------------------------
+ *  Static local: module-level global with a function-mangled name.
+ *  C11 6.2.4p3: the object persists across calls, so it must live in
+ *  static storage (mod->globals), not in a per-call alloca.  The
+ *  initializer is constant by definition (C11 6.7.9p4); a failed
+ *  const fold falls back to zero-init.
+ * --------------------------------------------------------------- */
+
+static IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
+    IR_Module*  mod = ctx->mod;
+    IR_Type*    vt = ir_type_from_ast(b->arena, n->body.var_decl.var_type);
+
+    if (!vt || vt->kind == IR_VOID) vt = t_i8;
+
+    /* unique global name: "<func>.<var>.<line>" — source identifiers
+     * cannot contain '.', so this cannot collide with user globals */
+    int   flen = b->cur_func && b->cur_func->name.data
+               ? (int)b->cur_func->name.length : 0;
+    int   vlen = (int)n->body.var_decl.name.length;
+    char* nm = arena_alloc(b->arena, flen + vlen + 24);
+
+    if (b->cur_func && b->cur_func->name.data) {
+        memcpy(nm, b->cur_func->name.data, flen);
+        nm[flen] = '.';
+    } else {
+        nm[0] = '.';
+        flen = 1;
+    }
+    memcpy(nm + flen + 1, n->body.var_decl.name.data, vlen);
+    sprintf(nm + flen + 1 + vlen, ".%d", n->loc.line);
+
+    IR_Value* gv = arena_alloc(b->arena, sizeof(IR_Value));
+    gv->kind = VAL_GLOBAL;
+    gv->name.data = nm;
+    gv->name.length = (int)strlen(nm);
+    gv->type = vt;
+    gv->linkage = 0;              /* internal */
+
+    if (n->body.var_decl.init) {
+        gv->body.init_val = gen_const_init(b->arena,
+                                           n->body.var_decl.init, vt, NULL);
+    }
+    if (!gv->body.init_val) {
+        IR_Value* init = arena_alloc(b->arena, sizeof(IR_Value));
+        init->kind = (vt->kind == IR_PTR) ? VAL_CONST_NULL : VAL_CONST_INT;
+        init->type = vt;
+        gv->body.init_val = init;
+    }
+
+    gv->next = mod->globals;
+    mod->globals = gv;
+    sym_add(ctx, n->body.var_decl.name, gv);
+    return gv;
+}
+
+/* ---------------------------------------------------------------
  *  Variable declaration: alloca + type-aware initialiser
  * --------------------------------------------------------------- */
 
 static void gen_stmt_var_decl(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
+
+    if (n->body.var_decl.linkage == 4) {   /* static local */
+        gen_static_local(ctx, n);
+        return;
+    }
+
     IR_Type* vt = ir_type_from_ast(b->arena, n->body.var_decl.var_type);
 
     if (!vt || vt->kind == IR_VOID) vt = t_i8;
