@@ -101,6 +101,23 @@ merge_block(IR_Func* fn, IR_Block* blk)
     return 1;
 }
 
+/* remove the incoming (value, block) pair that references 'blk' from a
+ * phi; the block no longer branches to it after a cond_br is simplified. */
+static void
+phi_remove_incoming(IR_Instr* phi, IR_Block* blk)
+{
+    for (int p = 0; p < phi->n_incoming; p++) {
+        if (phi->in_blocks[p] != blk) continue;
+
+        for (int q = p + 1; q < phi->n_incoming; q++) {
+            phi->in_blocks[q - 1] = phi->in_blocks[q];
+            phi->in_vals[q - 1] = phi->in_vals[q];
+        }
+        phi->n_incoming--;
+        return;
+    }
+}
+
 /* ---------------------------------------------------------------
  *  Convert constant-conditional branch to unconditional
  * --------------------------------------------------------------- */
@@ -120,6 +137,15 @@ simplify_cond_brs(IR_Func* fn)
         /* pick target based on constant condition */
         IR_Block* target = cond->body.int_val ?
                            term->in_blocks[0] : term->in_blocks[1];
+        IR_Block* dead = (target == term->in_blocks[0])
+                       ? term->in_blocks[1] : term->in_blocks[0];
+
+        /* the block we no longer branch to loses this phi incoming */
+        if (dead) {
+            for (IR_Instr* inst = dead->first; inst && inst->opcode == IROP_PHI;
+                 inst = inst->next)
+                phi_remove_incoming(inst, blk);
+        }
 
         /* replace cond_br with br */
         term->opcode = IROP_BR;

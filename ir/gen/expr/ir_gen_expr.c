@@ -104,6 +104,29 @@ gen_expr_sizeof_expr(GenCtx* ctx, AST_Node* n)
                 sz = sub ? ir_type_size(sub->type) : 4;
             }
         }
+    } else if (n->body.sizeof_expr.expr &&
+               n->body.sizeof_expr.expr->type == AST_UNARY &&
+               n->body.sizeof_expr.expr->body.unary.op == TOK_STAR) {
+        /* sizeof(*p) with p a pointer-to-array: the deref is an lvalue
+         * of array type; report the pointee array's size. */
+        AST_Node* op = n->body.sizeof_expr.expr->body.unary.operand;
+        if (op && op->type == AST_IDENT) {
+            String nm = op->body.ident.name;
+            IR_Value* pv = sym_lookup(ctx, nm);
+            if (!pv) pv = global_lookup(ctx->mod, nm);
+            if (pv && pv->type && pv->type->kind == IR_PTR &&
+                pv->type->inner && pv->type->inner->kind == IR_PTR &&
+                pv->type->inner->inner &&
+                pv->type->inner->inner->kind == IR_ARRAY)
+                sz = ir_type_size(pv->type->inner->inner);
+            else {
+                IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);
+                sz = sub ? ir_type_size(sub->type) : 4;
+            }
+        } else {
+            IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);
+            sz = sub ? ir_type_size(sub->type) : 4;
+        }
     } else {
         IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);
         sz = sub ? ir_type_size(sub->type) : 4;

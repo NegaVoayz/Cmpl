@@ -134,9 +134,11 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
 
     /* 2. Inner declarator (name or nested parens) */
     Type* result = base;
+    int from_parens = 0;
 
     if (p->tok->kind == TOK_LPAREN) {
         /* nested declarator: ( *x ), ( *f() ), etc. */
+        from_parens = 1;
         p->tok = p->tok->next;
         result = ll_parse_declarator(p, base, out_name, depth + 1);
 
@@ -173,9 +175,21 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
 
     /* Chain array suffixes in REVERSE order so the first [N]
      * becomes the outermost dimension (correct C semantics). */
-    for (int i = n_arrays - 1; i >= 0; i--) {
-        array_suffixes[i]->inner = result;
-        result = array_suffixes[i];
+    if (from_parens && result && result->kind == TYPE_PTR) {
+        /* int (*p)[5]: the array binds to the pointer's TARGET, not
+         * to the pointer itself — chain the arrays around the pointee
+         * and attach the result under the pointer (PTR -> ARRAY). */
+        Type* base_chain = result->inner;
+        for (int i = n_arrays - 1; i >= 0; i--) {
+            array_suffixes[i]->inner = base_chain;
+            base_chain = array_suffixes[i];
+        }
+        result->inner = base_chain;
+    } else {
+        for (int i = n_arrays - 1; i >= 0; i--) {
+            array_suffixes[i]->inner = result;
+            result = array_suffixes[i];
+        }
     }
     #undef MAX_SUFFIX
 

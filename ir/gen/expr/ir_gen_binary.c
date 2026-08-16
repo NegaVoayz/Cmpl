@@ -26,13 +26,17 @@ gen_binary_ptr_op(IR_Builder* b, TokenKind op, IR_Value* lhs, IR_Value* rhs)
         }
         return ir_build_gep(b, lhs, rhs, ir_const_int(b, t_i32, 0));
     }
-    /* ptr - ptr → ptrtoint + sub */
+    /* ptr - ptr → ptrtoint + sub, divided by element size */
     if (op == TOK_MINUS && lhs && rhs &&
         lhs->type && lhs->type->kind == IR_PTR &&
         rhs->type && rhs->type->kind == IR_PTR) {
         IR_Value* li = ir_build_bitcast(b, lhs, t_i64);
         IR_Value* ri = ir_build_bitcast(b, rhs, t_i64);
-        return ir_build_sub(b, li, ri);
+        IR_Value* diff = ir_build_sub(b, li, ri);
+        int esz = (lhs->type->inner) ? ir_type_size(lhs->type->inner) : 1;
+        if (esz > 1)
+            diff = ir_build_sdiv(b, diff, ir_const_int(b, t_i64, esz));
+        return diff;
     }
     /* int - ptr or int + ptr: convert ptr to int */
     if ((op == TOK_MINUS || op == TOK_PLUS) && lhs && rhs &&
