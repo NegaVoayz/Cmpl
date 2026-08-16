@@ -9,7 +9,7 @@
  *  Type utilities
  * --------------------------------------------------------------- */
 
-static int
+int
 ir_type_align(IR_Type* t)
 {
     if (!t) return 1;

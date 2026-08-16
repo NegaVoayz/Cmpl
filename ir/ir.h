@@ -52,6 +52,7 @@ typedef enum {
     VAL_CONST_STRING,
     VAL_CONST_AGGREGATE,
     VAL_CONST_BITCAST,
+    VAL_CONST_INTTOPTR,
     VAL_PARAM,
     VAL_INSTR,
     VAL_GLOBAL,
@@ -74,7 +75,7 @@ struct IR_Value {
         double     float_val;
         String     str_val;
         IR_Value*  init_val;  /* global initializer */
-        IR_Value*  cast_val;  /* const bitcast/zext operand */
+        IR_Value*  cast_val;  /* const bitcast/inttoptr operand */
         struct {
             IR_Value** elems;
             int        count;

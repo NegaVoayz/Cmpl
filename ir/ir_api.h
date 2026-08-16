@@ -38,6 +38,7 @@ IR_Type*    ir_type_from_ast(Arena* a, Type* ast_type);
 void        ir_clear_struct_cache(void);
 void        ir_reset_type_caches(void);
 int         ir_type_size(IR_Type* t);
+int         ir_type_align(IR_Type* t);
 IR_Type*    ir_union_largest_member(IR_Type* t);
 int         ir_type_eq(IR_Type* a, IR_Type* b);
 const char* ir_type_name(IR_Type* t);
@@ -57,6 +58,7 @@ IR_Value*   ir_const_null(Arena* a, IR_Type* ty);
 IR_Value*   ir_const_aggregate(Arena* a, IR_Type* ty,
                                IR_Value** elems, int count);
 IR_Value*   ir_const_bitcast(Arena* a, IR_Type* to, IR_Value* v);
+IR_Value*   ir_const_inttoptr(Arena* a, IR_Type* to, IR_Value* v);
 IR_Value*   ir_const_reinterpret(Arena* a, IR_Value* v, IR_Type* to);
 
 /* instruction builders */

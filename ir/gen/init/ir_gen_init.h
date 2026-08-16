@@ -48,6 +48,8 @@ void      gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
                                 IR_Type* member_ty, AST_Node* steps,
                                 AST_Node* val, TypedefEntry* enum_vals);
 IR_Value* gen_const_union_aggregate(Arena* a, IR_Type* agg, IR_Value* mv);
+IR_Value* gen_const_union_scalar_from_agg(Arena* a, IR_Value* mv,
+                                          IR_Type* member_ty, IR_Type* largest);
 AST_Node* gen_const_absorb(AST_Node* val, AST_Node* list_next, IR_Type* inner,
                            AST_Node** last, AST_Node** old_val_next);
 IR_Type*  gen_const_desig_inner_type(IR_Type* ct, AST_Node* steps);

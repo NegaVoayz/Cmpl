@@ -139,6 +139,8 @@ gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
             elems[0] = gen_const_union_aggregate(a, largest, mv);
         else {
             IR_Value* cv = ir_const_reinterpret(a, mv, largest);
+            if (!cv && ir_agg_count(member_ty) > 0)
+                cv = gen_const_union_scalar_from_agg(a, mv, member_ty, largest);
             elems[0] = cv ? cv : gen_const_zero(a, largest);
         }
     } else if (largest) {

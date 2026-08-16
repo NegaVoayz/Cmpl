@@ -57,6 +57,16 @@ ir_const_bitcast(Arena* a, IR_Type* to, IR_Value* v)
     return r;
 }
 
+IR_Value*
+ir_const_inttoptr(Arena* a, IR_Type* to, IR_Value* v)
+{
+    IR_Value* r = arena_alloc(a, sizeof(IR_Value));
+    r->kind = VAL_CONST_INTTOPTR;
+    r->type = to;
+    r->body.cast_val = v;
+    return r;
+}
+
 /* integer type of the given byte width (1/2/4/8), for zero-extending an
  * integer bit pattern across a widening union slot; NULL otherwise */
 static IR_Type*
@@ -86,6 +96,21 @@ ir_const_reinterpret(Arena* a, IR_Value* v, IR_Type* to)
     int is_int = v->type->kind >= IR_I1 && v->type->kind <= IR_I64;
     int is_float = v->type->kind == IR_F32 || v->type->kind == IR_F64;
     if (!is_int && !is_float) return NULL;
+
+    /* int member -> pointer largest: zero-extend to i64 then inttoptr.
+     * LLVM forbids `bitcast (i64 N to ptr)` for a pointer-typed constant;
+     * the only valid form is `inttoptr (i64 N to ptr)`.  float -> ptr has
+     * no constant form: leave unsupported (caller zero-fills). */
+    if (to->kind == IR_PTR) {
+        if (!is_int) return NULL;
+        int ss = ir_type_size(v->type);
+        long long mask = (ss >= 8) ? ~0LL : ((1LL << (ss * 8)) - 1);
+        IR_Value* w = arena_alloc(a, sizeof(IR_Value));
+        w->kind = VAL_CONST_INT;
+        w->type = t_i64;
+        w->body.int_val = v->body.int_val & mask;
+        return ir_const_inttoptr(a, to, w);
+    }
 
     int to_scalar = (to->kind >= IR_I1 && to->kind <= IR_I64) ||
                     to->kind == IR_F32 || to->kind == IR_F64;

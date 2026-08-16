@@ -148,6 +148,10 @@ void dump_value(FILE* out, IR_Value* val)
         dump_const_cast(out, val, "bitcast");
         break;
 
+    case VAL_CONST_INTTOPTR:
+        dump_const_cast(out, val, "inttoptr");
+        break;
+
     default: fprintf(out, "?"); break;
     }
 }

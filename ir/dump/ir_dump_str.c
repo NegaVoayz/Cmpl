@@ -75,6 +75,8 @@ static void collect_from_value(IR_Value* val)
     }
     else if (val->kind == VAL_CONST_BITCAST)
         collect_from_value(val->body.cast_val);
+    else if (val->kind == VAL_CONST_INTTOPTR)
+        collect_from_value(val->body.cast_val);
 }
 
 void

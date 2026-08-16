@@ -53,6 +53,19 @@ gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv)
     if (ty && (ty->kind == IR_F32 || ty->kind == IR_F64)) {
         v->kind = VAL_CONST_FLOAT;
         v->body.float_val = fv;
+    } else if (ty && ty->kind == IR_PTR) {
+        /* a pointer constant: 0 dumps as `null`, nonzero must be
+         * `inttoptr (i64 N to ptr)` (LLVM rejects a bare `ptr N`). */
+        if (iv == 0) {
+            v->kind = VAL_CONST_NULL;
+        } else {
+            IR_Value* i64v = arena_alloc(a, sizeof(IR_Value));
+            i64v->kind = VAL_CONST_INT;
+            i64v->type = t_i64;
+            i64v->body.int_val = iv;
+            v->kind = VAL_CONST_INTTOPTR;
+            v->body.cast_val = i64v;
+        }
     } else {
         v->kind = VAL_CONST_INT;
         v->body.int_val = iv;
