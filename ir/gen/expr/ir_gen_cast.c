@@ -14,6 +14,10 @@ coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target)
     if (!v || !v->type || !target) return v;
     if (ir_type_eq(v->type, target)) return v;
 
+    /* _Bool target: normalize to i1 (nonzero → 1), not a trunc */
+    if (target->kind == IR_I1)
+        return coerce_to_i1(b, v);
+
     /* int ↔ ptr: bitcast */
     if (v->type->kind == IR_PTR || target->kind == IR_PTR)
         return ir_build_bitcast(b, v, target);
@@ -54,6 +58,8 @@ gen_cast(GenCtx* ctx, AST_Node* n)
       if (!target || !cv->type) return cv;
       /* already matching types — nothing to do */
       if (ir_type_eq(cv->type, target)) return cv;
+      /* _Bool target: normalize to i1 (nonzero → 1), not a trunc */
+      if (target->kind == IR_I1) return coerce_to_i1(b, cv);
       /* int ↔ ptr: use bitcast */
       if (cv->type->kind == IR_PTR || target->kind == IR_PTR)
           return ir_build_bitcast(b, cv, target);

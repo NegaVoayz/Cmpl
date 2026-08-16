@@ -22,8 +22,13 @@ coerce_call_args(IR_Builder* b, IR_Type* func_ty, IR_Value** arg_buf, int n_args
             if (!arg_buf[i] || !arg_buf[i]->type) continue;
             IR_Type* at = arg_buf[i]->type;
             if (at == expected) continue;
-            int at_int = (at->kind >= IR_I8 && at->kind <= IR_I64);
-            int ex_int = (expected->kind >= IR_I8 &&
+            /* any scalar/pointer arg → _Bool param: nonzero → i1 */
+            if (expected->kind == IR_I1) {
+                arg_buf[i] = coerce_to_i1(b, arg_buf[i]);
+                continue;
+            }
+            int at_int = (at->kind >= IR_I1 && at->kind <= IR_I64);
+            int ex_int = (expected->kind >= IR_I1 &&
                           expected->kind <= IR_I64);
             if (at_int && ex_int) {
                 int at_sz = ir_type_size(at);
@@ -59,7 +64,7 @@ coerce_call_args(IR_Builder* b, IR_Type* func_ty, IR_Value** arg_buf, int n_args
         for (int i = n_fixed; i < n_args; i++) {
             if (!arg_buf[i] || !arg_buf[i]->type) continue;
             IR_Type* at = arg_buf[i]->type;
-            if (at->kind == IR_I8 || at->kind == IR_I16)
+            if (at->kind == IR_I1 || at->kind == IR_I8 || at->kind == IR_I16)
                 arg_buf[i] = widen_zext(at)
                     ? ir_build_zext(b, arg_buf[i], t_i32)
                     : ir_build_sext(b, arg_buf[i], t_i32);

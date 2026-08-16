@@ -63,6 +63,9 @@ static void gen_stmt_return(GenCtx* ctx, AST_Node* n)
                 else
                     rv = ir_build_bitcast(b, rv, ctx->ret_type);
             }
+            /* any scalar/pointer → _Bool return: nonzero → 1 */
+            else if (fk == IR_I1 && rk != IR_I1)
+                rv = coerce_to_i1(b, rv);
             /* int → float: sitofp */
             else if (rk >= IR_I1 && rk <= IR_I64 &&
                      (fk == IR_F32 || fk == IR_F64))

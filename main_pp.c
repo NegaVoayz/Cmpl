@@ -41,6 +41,7 @@ token_kind_name(TokenKind kind)
         [TOK_LONG]        = "TOK_LONG",
         [TOK_DOUBLE]      = "TOK_DOUBLE",
         [TOK_FLOAT]       = "TOK_FLOAT",
+        [TOK_BOOL]        = "TOK_BOOL",
         [TOK_INT_LIT]     = "TOK_INT_LIT",
         [TOK_LONG_LIT]    = "TOK_LONG_LIT",
         [TOK_CHAR_LIT]    = "TOK_CHAR_LIT",

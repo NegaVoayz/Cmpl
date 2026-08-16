@@ -35,6 +35,25 @@ ir_build_fcmp(IR_Builder* b, IR_Cond cond, IR_Value* lhs, IR_Value* rhs)
     return inst->result;
 }
 
+/* normalize a scalar/pointer value to an i1 boolean (nonzero -> true).
+ * Mirrors coerce_to_i1 in ir/gen, but the builder layer cannot depend on
+ * gen, so this stays self-contained here. */
+IR_Value*
+ir_build_bool(IR_Builder* b, IR_Value* v)
+{
+    if (!v || !v->type) return v;
+    if (v->type->kind == IR_I1) return v;
+
+    if (v->type->kind == IR_PTR) {
+        IR_Value* nv = ir_const_null(b->arena, v->type);
+        return ir_build_icmp(b, IR_COND_NE, v, nv);
+    }
+    if (v->type->kind == IR_F32 || v->type->kind == IR_F64)
+        return ir_build_fcmp(b, IR_COND_NE, v,
+            ir_const_float(b->arena, v->type, 0.0));
+    return ir_build_icmp(b, IR_COND_NE, v, ir_const_int(b, v->type, 0));
+}
+
 /* ---------------------------------------------------------------
  *  Instruction builders -- memory access
  * --------------------------------------------------------------- */

@@ -19,7 +19,8 @@ typedef enum {
     TYPE_DOUBLE, TYPE_SHORT, TYPE_SIGNED, TYPE_UNSIGNED,
     TYPE_PTR, TYPE_ARRAY, TYPE_FUNC,
     TYPE_STRUCT, TYPE_UNION, TYPE_ENUM,
-    TYPE_NAMED
+    TYPE_NAMED,
+    TYPE_BOOL
 } TypeKind;
 
 typedef struct Type Type;

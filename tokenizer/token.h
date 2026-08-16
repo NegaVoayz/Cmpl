@@ -12,6 +12,7 @@ typedef enum {
     TOK_CONST, TOK_VOLATILE, TOK_STATIC, TOK_EXTERN, TOK_REGISTER,
     TOK_SIGNED, TOK_UNSIGNED, TOK_SHORT, TOK_LONG, TOK_DOUBLE,
     TOK_FLOAT,
+    TOK_BOOL,
     TOK_KW_GLOBAL,     /* __global__ */
     TOK_KW_DEVICE,     /* __device__ */
     TOK_KW_HOST,       /* __host__ */

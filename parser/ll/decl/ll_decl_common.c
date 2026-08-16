@@ -75,7 +75,7 @@ int is_type_start(Token* tok)
     if (k == TOK_INT     || k == TOK_CHAR    || k == TOK_VOID ||
         k == TOK_SHORT   || k == TOK_LONG    || k == TOK_FLOAT ||
         k == TOK_DOUBLE  || k == TOK_SIGNED  || k == TOK_UNSIGNED ||
-        k == TOK_STRUCT  || k == TOK_UNION   || k == TOK_ENUM ||
+        k == TOK_BOOL    || k == TOK_STRUCT  || k == TOK_UNION   || k == TOK_ENUM ||
         k == TOK_STATIC  || k == TOK_EXTERN  || k == TOK_CONST ||
         k == TOK_VOLATILE|| k == TOK_REGISTER|| k == TOK_TYPEDEF ||
         k == TOK_KW_GLOBAL || k == TOK_KW_DEVICE || k == TOK_KW_HOST ||

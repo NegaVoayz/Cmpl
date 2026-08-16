@@ -10,6 +10,7 @@ typedef struct {
 } Keyword;
 
 static const Keyword keywords[] = {
+    {"_Bool",     TOK_BOOL},
     {"__attribute__", TOK_ATTRIBUTE},
     {"__constant__", TOK_KW_CONSTANT},
     {"__device__",   TOK_KW_DEVICE},

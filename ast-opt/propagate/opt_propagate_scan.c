@@ -29,11 +29,19 @@ static int scan_pre(AST_Node* n, void* ctx)
     switch (n->type) {
     case AST_VAR_DECL:
         if (n->body.var_decl.init
-            && is_int_literal_kind(n->body.var_decl.init->type))
-            add_entry(c->map, c->count, n->body.var_decl.name,
-                      n->body.var_decl.init->body.literal.int_val,
+            && is_int_literal_kind(n->body.var_decl.init->type)) {
+            long long val = n->body.var_decl.init->body.literal.int_val;
+
+            /* _Bool stores 0/1: normalize the constant we propagate so
+             * `_Bool b = 5; use(b)` folds to 1, not 5. */
+            if (n->body.var_decl.var_type
+                && n->body.var_decl.var_type->kind == TYPE_BOOL)
+                val = (val != 0);
+
+            add_entry(c->map, c->count, n->body.var_decl.name, val,
                       n->body.var_decl.init->body.literal.is_unsigned,
                       n->body.var_decl.init->type == AST_LONG_LIT);
+        }
         break;
 
     case AST_BINARY:

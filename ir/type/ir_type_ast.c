@@ -62,6 +62,7 @@ ast_to_ir_type(Arena* a, Type* ast)
     case TYPE_FLOAT:  return t_f32;
     case TYPE_DOUBLE: return t_f64;
     case TYPE_ENUM:   return t_i32;
+    case TYPE_BOOL:   return t_i1;
 
     case TYPE_SIGNED:
         if (ast->next) return ast_to_ir_type(a, ast->next);

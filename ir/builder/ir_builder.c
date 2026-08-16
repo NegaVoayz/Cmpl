@@ -150,6 +150,12 @@ ir_build_store(IR_Builder* b, IR_Value* val, IR_Value* ptr)
      * Struct/ptr narrowing uses bitcast. */
     if (val && val->type && ptr && ptr->type &&
         ptr->type->kind == IR_PTR && ptr->type->inner) {
+        /* _Bool store: normalize any nonzero value to i1 first — the
+         * size-based trunc/fptosi paths below would turn an even int or
+         * a 0.5 float into 0 instead of 1. */
+        if (ptr->type->inner->kind == IR_I1 && val->type->kind != IR_I1)
+            val = ir_build_bool(b, val);
+
         int val_sz = ir_type_size(val->type);
         int elem_sz = ir_type_size(ptr->type->inner);
         int val_int = (val->type->kind >= IR_I1 && val->type->kind <= IR_I64);

@@ -24,7 +24,8 @@ static int is_type_keyword(TokenKind k)
 {
     return k == TOK_INT    || k == TOK_CHAR   || k == TOK_VOID ||
            k == TOK_SHORT  || k == TOK_LONG   || k == TOK_FLOAT ||
-           k == TOK_DOUBLE || k == TOK_SIGNED || k == TOK_UNSIGNED;
+           k == TOK_DOUBLE || k == TOK_SIGNED || k == TOK_UNSIGNED ||
+           k == TOK_BOOL;
 }
 
 static int is_qualifier(TokenKind k)
@@ -44,6 +45,7 @@ static TypeKind kw_to_typekind(TokenKind k)
     case TOK_SHORT:     return TYPE_SHORT;
     case TOK_SIGNED:    return TYPE_SIGNED;
     case TOK_UNSIGNED:  return TYPE_UNSIGNED;
+    case TOK_BOOL:      return TYPE_BOOL;
     default:            return TYPE_INT;
     }
 }
