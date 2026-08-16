@@ -98,12 +98,7 @@ LR_Action reduce_primary_paren_close(LR1_Parser* p)
 
     if (p->pending_cast && inner && !paren_is_unary_operand &&
         p->paren_depth >= p->cast_paren_depth) {
-        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
-                                      p->cast_loc.line, p->cast_loc.col);
-        cast->body.cast.type_expr = p->cast_type;
-        cast->body.cast.cast_expr = inner;
-        p->pending_cast = 0;
-        inner = cast;
+        inner = apply_pending_casts(p, inner);
     }
 
     p->paren_depth--;
@@ -128,13 +123,7 @@ LR_Action reduce_call_close(LR1_Parser* p)
      * entire call result, not the last argument. */
     if (p->pending_cast && p->stack[p->sp].node &&
         p->cast_paren_depth >= p->paren_depth) {
-        AST_Node* last = p->stack[p->sp].node;
-        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
-                                      p->cast_loc.line, p->cast_loc.col);
-        cast->body.cast.type_expr = p->cast_type;
-        cast->body.cast.cast_expr = last;
-        p->pending_cast = 0;
-        p->stack[p->sp].node = cast;
+        p->stack[p->sp].node = apply_pending_casts(p, p->stack[p->sp].node);
     }
 
     p->paren_depth--;

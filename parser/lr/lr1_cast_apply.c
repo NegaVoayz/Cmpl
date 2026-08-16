@@ -106,13 +106,40 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
         return 1;
     }
 
-    /* mark pending cast so lr1_parse_expr wraps the result */
+    /* mark pending cast so lr1_parse_expr wraps the result.  Adjacent casts
+     * (T1)(T2)... all parse at the same paren/stack depth (try_parse_cast
+     * consumes (T) without shifting), so cast_paren_depth/cast_sp are
+     * chain-wide; only the type and loc differ per level.  Push each cast
+     * onto the pending-cast chain, outermost first. */
     p->pending_cast = 1;
-    p->cast_type = ct;
-    p->cast_loc = peek->loc;
-    p->cast_paren_depth = p->paren_depth;
-    p->cast_sp = p->sp;
+    if (p->cast_count == 0) {
+        p->cast_paren_depth = p->paren_depth;
+        p->cast_sp = p->sp;
+    }
+    if (p->cast_count < MAX_CAST_DEPTH) {
+        p->cast_type[p->cast_count] = ct;
+        p->cast_loc[p->cast_count] = peek->loc;
+        p->cast_count++;
+    }
     return 1;
+}
+
+/* Wrap an operand in the whole pending-cast chain, innermost-first:
+ * (T1)(T2)expr -> cast(T1, cast(T2, expr)).  Clears the pending state. */
+AST_Node*
+apply_pending_casts(LR1_Parser* p, AST_Node* operand)
+{
+    for (int i = p->cast_count - 1; i >= 0; i--) {
+        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
+                                      p->cast_loc[i].line, p->cast_loc[i].col);
+
+        cast->body.cast.type_expr = p->cast_type[i];
+        cast->body.cast.cast_expr = operand;
+        operand = cast;
+    }
+    p->pending_cast = 0;
+    p->cast_count = 0;
+    return operand;
 }
 
 /* Handle stop_at_comma: when set, treat comma as a terminator (enum values,
@@ -128,13 +155,7 @@ lr1_stop_at_comma(LR1_Parser* p, TokenKind next)
     AST_Node* result = p->stack[p->sp].node;
 
     if (p->pending_cast && result && p->paren_depth <= p->cast_paren_depth) {
-        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
-                                      p->cast_loc.line, p->cast_loc.col);
-
-        cast->body.cast.type_expr = p->cast_type;
-        cast->body.cast.cast_expr = result;
-        p->pending_cast = 0;
-        return cast;
+        return apply_pending_casts(p, result);
     }
     return result;
 }
@@ -166,14 +187,11 @@ apply_pending_cast_at_reduce(LR1_Parser* p)
         (is_cast_level(st) || apply_at_unary_rhs || apply_at_primary_binop)) {
         AST_Node* inner = p->stack[p->sp].node;
 
-        if (inner) {
-            AST_Node* cast = ast_node_new(p->arena, AST_CAST,
-                                          p->cast_loc.line, p->cast_loc.col);
-
-            cast->body.cast.type_expr = p->cast_type;
-            cast->body.cast.cast_expr = inner;
-            p->stack[p->sp].node = cast;
+        if (inner)
+            p->stack[p->sp].node = apply_pending_casts(p, inner);
+        else {
+            p->pending_cast = 0;
+            p->cast_count = 0;
         }
-        p->pending_cast = 0;
     }
 }

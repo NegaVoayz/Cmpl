@@ -16,6 +16,7 @@ LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a)
     p->sp = 0;
     p->error = 0;
     p->pending_cast = 0;
+    p->cast_count = 0;
     p->cast_sp = 0;
     p->arena = a;
     p->stack[0].state = S_ENTRY;
@@ -60,7 +61,7 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
     p->stack[0].token = NULL;
     p->stack[0].node = NULL;
     p->pending_cast = 0;
-    p->cast_type = NULL;
+    p->cast_count = 0;
     p->paren_depth = 0;
     p->cast_sp = 0;
 
@@ -83,15 +84,8 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
         case LR_ACCEPT: {
             AST_Node* result = p->stack[p->sp].node;
 
-            if (p->pending_cast && result) {
-                AST_Node* cast = ast_node_new(p->arena, AST_CAST,
-                                              p->cast_loc.line, p->cast_loc.col);
-
-                cast->body.cast.type_expr = p->cast_type;
-                cast->body.cast.cast_expr = result;
-                p->pending_cast = 0;
-                return cast;
-            }
+            if (p->pending_cast && result)
+                return apply_pending_casts(p, result);
 
             return result;
         }

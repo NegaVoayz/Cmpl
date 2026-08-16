@@ -119,6 +119,7 @@ typedef LR_Action (*LR1_Func)(LR1_Parser* p);
  * --------------------------------------------------------------- */
 
 #define MAX_STACK 256
+#define MAX_CAST_DEPTH 4
 
 typedef struct {
     int       state;
@@ -134,8 +135,9 @@ struct LR1_Parser {
     int        allow_unmatched_rparen;  /* for for-loop update expr terminated by ')' */
     int        stop_at_comma;           /* treat comma as expression terminator */
     int        pending_cast;            /* cast prefix was detected; wrap result */
-    Type*      cast_type;              /* parsed cast target type */
-    SourceLoc  cast_loc;               /* location of the cast for AST_CAST node */
+    Type*      cast_type[MAX_CAST_DEPTH]; /* parsed cast target types (outer..inner) */
+    SourceLoc  cast_loc[MAX_CAST_DEPTH];  /* loc of each cast for AST_CAST node */
+    int        cast_count;             /* number of pending casts in the chain */
     int        cast_paren_depth;       /* paren depth when cast was set */
     int        cast_sp;               /* stack depth when cast was set */
     int        paren_depth;            /* current ()/[] nesting depth */
@@ -176,5 +178,6 @@ Type*  ll_parse_type_name(LR1_Parser* p);
 int       try_parse_cast(LR1_Parser* p, LR1_State state);
 AST_Node* lr1_stop_at_comma(LR1_Parser* p, TokenKind next);
 void      apply_pending_cast_at_reduce(LR1_Parser* p);
+AST_Node* apply_pending_casts(LR1_Parser* p, AST_Node* operand);
 
 #endif /* LR1_H */
