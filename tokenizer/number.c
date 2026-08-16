@@ -47,6 +47,11 @@ read_number(Lexer* lex)
         kind = TOK_DOUBLE_LIT;
         if (peek(lex) == 'f' || peek(lex) == 'F') {
             kind = TOK_FLOAT_LIT; advance(lex);
+        } else if (peek(lex) == 'l' || peek(lex) == 'L') {
+            /* long-double suffix: we have no f80 type, so keep the
+             * double literal but consume the suffix (was a stray
+             * TOK_IDENT 'L' → syntax error). */
+            advance(lex);
         }
     } else {
         /* handle integer suffixes: U, L, UL, LU, LL, ULL, LLU */
