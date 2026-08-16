@@ -30,14 +30,21 @@ decl_build_func_def(LR1_Parser* p, Token* start, Type* full, String dname,
 
     /* PTR wrappers whose target chain ends in a function are the
      * identifier's OWN pointer — a pointer-to-function VARIABLE such as
-     * (*(*q)(int))(char) — not a function definition.  Only unwrap when
-     * the wrappers are plain return pointers (int *f(void)). */
+     * (*(*q)(int))(char) — not a function definition.  Likewise, when
+     * the function's own return is a data pointer (int *(*q)(int): the
+     * pointed-to function returns int*), the outer PTR(s) are the
+     * identifier's own pointer(s) and the declarator is a VARIABLE.
+     * Only plain return pointers (int *f(void), int **f(void)) build a
+     * function definition. */
     if (n_ptr > 0 && scan->inner) {
         Type* tgt = scan->inner;
 
         while (tgt && (tgt->kind == TYPE_PTR || tgt->kind == TYPE_ARRAY))
             tgt = tgt->inner;
         if (tgt && tgt->kind == TYPE_FUNC)
+            return NULL;
+        if (scan->inner->kind == TYPE_PTR ||
+            scan->inner->kind == TYPE_ARRAY)
             return NULL;
     }
 

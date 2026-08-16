@@ -43,13 +43,28 @@ unsigned_of(IR_Type* t)
 
 /* ---------------------------------------------------------------
  *  AST-to-IR type conversion
+ *
+ *  A TYPE_FUNC node is ambiguous between "pointer to function" (fnptr
+ *  type: FUNC(A, PTR(B)) lifts its PTR/ARRAY layers OUTSIDE the
+ *  function, so void (*f)(void) -> PTR(FUNC(void->void))) and a
+ *  function whose OWN return is a pointer (the pointee context: the
+ *  layers are the return type, FUNC(A, PTR(B)) -> FUNC(A->PTR(B))).
+ *  The context flag `pointee` selects the second reading for FUNC
+ *  nodes reached through a pointer/array layer.
  * --------------------------------------------------------------- */
 
-static IR_Type* ast_to_func_type(Arena* a, Type* ast);
+static IR_Type* ast_to_func_type(Arena* a, Type* ast, int pointee);
 static IR_Type* ast_to_struct_type(Arena* a, Type* ast);
+static IR_Type* ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee);
 
 IR_Type*
 ast_to_ir_type(Arena* a, Type* ast)
+{
+    return ast_to_ir_type_ctx(a, ast, 0);
+}
+
+static IR_Type*
+ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee)
 {
     if (!ast) return t_void;
 
@@ -65,23 +80,28 @@ ast_to_ir_type(Arena* a, Type* ast)
     case TYPE_BOOL:   return t_i1;
 
     case TYPE_SIGNED:
-        if (ast->next) return ast_to_ir_type(a, ast->next);
+        if (ast->next) return ast_to_ir_type_ctx(a, ast->next, pointee);
         return t_i32;
     case TYPE_UNSIGNED:
-        return ast->next ? unsigned_of(ast_to_ir_type(a, ast->next)) : t_u32;
+        return ast->next
+            ? unsigned_of(ast_to_ir_type_ctx(a, ast->next, pointee))
+            : t_u32;
     case TYPE_PTR:
-    { IR_Type* inner = ast_to_ir_type(a, ast->inner); int as = 0;
+    { IR_Type* inner = ast_to_ir_type_ctx(a, ast->inner, 1); int as = 0;
       return ir_ptr_type(a, inner, as); }
     case TYPE_ARRAY:
-    { IR_Type* inner = ast_to_ir_type(a, ast->inner);
+    { IR_Type* inner = ast_to_ir_type_ctx(a, ast->inner, 1);
       return ir_array_type(a, inner, ast->arr_size > 0 ? ast->arr_size : 0); }
     case TYPE_FUNC:
-        return ast_to_func_type(a, ast);
+        return ast_to_func_type(a, ast, pointee);
     case TYPE_STRUCT:
     case TYPE_UNION:
         return ast_to_struct_type(a, ast);
     case TYPE_NAMED:
-        if (ast->inner) return ast_to_ir_type(a, ast->inner);
+        /* a typedef reference names a COMPLETE type (e.g. a typedef'd
+         * fnptr FUNC(A, PTR(B)) whose PTR is a pointer-layer, not a
+         * return pointer) — drop the pointee context when entering it. */
+        if (ast->inner) return ast_to_ir_type_ctx(a, ast->inner, 0);
         return t_i32;
     default:
         return t_i32;
@@ -94,7 +114,7 @@ ast_to_ir_type(Arena* a, Type* ast)
  * outside the function type so IR is ARRAY -> PTR -> FUNC rather than
  * FUNC -> ARRAY -> PTR -> ret. */
 static IR_Type*
-ast_to_func_type(Arena* a, Type* ast)
+ast_to_func_type(Arena* a, Type* ast, int pointee)
 {
     enum { MAX_LAYERS = 16 };
     Type* layers[MAX_LAYERS];
@@ -106,22 +126,33 @@ ast_to_func_type(Arena* a, Type* ast)
         layers[n_layers++] = inner;
         inner = inner->inner;
     }
-    IR_Type* ret = ast_to_ir_type(a, inner);
     IR_Type *params = NULL, **tail = &params;
 
     for (AST_Node* p = ast->params; p; p = p->next) {
-        IR_Type* pt = ast_to_ir_type(a, p->body.param_decl.param_type);
+        IR_Type* pt = ast_to_ir_type_ctx(a, p->body.param_decl.param_type, 0);
         *tail = clone_type_for_chain(a, pt);
         register_clone_ast(*tail, pt);
         tail = &(*tail)->next;
     }
-    IR_Type* ft;
+
+    /* pointee context: the layers describe THIS function's own return
+     * type (function returning pointer-to-X).  int *(*q)(int) needs its
+     * pointee FUNC((int), PTR(INT)) read as FUNC((int) -> PTR(INT)), not
+     * as PTR(FUNC((int) -> INT)). */
+    if (pointee) {
+        IR_Type* ret = ast_to_ir_type_ctx(a, ast->inner, 0);
+
+        return ir_func_type(a, ret, params, ast->is_variadic);
+    }
 
     /* function returning a function pointer — FUNC(A, PTR(FUNC(B, X))):
-     * the pointer/array layers describe the RETURN type (the inner FUNC),
-     * so wrap ret with them and build this function's type from that.
-     * The plain case (*f)(args) keeps the layers OUTSIDE the function. */
+     * the pointer/array layers describe the RETURN type (a pointer to
+     * the inner function), so convert the inner function as a pointee
+     * and wrap ret with the layers.  The plain case (*f)(args) keeps
+     * the layers OUTSIDE the function. */
     if (inner && inner->kind == TYPE_FUNC) {
+        IR_Type* ret = ast_to_func_type(a, inner, 1);
+
         for (int i = n_layers - 1; i >= 0; i--) {
             if (layers[i]->kind == TYPE_PTR)
                 ret = ir_ptr_type(a, ret, 0);
@@ -129,20 +160,21 @@ ast_to_func_type(Arena* a, Type* ast)
                 ret = ir_array_type(a, ret,
                     layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
         }
-        ft = ir_func_type(a, ret, params, ast->is_variadic);
-    } else {
-        ft = ir_func_type(a, ret, params, ast->is_variadic);
+        return ir_func_type(a, ret, params, ast->is_variadic);
+    }
 
-        /* Re-wrap the layers outermost-first (the layer closest to the
-         * return type is applied last in the walk, so rebuild in
-         * reverse). */
-        for (int i = n_layers - 1; i >= 0; i--) {
-            if (layers[i]->kind == TYPE_PTR)
-                ft = ir_ptr_type(a, ft, 0);
-            else
-                ft = ir_array_type(a, ft,
-                    layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
-        }
+    IR_Type* ret = ast_to_ir_type_ctx(a, inner, 0);
+    IR_Type* ft = ir_func_type(a, ret, params, ast->is_variadic);
+
+    /* Re-wrap the layers outermost-first (the layer closest to the
+     * return type is applied last in the walk, so rebuild in
+     * reverse). */
+    for (int i = n_layers - 1; i >= 0; i--) {
+        if (layers[i]->kind == TYPE_PTR)
+            ft = ir_ptr_type(a, ft, 0);
+        else
+            ft = ir_array_type(a, ft,
+                layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
     }
     return ft;
 }
