@@ -77,11 +77,17 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
     if (!peek || !is_cast_start(peek))
         return 0;
 
-    /* check if we're inside sizeof -- if so, (type) is a type name */
+    /* check if we're inside sizeof -- if so, (type) is a type name.
+     * only when sizeof's OWN '(' is the pending token (state == S_SIZEOF):
+     * a nested '(' after a shifted paren is a cast inside the sizeof
+     * expression, e.g. sizeof((int)1) — stop the scan at the first
+     * shifted paren so an enclosing S_SIZEOF frame below it is ignored. */
     int inside_sizeof = (state == S_SIZEOF);
 
     for (int i = p->sp; !inside_sizeof && i >= 0; i--) {
         if (p->stack[i].state == S_SIZEOF) inside_sizeof = 1;
+        if (p->stack[i].state == S_LPAREN ||
+            p->stack[i].state == S_POSTFIX_LPAREN) break;
     }
 
     if (inside_sizeof) {

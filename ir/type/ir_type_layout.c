@@ -130,7 +130,10 @@ ir_type_eq(IR_Type* a, IR_Type* b)
             return a == b;  /* anonymous: pointer identity only */
         return a->name.data == b->name.data;  /* named: compare by tag */
     default:
-        return 1;
+        /* scalar kinds: signedness matters — (int)x vs (unsigned)x are
+         * different types, so a cast between them must not be a no-op
+         * (gen_cast/coerce_to early-out on ir_type_eq). */
+        return a->is_unsigned == b->is_unsigned;
     }
 }
 

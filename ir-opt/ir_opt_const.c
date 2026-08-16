@@ -132,31 +132,30 @@ fold_func(IR_Func* fn)
                 if (v0->kind != VAL_CONST_INT ||
                     v1->kind != VAL_CONST_INT) break;
 
-                long long a = v0->body.int_val, b = v1->body.int_val;
-                int r = 0;
+                /* normalize both operands to their type width: a u32
+                 * 0xFFFFFFFF may be stored raw as 4294967295 or -1 (same
+                 * bits).  EQ/NE and the signed conditions need it too. */
                 int u64 = (v0->type && v0->type->kind == IR_I64);
+                unsigned long long ua =
+                    (unsigned long long)v0->body.int_val;
+                unsigned long long ub =
+                    (unsigned long long)v1->body.int_val;
+                if (!u64) { ua = (unsigned int)ua; ub = (unsigned int)ub; }
+                long long sa = u64 ? (long long)ua : (int)ua;
+                long long sb = u64 ? (long long)ub : (int)ub;
+                int r = 0;
 
                 switch (inst->cond) {
-                case IR_COND_EQ:  r = (a == b); break;
-                case IR_COND_NE:  r = (a != b); break;
-                case IR_COND_SGT: r = (a > b);  break;
-                case IR_COND_SGE: r = (a >= b); break;
-                case IR_COND_SLT: r = (a < b);  break;
-                case IR_COND_SLE: r = (a <= b); break;
-                case IR_COND_UGT:
-                case IR_COND_UGE:
-                case IR_COND_ULT:
-                case IR_COND_ULE:
-                {
-                    unsigned long long ua = (unsigned long long)a;
-                    unsigned long long ub = (unsigned long long)b;
-                    if (!u64) { ua = (unsigned int)ua; ub = (unsigned int)ub; }
-                    r = (inst->cond == IR_COND_UGT) ? ua >  ub
-                      : (inst->cond == IR_COND_UGE) ? ua >= ub
-                      : (inst->cond == IR_COND_ULT) ? ua <  ub
-                      : ua <= ub;
-                    break;
-                }
+                case IR_COND_EQ:  r = (ua == ub); break;
+                case IR_COND_NE:  r = (ua != ub); break;
+                case IR_COND_SGT: r = (sa > sb);  break;
+                case IR_COND_SGE: r = (sa >= sb); break;
+                case IR_COND_SLT: r = (sa < sb);  break;
+                case IR_COND_SLE: r = (sa <= sb); break;
+                case IR_COND_UGT: r = (ua > ub);  break;
+                case IR_COND_UGE: r = (ua >= ub); break;
+                case IR_COND_ULT: r = (ua < ub);  break;
+                case IR_COND_ULE: r = (ua <= ub); break;
                 default: break;
                 }
                 inst->result->kind = VAL_CONST_INT;

@@ -35,7 +35,9 @@ ternary_coerce(IR_Builder* b, IR_Value* v, IR_Type* ct)
             return widen_zext(v->type)
                 ? ir_build_zext(b, v, ct)
                 : ir_build_sext(b, v, ct);
-        return ir_build_trunc(b, v, ct);
+        if (ir_type_size(v->type) > ir_type_size(ct))
+            return ir_build_trunc(b, v, ct);
+        return ir_build_bitcast(b, v, ct);  /* same-size int<->int */
     }
     return ir_build_bitcast(b, v, ct);
 }
