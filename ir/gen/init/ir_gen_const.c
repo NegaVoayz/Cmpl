@@ -86,10 +86,11 @@ gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
             return gen_const_scalar(a, target_type, iv, (double)iv);
         }
     }
-    fprintf(stderr, "gen_const: unresolved ident '%.*s'\n",
-            init->body.ident.name.length, init->body.ident.name.data);
-    { IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-      v->kind = VAL_CONST_INT; v->type = target_type;
+
+    { IR_Value* v = arena_alloc(a, sizeof(IR_Value)); v->type = target_type;
+      v->kind = (target_type && target_type->kind == IR_PTR) ? VAL_GLOBAL
+                : VAL_CONST_INT;
+      if (v->kind == VAL_GLOBAL) { v->name = init->body.ident.name; return v; }
       v->body.int_val = 0; return v; }
 }
 

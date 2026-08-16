@@ -134,6 +134,18 @@ dump_fnptr_declares(FILE* out, IR_Module* mod)
                     }
                     if (found) continue;
 
+                    /* skip global variables of fn-ptr type — they are
+                     * already emitted as `@g = global ptr ...`, not
+                     * `declare`d as functions. */
+                    for (IR_Value* g = mod->globals; g; g = g->next) {
+                        if (g->name.length == v->name.length &&
+                            memcmp(g->name.data, v->name.data,
+                                   v->name.length) == 0) {
+                            found = 1; break;
+                        }
+                    }
+                    if (found) continue;
+
                     /* record and emit */
                     if (fn_n_seen < 64) {
                         fn_seen[fn_n_seen] = v->name.data;

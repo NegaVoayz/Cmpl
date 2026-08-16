@@ -17,17 +17,29 @@
 #include "ast_walk.h"
 #include "ir_gen.h"
 
+typedef struct { Arena* a; TypedefEntry** typedefs; } TypedefCtx;
+
+/* register typedefs nested in function bodies too (mirrors collect_enum_cb). */
+static int
+collect_typedef_cb(AST_Node* n, void* ctx)
+{
+    if (n->type != AST_TYPEDEF) return 0;
+    TypedefCtx* c = (TypedefCtx*)ctx;
+    TypedefEntry* te = arena_alloc(c->a, sizeof(TypedefEntry));
+    te->name = n->body.typedef_decl.name;
+    te->aliased_type = n->body.typedef_decl.aliased_type;
+    te->next = *c->typedefs; *c->typedefs = te;
+    return 0;
+}
+
 static TypedefEntry*
 collect_typedefs(Arena* a, AST_Node* root)
 {
     TypedefEntry* typedefs = NULL;
-    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
-        if (decl->type != AST_TYPEDEF) continue;
-        TypedefEntry* te = arena_alloc(a, sizeof(TypedefEntry));
-        te->name = decl->body.typedef_decl.name;
-        te->aliased_type = decl->body.typedef_decl.aliased_type;
-        te->next = typedefs; typedefs = te;
-    }
+    TypedefCtx ctx = { a, &typedefs };
+
+    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
+        ast_walk(decl, collect_typedef_cb, NULL, &ctx);
     return typedefs;
 }
 

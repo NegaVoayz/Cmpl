@@ -83,10 +83,14 @@ gen_call_expr(GenCtx* ctx, AST_Node* n)
     IR_Value* fn_ptr = NULL;
     if (n->body.call.callee->type == AST_IDENT) {
         cn = n->body.call.callee->body.ident.name;
-        /* if name resolves to a local (e.g. function pointer param),
-         * use indirect call; otherwise direct call by name */
+        /* if name resolves to a local or global function-pointer
+         * variable, use an indirect call; otherwise direct call by name */
         IR_Value* local = sym_lookup(ctx, cn);
         if (local) fn_ptr = ir_build_load(b, local);
+        else {
+            IR_Value* gv = global_lookup(ctx->mod, cn);
+            if (gv) fn_ptr = ir_build_load(b, gv);
+        }
     } else
         fn_ptr = gen_expr(ctx, n->body.call.callee);
     for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next)
