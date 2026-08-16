@@ -28,6 +28,19 @@ decl_build_func_def(LR1_Parser* p, Token* start, Type* full, String dname,
     if (!(scan && scan->kind == TYPE_FUNC))
         return NULL;
 
+    /* PTR wrappers whose target chain ends in a function are the
+     * identifier's OWN pointer — a pointer-to-function VARIABLE such as
+     * (*(*q)(int))(char) — not a function definition.  Only unwrap when
+     * the wrappers are plain return pointers (int *f(void)). */
+    if (n_ptr > 0 && scan->inner) {
+        Type* tgt = scan->inner;
+
+        while (tgt && (tgt->kind == TYPE_PTR || tgt->kind == TYPE_ARRAY))
+            tgt = tgt->inner;
+        if (tgt && tgt->kind == TYPE_FUNC)
+            return NULL;
+    }
+
     AST_Node* params = scan->params;
     Type* ret_type;
 

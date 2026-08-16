@@ -124,6 +124,16 @@ gen_pre_incdec(GenCtx* ctx, AST_Node* n)
         : ir_build_sub(b, op, one);
 }
 
+/* true when a type chain (through pointer layers) ends in a function
+ * type — i.e. the value is a function pointer */
+static int
+is_fnptr_ir_type(IR_Type* t)
+{
+    while (t && t->kind == IR_PTR)
+        t = t->inner;
+    return t && t->kind == IR_FUNC;
+}
+
 /* dereference: *ptr → load from the pointer to get the pointee.
  * if the operand is a cast to a non-pointer type
  * (e.g. *(unsigned char)p from "(unsigned char)*p"),
@@ -134,6 +144,23 @@ gen_deref(GenCtx* ctx, AST_Node* n)
     IR_Builder* b = ctx->b;
     AST_Node* operand = n->body.unary.operand;
     IR_Value* op = gen_expr(ctx, operand);
+
+    /* function designator: *fp where fp is a function pointer yields the
+     * function, which decays back to the pointer — never a data load
+     * (C 6.3.2.1p4).  Local loads keep PTR(FUNC); global loads come back
+     * opaque (PTR(i8)) in ir_build_load, so consult the declared type. */
+    if (op && op->type && is_fnptr_ir_type(op->type))
+        return op;
+    if (operand && operand->type == AST_IDENT) {
+        IR_Value* sym = sym_lookup(ctx, operand->body.ident.name);
+        if (!sym) sym = global_lookup(ctx->mod, operand->body.ident.name);
+        if (sym && sym->type) {
+            IR_Type* vt = (sym->kind == VAL_GLOBAL) ? sym->type
+                                                    : sym->type->inner;
+            if (is_fnptr_ir_type(vt))
+                return op;
+        }
+    }
 
     if (operand && operand->type == AST_CAST &&
         operand->body.cast.type_expr &&

@@ -100,6 +100,8 @@ parse_vardef_tail(LR1_Parser* p, Token* start, Type* full, String dname,
     }
 
     if (is_typedef) {
+        parser_add_typedef(p, dname);
+
         AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
                                     start->loc.line, start->loc.col);
         td->body.typedef_decl.aliased_type = full;
@@ -113,14 +115,22 @@ parse_vardef_tail(LR1_Parser* p, Token* start, Type* full, String dname,
  *  parse_var_list_decl -- declarator list (var decls, func defs)
  * --------------------------------------------------------------- */
 
-/* True when a TYPE_FUNC's inner chain reaches a pointer through any
- * array/pointer layers — i.e. the declarator names a pointer-to-function
- * variable or array-of-pointer-to-function, not a function definition. */
+/* True when a TYPE_FUNC's inner chain names a pointer-to-function
+ * VARIABLE (or an array of them) rather than a function definition:
+ * (*f)(args) / (*f[N])(args).  A pointer whose ultimate target is itself
+ * a function — (*f(int))(args), a function RETURNING a function pointer —
+ * is a definition, not a variable. */
 static int fnptr_inner_has_ptr(Type* t)
 {
     while (t && (t->kind == TYPE_ARRAY || t->kind == TYPE_PTR)) {
-        if (t->kind == TYPE_PTR)
-            return 1;
+        if (t->kind == TYPE_PTR) {
+            Type* target = t->inner;
+
+            while (target && (target->kind == TYPE_PTR ||
+                              target->kind == TYPE_ARRAY))
+                target = target->inner;
+            return !(target && target->kind == TYPE_FUNC);
+        }
         t = t->inner;
     }
     return 0;

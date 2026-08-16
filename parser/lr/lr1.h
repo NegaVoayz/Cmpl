@@ -137,6 +137,9 @@ typedef struct {
     AST_Node* node;
 } StackFrame;
 
+/* typedef-name registry node (defined in lr1.c) — for (ident)( casts */
+typedef struct TypedefName TypedefName;
+
 struct LR1_Parser {
     Token*     tok;
     StackFrame stack[MAX_STACK];
@@ -150,6 +153,7 @@ struct LR1_Parser {
     int        cast_paren_depth;       /* paren depth when cast was set */
     int        cast_sp;               /* stack depth when cast was set */
     int        paren_depth;            /* current ()/[] nesting depth */
+    TypedefName* typedefs;             /* typedef names seen so far (casts) */
     Arena*     arena;                  /* arena for AST node allocations */
 };
 
@@ -183,6 +187,10 @@ int    is_postfix_token(TokenKind k);
 int    is_cast_level(int s);
 int    is_have_expr_state(LR1_State s);
 Type*  ll_parse_type_name(LR1_Parser* p);
+
+/* typedef-name registry (defined in lr1.c) */
+void parser_add_typedef(LR1_Parser* p, String name);
+int  parser_is_typedef(LR1_Parser* p, String name);
 
 int       try_parse_cast(LR1_Parser* p, LR1_State state);
 AST_Node* lr1_stop_at_comma(LR1_Parser* p, TokenKind next);

@@ -129,6 +129,8 @@ AST_Node* ll_parse_enum_def(LR1_Parser* p)
 
         (void)full;
         if (dname.data) {
+            parser_add_typedef(p, dname);
+
             AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
                                         n->loc.line, n->loc.col);
             td->body.typedef_decl.aliased_type = etype;

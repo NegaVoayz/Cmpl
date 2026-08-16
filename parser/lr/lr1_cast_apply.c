@@ -79,6 +79,15 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
     if (!peek || !is_cast_start(peek))
         return 0;
 
+    /* (ident)( — ambiguous: (T)(x) is a cast to a typedef type, (f)(x)
+     * is a call of f through parens.  A cast requires the ident to be a
+     * type name, so gate this lookahead on the typedef registry. */
+    if (peek->kind == TOK_IDENT && peek->next &&
+        peek->next->kind == TOK_RPAREN && peek->next->next &&
+        peek->next->next->kind == TOK_LPAREN &&
+        !parser_is_typedef(p, peek->body.ident))
+        return 0;
+
     /* check if we're inside sizeof -- if so, (type) is a type name.
      * only when sizeof's OWN '(' is the pending token (state == S_SIZEOF):
      * a nested '(' after a shifted paren is a cast inside the sizeof

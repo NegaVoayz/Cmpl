@@ -7,6 +7,42 @@
 #include "../ll/ll.h"
 
 #include <stdio.h>
+#include <string.h>
+
+/* ---------------------------------------------------------------
+ *  Typedef-name registry
+ *
+ *  Names introduced by `typedef` are recorded as they are parsed, so
+ *  the cast lookahead can tell (size_t)(x) [cast] from (f)(x) [call].
+ *  No scope-exit removal: a leaked local typedef name may over-classify
+ *  a later (name)( — same permissiveness the existing type heuristics
+ *  already have.
+ * --------------------------------------------------------------- */
+
+struct TypedefName {
+    String name;
+    struct TypedefName* next;
+};
+
+void
+parser_add_typedef(LR1_Parser* p, String name)
+{
+    TypedefName* tn = arena_alloc(p->arena, sizeof(TypedefName));
+
+    tn->name = name;
+    tn->next = p->typedefs;
+    p->typedefs = tn;
+}
+
+int
+parser_is_typedef(LR1_Parser* p, String name)
+{
+    for (TypedefName* tn = p->typedefs; tn; tn = tn->next)
+        if (tn->name.length == name.length &&
+            memcmp(tn->name.data, name.data, name.length) == 0)
+            return 1;
+    return 0;
+}
 
 LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a)
 {
@@ -19,6 +55,7 @@ LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a)
     p->cast_count = 0;
     p->cast_chain = NULL;
     p->cast_sp = 0;
+    p->typedefs = NULL;
     p->arena = a;
     p->stack[0].state = S_ENTRY;
     p->stack[0].token = NULL;

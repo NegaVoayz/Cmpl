@@ -115,16 +115,34 @@ ast_to_func_type(Arena* a, Type* ast)
         register_clone_ast(*tail, pt);
         tail = &(*tail)->next;
     }
-    IR_Type* ft = ir_func_type(a, ret, params, ast->is_variadic);
+    IR_Type* ft;
 
-    /* Re-wrap the layers outermost-first (the layer closest to the
-     * return type is applied last in the walk, so rebuild in reverse). */
-    for (int i = n_layers - 1; i >= 0; i--) {
-        if (layers[i]->kind == TYPE_PTR)
-            ft = ir_ptr_type(a, ft, 0);
-        else
-            ft = ir_array_type(a, ft,
-                layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
+    /* function returning a function pointer — FUNC(A, PTR(FUNC(B, X))):
+     * the pointer/array layers describe the RETURN type (the inner FUNC),
+     * so wrap ret with them and build this function's type from that.
+     * The plain case (*f)(args) keeps the layers OUTSIDE the function. */
+    if (inner && inner->kind == TYPE_FUNC) {
+        for (int i = n_layers - 1; i >= 0; i--) {
+            if (layers[i]->kind == TYPE_PTR)
+                ret = ir_ptr_type(a, ret, 0);
+            else
+                ret = ir_array_type(a, ret,
+                    layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
+        }
+        ft = ir_func_type(a, ret, params, ast->is_variadic);
+    } else {
+        ft = ir_func_type(a, ret, params, ast->is_variadic);
+
+        /* Re-wrap the layers outermost-first (the layer closest to the
+         * return type is applied last in the walk, so rebuild in
+         * reverse). */
+        for (int i = n_layers - 1; i >= 0; i--) {
+            if (layers[i]->kind == TYPE_PTR)
+                ft = ir_ptr_type(a, ft, 0);
+            else
+                ft = ir_array_type(a, ft,
+                    layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
+        }
     }
     return ft;
 }

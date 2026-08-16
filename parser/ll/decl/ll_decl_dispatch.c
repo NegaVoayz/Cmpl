@@ -79,6 +79,8 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
             while (last->next) last = last->next;
 
             if (last->type == AST_VAR_DECL) {
+                parser_add_typedef(p, last->body.var_decl.name);
+
                 AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
                                             last->loc.line, last->loc.col);
                 td->body.typedef_decl.aliased_type = last->body.var_decl.var_type;
@@ -95,6 +97,8 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
                        last->type == AST_UNION_DEF) {
                 /* typedef struct Foo Foo; — bare struct/union, create
                  * a typedef entry so the tag name is usable as a type */
+                parser_add_typedef(p, last->body.struct_def.name);
+
                 AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
                                             last->loc.line, last->loc.col);
                 td->body.typedef_decl.name = last->body.struct_def.name;
@@ -117,6 +121,8 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
          * resolves to the enum type during IR gen (otherwise the
          * TYPE_NAMED → ptr heuristic fires). */
         if (is_typedef && n && n->type == AST_ENUM_DEF && n->body.enum_def.name.data) {
+            parser_add_typedef(p, n->body.enum_def.name);
+
             AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
                                         n->loc.line, n->loc.col);
             Type* etype = type_new(p->arena, TYPE_ENUM);
