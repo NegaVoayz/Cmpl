@@ -6,6 +6,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* innermost IDENT of a callee expression, unwrapping deref/paren
+ * wrappers: (f) / (*f) / ((f)) all yield the name f */
+static AST_Node*
+fnptr_callee_base(AST_Node* e)
+{
+    while (e) {
+        if (e->type == AST_IDENT) return e;
+        if (e->type == AST_UNARY && e->body.unary.op == TOK_STAR)
+            e = e->body.unary.operand;
+        else
+            return NULL;
+    }
+    return NULL;
+}
+
 /* Coerce call arguments to the declared parameter types, then apply the
  * default argument promotion for variadic functions (char/short → int,
  * float → double, C11 6.5.2.2p6).  Mutates arg_buf in place. */
@@ -101,13 +116,44 @@ gen_call_expr(GenCtx* ctx, AST_Node* n)
         func_ty = func_type_lookup(ctx->sig_map, cn);
         if (func_ty) ret_t = func_ty->inner;
     }
+    /* Indirect call: recover the callee signature from the pointer when
+     * its type is PTR(FUNC) (local loads keep the slot type; global
+     * loads come back opaque, so also consult the declaring symbol:
+     * globals store the element type, locals the alloca PTR(vt)).  Fixes
+     * calls through fnptr vars defaulting to an i32 return type. */
+    if (!func_ty && fn_ptr) {
+        IR_Type* ft = fn_ptr->type;
+
+        if (!(ft && ft->kind == IR_PTR && ft->inner &&
+              ft->inner->kind == IR_FUNC)) {
+            AST_Node* base = fnptr_callee_base(n->body.call.callee);
+            IR_Value* sym = base
+                ? sym_lookup(ctx, base->body.ident.name) : NULL;
+            if (!sym) sym = base
+                ? global_lookup(ctx->mod, base->body.ident.name) : NULL;
+            if (sym && sym->type) {
+                ft = sym->type;
+                if (ft->kind == IR_PTR && ft->inner &&
+                    ft->inner->kind == IR_PTR)
+                    ft = ft->inner;      /* local alloca: PTR(vt) */
+            }
+        }
+        if (ft && ft->kind == IR_PTR && ft->inner &&
+            ft->inner->kind == IR_FUNC)
+            func_ty = ft->inner;
+    }
+    if (func_ty && func_ty->inner) ret_t = func_ty->inner;
     if (!ret_t) ret_t = t_i32;
 
     coerce_call_args(b, func_ty, arg_buf, n_args);
 
     if (fn_ptr) {
         /* indirect call through function pointer */
-        return ir_build_call_ptr(b, fn_ptr, ret_t, arg_buf, n_args);
+        IR_Value* result = ir_build_call_ptr(b, fn_ptr, ret_t,
+                                             arg_buf, n_args);
+        if (result && result->def_instr)
+            result->def_instr->func_type = func_ty;
+        return result;
     }
     char nb[128]; int nl = cn.length; if (nl > 127) nl = 127;
     memcpy(nb, cn.data, nl); nb[nl] = '\0';

@@ -13,10 +13,41 @@
 
 #include "ir_dump.h"
 
+/* names already given a `declare` by dump_extern_declares — the fnptr
+ * pass must not emit a duplicate declare for the same function (LLVM
+ * rejects redeclaration even when the signatures are identical) */
+static const char* extern_seen[64];
+static int   extern_seen_len[64];
+static int   n_extern_seen = 0;
+
+/* record a declared name for the fnptr pass to skip */
+static void
+extern_record_name(const char* data, int len)
+{
+    if (n_extern_seen >= 64) return;
+    extern_seen[n_extern_seen] = data;
+    extern_seen_len[n_extern_seen] = len;
+    n_extern_seen++;
+}
+
+static int
+extern_has_name(const char* data, int len)
+{
+    for (int i = 0; i < n_extern_seen; i++)
+        if (extern_seen_len[i] == len &&
+            memcmp(extern_seen[i], data, len) == 0)
+            return 1;
+    return 0;
+}
+
 /* emit declare for external callees not in module */
 void
 dump_extern_declares(FILE* out, IR_Module* mod)
 {
+    /* per-module reset: the fnptr pass reads this list in the same
+     * module dump; the next module (CUDA dual gen) starts fresh */
+    n_extern_seen = 0;
+
     /* collect unique external callee names (max 64) */
     const char* seen[64] = {0};
     int seen_len[64] = {0};
@@ -58,19 +89,41 @@ dump_extern_declares(FILE* out, IR_Module* mod)
                     seen[n_seen] = inst->callee.data;
                     seen_len[n_seen] = inst->callee.length;
                     n_seen++;
+                    extern_record_name(inst->callee.data,
+                                       inst->callee.length);
                 }
 
                 fprintf(out, "declare ");
                 dump_type(out, inst->type);
                 fprintf(out, " @%.*s(", inst->callee.length, inst->callee.data);
-                for (int ai = 0; ai < inst->n_call_args; ai++) {
-                    if (ai > 0) fprintf(out, ", ");
-                    dump_type(out, inst->call_args[ai]->type);
+
+                /* Variadic callees: declare the REAL fixed params from
+                 * the prototype (not the call-site args) so the call's
+                 * explicit `(fixed, ...)` type stays consistent and the
+                 * backend computes %al correctly.  Without a known
+                 * prototype everything is vararg. */
+                if (inst->func_type &&
+                    inst->func_type->kind == IR_FUNC &&
+                    inst->func_type->is_variadic) {
+                    if (inst->func_type->members) {
+                        int first = 1;
+                        for (IR_Type* p = inst->func_type->members;
+                             p; p = p->next) {
+                            if (!first) fprintf(out, ", ");
+                            first = 0;
+                            dump_type(out, p);
+                        }
+                    }
+                } else {
+                    for (int ai = 0; ai < inst->n_call_args; ai++) {
+                        if (ai > 0) fprintf(out, ", ");
+                        dump_type(out, inst->call_args[ai]->type);
+                    }
                 }
                 /* check if variadic via func_type stored on call inst */
                 if (inst->func_type && inst->func_type->kind == IR_FUNC &&
                     inst->func_type->is_variadic) {
-                    if (inst->n_call_args > 0) fprintf(out, ", ");
+                    if (inst->func_type->members) fprintf(out, ", ");
                     fprintf(out, "...");
                 }
                 fprintf(out, ")\n\n");
@@ -146,6 +199,10 @@ dump_fnptr_declares(FILE* out, IR_Module* mod)
                     }
                     if (found) continue;
 
+                    /* skip names already declared via call sites */
+                    if (extern_has_name(v->name.data, v->name.length))
+                        continue;
+
                     /* record and emit */
                     if (fn_n_seen < 64) {
                         fn_seen[fn_n_seen] = v->name.data;
@@ -165,6 +222,10 @@ dump_fnptr_declares(FILE* out, IR_Module* mod)
                         if (!first) fprintf(out, ", ");
                         first = 0;
                         dump_type(out, p);
+                    }
+                    if (fn_ty->is_variadic) {
+                        if (!first) fprintf(out, ", ");
+                        fprintf(out, "...");
                     }
                     fprintf(out, ")\n\n");
                 }

@@ -11,8 +11,28 @@
 void
 dump_call(FILE* out, IR_Instr* inst)
 {
+    int vararg = inst->func_type && inst->func_type->kind == IR_FUNC &&
+                 inst->func_type->is_variadic;
+
     fprintf(out, "call ");
     dump_type(out, inst->type);
+
+    /* Variadic calls need an explicit function type (fixed params +
+     * "...") so the x86-64 backend sees which args are varargs and sets
+     * %al (vector-arg count) accordingly — without it a vararg float
+     * (e.g. printf "%g") is passed in xmm0 but never read by glibc. */
+    if (vararg) {
+        fprintf(out, " (");
+        int first = 1;
+        for (IR_Type* p = inst->func_type->members; p; p = p->next) {
+            if (!first) fprintf(out, ", ");
+            first = 0;
+            dump_type(out, p);
+        }
+        if (!first) fprintf(out, ", ");
+        fprintf(out, "...) ");
+    }
+
     if (inst->callee.length > 0)
         fprintf(out, " @%.*s(", inst->callee.length, inst->callee.data);
     else {

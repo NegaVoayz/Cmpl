@@ -162,6 +162,19 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             else { ll_expect(p, TOK_SEMI); return head; }
         }
 
+        /* typedef of a FUNCTION TYPE (`typedef int fn2(int,int);`) names
+         * a type, not a function: build a TYPEDEF so `fn2 *fp` resolves
+         * to PTR(FUNC) instead of silently becoming a function decl. */
+        if (is_typedef && full->kind == TYPE_FUNC) {
+            AST_Node* vd = parse_vardef_tail(p, start, full, dname,
+                                             is_typedef, linkage, addr_space);
+            if (!head) head = vd;
+            *tail = vd;
+            tail = &vd->next;
+            if (p->tok->kind == TOK_COMMA) { p->tok = p->tok->next; continue; }
+            else { ll_expect(p, TOK_SEMI); return head; }
+        }
+
         AST_Node* fn = decl_build_func_def(p, start, full, dname,
                                            linkage, is_constructor);
         if (fn) {
