@@ -49,26 +49,51 @@ update_opaque_typedefs(AST_Node* root, TypedefEntry* typedefs)
     }
 }
 
+/* register one enumerator list into enum_vals (prepended, head = last). */
+static void
+register_enum_def(Arena* a, AST_Node* def, TypedefEntry** enum_vals)
+{
+    int val = 0;
+    for (AST_Node* en = def->body.enum_def.enumerators;
+         en && en->type == AST_ENUMERATOR; en = en->next) {
+        if (en->body.enumerator.value &&
+            (en->body.enumerator.value->type == AST_INT_LIT ||
+             en->body.enumerator.value->type == AST_LONG_LIT))
+            val = (int)en->body.enumerator.value->body.literal.int_val;
+        TypedefEntry* ev = arena_alloc(a, sizeof(TypedefEntry));
+        ev->name = en->body.enumerator.name;
+        ev->aliased_type = (Type*)(intptr_t)val;
+        ev->next = *enum_vals; *enum_vals = ev;
+        val++;
+    }
+}
+
+typedef struct {
+    Arena*        a;
+    TypedefEntry** enum_vals;
+} EnumValCtx;
+
+/* walker: register every enum definition found — top-level or nested in
+ * a function body — so array sizes like `int arr[N]` (size_name lookup)
+ * resolve for function-scope enum constants too. */
+static int
+collect_enum_cb(AST_Node* n, void* ctx)
+{
+    if (n->type == AST_ENUM_DEF) {
+        EnumValCtx* c = (EnumValCtx*)ctx;
+        register_enum_def(c->a, n, c->enum_vals);
+    }
+    return 0;
+}
+
 static TypedefEntry*
 collect_enum_vals(Arena* a, AST_Node* root)
 {
     TypedefEntry* enum_vals = NULL;
-    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
-        if (decl->type != AST_ENUM_DEF) continue;
-        int val = 0;
-        for (AST_Node* en = decl->body.enum_def.enumerators;
-             en && en->type == AST_ENUMERATOR; en = en->next) {
-            if (en->body.enumerator.value &&
-                (en->body.enumerator.value->type == AST_INT_LIT ||
-                 en->body.enumerator.value->type == AST_LONG_LIT))
-                val = (int)en->body.enumerator.value->body.literal.int_val;
-            TypedefEntry* ev = arena_alloc(a, sizeof(TypedefEntry));
-            ev->name = en->body.enumerator.name;
-            ev->aliased_type = (Type*)(intptr_t)val;
-            ev->next = enum_vals; enum_vals = ev;
-            val++;
-        }
-    }
+    EnumValCtx ctx = { a, &enum_vals };
+
+    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
+        ast_walk(decl, collect_enum_cb, NULL, &ctx);
     return enum_vals;
 }
 

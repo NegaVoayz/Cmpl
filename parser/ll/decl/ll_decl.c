@@ -113,6 +113,19 @@ parse_vardef_tail(LR1_Parser* p, Token* start, Type* full, String dname,
  *  parse_var_list_decl -- declarator list (var decls, func defs)
  * --------------------------------------------------------------- */
 
+/* True when a TYPE_FUNC's inner chain reaches a pointer through any
+ * array/pointer layers — i.e. the declarator names a pointer-to-function
+ * variable or array-of-pointer-to-function, not a function definition. */
+static int fnptr_inner_has_ptr(Type* t)
+{
+    while (t && (t->kind == TYPE_ARRAY || t->kind == TYPE_PTR)) {
+        if (t->kind == TYPE_PTR)
+            return 1;
+        t = t->inner;
+    }
+    return 0;
+}
+
 AST_Node*
 parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
                     int linkage, int addr_space, int is_constructor)
@@ -125,16 +138,18 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
         Type* full = ll_parse_declarator(p, base, &dname, 0);
 
         /* pointer-to-function: TYPE_FUNC->TYPE_PTR->...
-         * e.g. void (*f)(void) — treat as variable/typedef, not func def. */
+         * e.g. void (*f)(void) — treat as variable/typedef, not func def.
+         * parse_vardef_tail handles the optional `= init`; the trailing
+         * ';' is consumed below (no comma) or by the shared tail. */
         if (full->kind == TYPE_FUNC && full->inner &&
-            full->inner->kind == TYPE_PTR) {
-            ll_expect(p, TOK_SEMI);
+            fnptr_inner_has_ptr(full->inner)) {
             AST_Node* vd = parse_vardef_tail(p, start, full, dname,
                                              is_typedef, linkage, addr_space);
+            if (!head) head = vd;
             *tail = vd;
             tail = &vd->next;
-            if (p->tok->kind == TOK_COMMA) p->tok = p->tok->next;
-            else { if (!head) head = vd; return head; }
+            if (p->tok->kind == TOK_COMMA) { p->tok = p->tok->next; continue; }
+            else { ll_expect(p, TOK_SEMI); return head; }
         }
 
         AST_Node* fn = decl_build_func_def(p, start, full, dname,

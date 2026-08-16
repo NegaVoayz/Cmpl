@@ -26,7 +26,8 @@ static int is_stmt_type(AST_Type t)
            t == AST_BREAK || t == AST_CONTINUE || t == AST_SWITCH ||
            t == AST_CASE || t == AST_DEFAULT || t == AST_GOTO ||
            t == AST_LABEL || t == AST_EXPR_STMT || t == AST_VAR_DECL ||
-           t == AST_FUNC_DEF || t == AST_STRUCT_DEF || t == AST_UNION_DEF;
+           t == AST_FUNC_DEF || t == AST_STRUCT_DEF || t == AST_UNION_DEF ||
+           t == AST_ENUM_DEF || t == AST_TYPEDEF;
 }
 
 static void resolve_stmt_chain(AST_Node* first, TypedefEntry* table,

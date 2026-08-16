@@ -89,15 +89,21 @@ ast_to_ir_type(Arena* a, Type* ast)
 }
 
 /* pointer-to-function: the declarator parser produces TYPE_FUNC ->
- * TYPE_PTR -> ret_ty for (*f)(args).  Lift the pointer layers outside
- * the function type so IR is PTR -> FUNC rather than FUNC -> PTR -> ret. */
+ * TYPE_PTR -> ret_ty for (*f)(args), and TYPE_FUNC -> TYPE_ARRAY ->
+ * TYPE_PTR -> ret_ty for (*f[N])(args).  Lift the pointer/array layers
+ * outside the function type so IR is ARRAY -> PTR -> FUNC rather than
+ * FUNC -> ARRAY -> PTR -> ret. */
 static IR_Type*
 ast_to_func_type(Arena* a, Type* ast)
 {
+    enum { MAX_LAYERS = 16 };
+    Type* layers[MAX_LAYERS];
+    int   n_layers = 0;
+
     Type* inner = ast->inner;
-    int n_ptr = 0;
-    while (inner && inner->kind == TYPE_PTR) {
-        n_ptr++;
+    while (inner && (inner->kind == TYPE_PTR || inner->kind == TYPE_ARRAY)) {
+        if (n_layers >= MAX_LAYERS) break;
+        layers[n_layers++] = inner;
         inner = inner->inner;
     }
     IR_Type* ret = ast_to_ir_type(a, inner);
@@ -110,8 +116,16 @@ ast_to_func_type(Arena* a, Type* ast)
         tail = &(*tail)->next;
     }
     IR_Type* ft = ir_func_type(a, ret, params, ast->is_variadic);
-    while (n_ptr-- > 0)
-        ft = ir_ptr_type(a, ft, 0);
+
+    /* Re-wrap the layers outermost-first (the layer closest to the
+     * return type is applied last in the walk, so rebuild in reverse). */
+    for (int i = n_layers - 1; i >= 0; i--) {
+        if (layers[i]->kind == TYPE_PTR)
+            ft = ir_ptr_type(a, ft, 0);
+        else
+            ft = ir_array_type(a, ft,
+                layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
+    }
     return ft;
 }
 
