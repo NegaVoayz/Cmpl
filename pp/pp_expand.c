@@ -24,15 +24,50 @@ skip_ws(const char* p, const char* end)
 }
 
 /* Substitute a function-like macro's parameter names in `macro->body` with
- * the captured argument text, appending the result to `out`. */
+ * the captured argument text, appending the result to `out`.  Handles `#`
+ * stringize, `##` paste, and `__VA_ARGS__` for variadic macros. */
 static void
 expand_func_body(Macro* macro, const char** arg_starts, const int* arg_lens,
-                 Buffer* out)
+                 int argc, Buffer* out)
 {
     const char* bp = macro->body;
     const char* be = bp + strlen(macro->body);
 
     while (bp < be) {
+        /* token paste: drop `##` and surrounding whitespace so the
+         * adjacent tokens concatenate into one. */
+        if (*bp == '#' && bp + 1 < be && bp[1] == '#') {
+            while (out->len > 0 && (out->data[out->len - 1] == ' '
+                                 || out->data[out->len - 1] == '\t'))
+                out->len--;
+            bp += 2;
+            bp = skip_ws(bp, be);
+            continue;
+        }
+
+        /* stringize: `#` (ws) paramname -> a quoted string literal */
+        if (*bp == '#') {
+            const char* q = skip_ws(bp + 1, be);
+            int qlen = scan_ident(q, be);
+            int found = -1;
+
+            for (int i = 0; qlen > 0 && i < macro->nparams; i++) {
+                if (qlen == (int)strlen(macro->params[i])
+                    && strncmp(q, macro->params[i], qlen) == 0) {
+                    found = i;
+                    break;
+                }
+            }
+            if (found >= 0) {
+                stringize_arg(arg_starts[found], arg_lens[found], out);
+                bp = q + qlen;
+                continue;
+            }
+            buf_append(out, bp, 1);
+            bp++;
+            continue;
+        }
+
         if (isalpha((unsigned char)*bp) || *bp == '_') {
             int blen = scan_ident(bp, be);
             char bname[128];
@@ -40,6 +75,12 @@ expand_func_body(Macro* macro, const char** arg_starts, const int* arg_lens,
             if (blen >= (int)sizeof(bname)) blen = (int)sizeof(bname) - 1;
             memcpy(bname, bp, blen);
             bname[blen] = '\0';
+
+            if (macro->variadic && strcmp(bname, "__VA_ARGS__") == 0) {
+                append_va_args(arg_starts, arg_lens, macro->nparams, argc, out);
+                bp += blen;
+                continue;
+            }
 
             int found = -1;
             for (int i = 0; i < macro->nparams; i++) {
@@ -128,13 +169,16 @@ macro_expand(MacroTable* mt, const char* src, int srclen,
 
     if (depth != 0) return (int)((p + ident_len) - src);
 
-    if (argc != macro->nparams) {
+    int ok = macro->variadic ? (argc >= macro->nparams)
+                             : (argc == macro->nparams);
+
+    if (!ok) {
         fprintf(stderr, "pp: warning: macro '%s' expects %d args, got %d\n",
                 macro->name, macro->nparams, argc);
         return (int)(q - p);
     }
 
-    expand_func_body(macro, arg_starts, arg_lens, out);
+    expand_func_body(macro, arg_starts, arg_lens, argc, out);
 
     return (int)(q - p);
 }

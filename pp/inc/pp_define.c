@@ -63,6 +63,7 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
 
     int  is_func = 0;
     int  nparams = 0;
+    int  variadic = 0;
     char* params[64];
 
     if (p < end && *p == '(') {
@@ -72,6 +73,16 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
 
         while (p < end && *p != ')') {
             while (p < end && (*p == ' ' || *p == '\t')) p++;
+
+            /* variadic ellipsis — always the final parameter */
+            if (p + 2 < end && p[0] == '.' && p[1] == '.' && p[2] == '.') {
+                variadic = 1;
+                p += 3;
+                while (p < end && (*p == ' ' || *p == '\t')) p++;
+                if (p < end && *p == ',') p++;
+                break;
+            }
+
             const char* pstart = p;
             while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
             int plen = (int)(p - pstart);
@@ -85,6 +96,7 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
             while (p < end && (*p == ' ' || *p == '\t')) p++;
             if (p < end && *p == ',') { p++; continue; }
             if (p < end && *p == ')') break;
+            break; /* defensive: any unexpected char can't spin */
         }
         if (p < end && *p == ')') p++;
     }
@@ -114,7 +126,8 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
             memcpy(params_copy, params, nparams * sizeof(char*));
         }
 
-        macro_add(&ctx->macros, name_buf, body, is_func, nparams, params_copy);
+        macro_add(&ctx->macros, name_buf, body, is_func, nparams, variadic,
+                  params_copy);
     }
 
     *pp = p;

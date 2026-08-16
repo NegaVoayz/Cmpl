@@ -30,7 +30,7 @@ macro_lookup(MacroTable* mt, const char* name)
 
 void
 macro_add(MacroTable* mt, const char* name, const char* body,
-          int is_func, int nparams, char** params)
+          int is_func, int nparams, int variadic, char** params)
 {
     String key = make_key(name);
     Macro* existing = hashmap_get(&mt->map, key);
@@ -54,6 +54,7 @@ macro_add(MacroTable* mt, const char* name, const char* body,
     }
     existing->is_func = is_func;
     existing->nparams = nparams;
+    existing->variadic = variadic;
     existing->params = params;
 }
 

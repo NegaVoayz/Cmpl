@@ -36,6 +36,7 @@ typedef struct Macro {
     char*        body;
     int          is_func;
     int          nparams;
+    int          variadic;   /* 1 if declared with a trailing `...` */
     char**       params;
     struct Macro* next;
 } Macro;
@@ -48,7 +49,7 @@ typedef struct {
 void   macro_init(MacroTable* mt, Arena* a);
 Macro* macro_lookup(MacroTable* mt, const char* name);
 void   macro_add(MacroTable* mt, const char* name, const char* body,
-                 int is_func, int nparams, char** params);
+                 int is_func, int nparams, int variadic, char** params);
 void   macro_remove(MacroTable* mt, const char* name);
 void   macro_free(MacroTable* mt);
 
@@ -56,6 +57,13 @@ void   macro_free(MacroTable* mt);
  * Writes expansion to `out`. Returns chars consumed from src (0 if none). */
 int macro_expand(MacroTable* mt, const char* src, int srclen,
                  const char* p, Buffer* out);
+
+/* Stringize `#` helper: emit `"` + arg text (escaping " and \) + `"`. */
+void stringize_arg(const char* s, int slen, Buffer* out);
+
+/* __VA_ARGS__ helper: append variadic args [start, argc) joined by ", ". */
+void append_va_args(const char** arg_starts, const int* arg_lens,
+                    int start, int argc, Buffer* out);
 
 /* Conditional compilation stack */
 typedef enum {
