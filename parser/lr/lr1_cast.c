@@ -171,5 +171,13 @@ Type* ll_parse_type_name(LR1_Parser* p)
         ct = arr;
     }
 
+    /* abstract function-pointer declarator: (int (*)(int,int)) — the
+     * declarator parser tolerates a missing name, so route any `(`
+     * through it; (*)(args) yields FUNC->PTR->base like (*f)(args) */
+    if (p->tok->kind == TOK_LPAREN) {
+        String anon = {NULL, 0};
+        ct = ll_parse_declarator(p, ct, &anon, 0);
+    }
+
     return ct;
 }
