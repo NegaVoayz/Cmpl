@@ -52,5 +52,7 @@ void gen_stmt_label(GenCtx* ctx, AST_Node* n)
         ir_build_br(b, lbl);
 
     ir_builder_set_block(b, lbl);
-    gen_stmt(ctx, n->body.label.stmt);
+    /* stmt may be a chain (e.g. `L: int a = 1, b = 2;`) — emit all of it */
+    for (AST_Node* s = n->body.label.stmt; s; s = s->next)
+        gen_stmt(ctx, s);
 }

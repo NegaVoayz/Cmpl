@@ -52,7 +52,9 @@ static AST_Node* ll_parse_label(LR1_Parser* p)
     AST_Node* n = ast_node_new(p->arena, AST_LABEL, tok->loc.line, tok->loc.col);
 
     n->body.label.name = name;
-    n->body.label.stmt = ll_parse_stmt(p);
+    /* a label may precede a declaration (`L: int x = 5;`), which
+     * ll_parse_stmt cannot parse; use the decl-or-stmt dispatch */
+    n->body.label.stmt = ll_parse_decl_or_stmt(p);
 
     return n;
 }

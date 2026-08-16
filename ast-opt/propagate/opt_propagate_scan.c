@@ -38,8 +38,19 @@ static int scan_pre(AST_Node* n, void* ctx)
                 && n->body.var_decl.var_type->kind == TYPE_BOOL)
                 val = (val != 0);
 
+            /* an unsigned-typed variable propagates an unsigned constant
+             * even when the literal lacks a u/U suffix: `unsigned m = 1`
+             * must fold to an unsigned 1 or `n < m` picks icmp slt and
+             * compares -1 < 1 as true (C says -1 < 1u is false). */
+            int is_unsigned = n->body.var_decl.init->body.literal.is_unsigned;
+
+            if (n->body.var_decl.var_type) {
+                for (Type* t = n->body.var_decl.var_type; t; t = t->next)
+                    if (t->kind == TYPE_UNSIGNED) is_unsigned = 1;
+            }
+
             add_entry(c->map, c->count, n->body.var_decl.name, val,
-                      n->body.var_decl.init->body.literal.is_unsigned,
+                      is_unsigned,
                       n->body.var_decl.init->type == AST_LONG_LIT);
         }
         break;
