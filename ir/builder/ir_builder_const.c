@@ -81,6 +81,23 @@ int_type_of_bytes(int sz)
     }
 }
 
+/* raw bit pattern of a float/double constant as a uint64_t (an f32 member
+ * is zero-extended to 64 bits) */
+static uint64_t
+float_bits_zext(IR_Value* v)
+{
+    if (v->type->kind == IR_F32) {
+        float f = (float)v->body.float_val;
+        uint32_t b;
+        memcpy(&b, &f, 4);
+        return (uint64_t)b;
+    }
+    double d = v->body.float_val;
+    uint64_t bits;
+    memcpy(&bits, &d, 8);
+    return bits;
+}
+
 /* Reinterpret constant `v` into type `to`, preserving the low bytes and
  * zero-filling the high bytes when `to` is wider.  Stores a union's
  * initialized member (at offset 0) into the union's single largest-member
@@ -97,18 +114,23 @@ ir_const_reinterpret(Arena* a, IR_Value* v, IR_Type* to)
     int is_float = v->type->kind == IR_F32 || v->type->kind == IR_F64;
     if (!is_int && !is_float) return NULL;
 
-    /* int member -> pointer largest: zero-extend to i64 then inttoptr.
-     * LLVM forbids `bitcast (i64 N to ptr)` for a pointer-typed constant;
-     * the only valid form is `inttoptr (i64 N to ptr)`.  float -> ptr has
-     * no constant form: leave unsupported (caller zero-fills). */
+    /* int/float member -> pointer largest: build the member's raw bit
+     * pattern as an i64 in value space, then inttoptr.  LLVM forbids
+     * `bitcast (i64 N to ptr)` for a pointer-typed constant and has no
+     * float -> inttoptr constexpr path, so the bits round-trip through an
+     * integer (int: zero-extend; f32: memcpy to u32 then zero-extend;
+     * f64: memcpy to u64). */
     if (to->kind == IR_PTR) {
-        if (!is_int) return NULL;
-        int ss = ir_type_size(v->type);
-        long long mask = (ss >= 8) ? ~0LL : ((1LL << (ss * 8)) - 1);
         IR_Value* w = arena_alloc(a, sizeof(IR_Value));
         w->kind = VAL_CONST_INT;
         w->type = t_i64;
-        w->body.int_val = v->body.int_val & mask;
+        if (is_int) {
+            int ss = ir_type_size(v->type);
+            long long mask = (ss >= 8) ? ~0LL : ((1LL << (ss * 8)) - 1);
+            w->body.int_val = v->body.int_val & mask;
+        } else {
+            w->body.int_val = (long long)float_bits_zext(v);
+        }
         return ir_const_inttoptr(a, to, w);
     }
 
