@@ -119,7 +119,17 @@ typedef LR_Action (*LR1_Func)(LR1_Parser* p);
  * --------------------------------------------------------------- */
 
 #define MAX_STACK 256
-#define MAX_CAST_DEPTH 4
+
+/* One pending (T) cast prefix in a cast chain.  Casts are unary-level
+ * operators in C (cast-expression nests arbitrarily: (T1)(T2)...x), so
+ * the chain must be unbounded — an arena-linked list.  A fixed-size
+ * array silently dropped casts beyond its depth (wrong code, no
+ * diagnostic).  Head = innermost cast, tail = outermost. */
+typedef struct PendingCast {
+    Type*               type;
+    SourceLoc           loc;
+    struct PendingCast* next;
+} PendingCast;
 
 typedef struct {
     int       state;
@@ -135,8 +145,7 @@ struct LR1_Parser {
     int        allow_unmatched_rparen;  /* for for-loop update expr terminated by ')' */
     int        stop_at_comma;           /* treat comma as expression terminator */
     int        pending_cast;            /* cast prefix was detected; wrap result */
-    Type*      cast_type[MAX_CAST_DEPTH]; /* parsed cast target types (outer..inner) */
-    SourceLoc  cast_loc[MAX_CAST_DEPTH];  /* loc of each cast for AST_CAST node */
+    PendingCast* cast_chain;            /* pending cast prefixes, head = innermost */
     int        cast_count;             /* number of pending casts in the chain */
     int        cast_paren_depth;       /* paren depth when cast was set */
     int        cast_sp;               /* stack depth when cast was set */

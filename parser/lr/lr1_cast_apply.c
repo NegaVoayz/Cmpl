@@ -5,6 +5,8 @@
 
 #include "lr1.h"
 
+#include "arena.h"
+
 /* from lr1_table.c */
 extern int is_binary_op(TokenKind k);
 
@@ -109,18 +111,20 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
     /* mark pending cast so lr1_parse_expr wraps the result.  Adjacent casts
      * (T1)(T2)... all parse at the same paren/stack depth (try_parse_cast
      * consumes (T) without shifting), so cast_paren_depth/cast_sp are
-     * chain-wide; only the type and loc differ per level.  Push each cast
-     * onto the pending-cast chain, outermost first. */
+     * chain-wide; only the type and loc differ per level.  Prepend each
+     * cast to the pending chain: head = innermost, so apply_pending_casts
+     * wraps in the correct order with no depth cap. */
     p->pending_cast = 1;
     if (p->cast_count == 0) {
         p->cast_paren_depth = p->paren_depth;
         p->cast_sp = p->sp;
     }
-    if (p->cast_count < MAX_CAST_DEPTH) {
-        p->cast_type[p->cast_count] = ct;
-        p->cast_loc[p->cast_count] = peek->loc;
-        p->cast_count++;
-    }
+    PendingCast* pc = arena_alloc(p->arena, sizeof(PendingCast));
+    pc->type = ct;
+    pc->loc = peek->loc;
+    pc->next = p->cast_chain;
+    p->cast_chain = pc;
+    p->cast_count++;
     return 1;
 }
 
@@ -129,16 +133,17 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
 AST_Node*
 apply_pending_casts(LR1_Parser* p, AST_Node* operand)
 {
-    for (int i = p->cast_count - 1; i >= 0; i--) {
+    for (PendingCast* pc = p->cast_chain; pc; pc = pc->next) {
         AST_Node* cast = ast_node_new(p->arena, AST_CAST,
-                                      p->cast_loc[i].line, p->cast_loc[i].col);
+                                      pc->loc.line, pc->loc.col);
 
-        cast->body.cast.type_expr = p->cast_type[i];
+        cast->body.cast.type_expr = pc->type;
         cast->body.cast.cast_expr = operand;
         operand = cast;
     }
     p->pending_cast = 0;
     p->cast_count = 0;
+    p->cast_chain = NULL;
     return operand;
 }
 
@@ -192,6 +197,7 @@ apply_pending_cast_at_reduce(LR1_Parser* p)
         else {
             p->pending_cast = 0;
             p->cast_count = 0;
+            p->cast_chain = NULL;
         }
     }
 }
