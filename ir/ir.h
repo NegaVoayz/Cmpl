@@ -224,6 +224,9 @@ struct IR_Module {
     const char*  target_triple;
     const char*  data_layout;
     Arena*       arena;          /* owns all IR objects in this module */
+    int          had_error;      /* semantic error during IR gen: the
+                                    module must be discarded and the
+                                    compile must fail (gcc parity) */
 };
 
 /* ---------------------------------------------------------------

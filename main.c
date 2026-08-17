@@ -15,10 +15,10 @@
 /* pipeline drivers -- defined in main_driver.c */
 extern void run_cuda_pipeline(AST_Node* root, const char* filename,
                               int dump_spv, int opt_level);
-extern void run_codegen_pipeline(AST_Node* root, const char* filename,
+extern int  run_codegen_pipeline(AST_Node* root, const char* filename,
                                  const char* out_file, int codegen_mode,
                                  int opt_level);
-extern void run_ir_pipeline(AST_Node* root, int opt_level);
+extern int  run_ir_pipeline(AST_Node* root, int opt_level);
 extern void run_ast_pipeline(AST_Node* root);
 
 typedef struct {
@@ -146,11 +146,23 @@ main(int argc, char** argv)
 
     if (opts.cuda_mode)
         run_cuda_pipeline(root, opts.filename, opts.dump_spv, opts.opt_level);
-    else if (opts.codegen_mode)
-        run_codegen_pipeline(root, opts.filename, opts.out_file,
-                             opts.codegen_mode, opts.opt_level);
-    else if (opts.dump_ir)
-        run_ir_pipeline(root, opts.opt_level);
+    else if (opts.codegen_mode) {
+        if (run_codegen_pipeline(root, opts.filename, opts.out_file,
+                                 opts.codegen_mode, opts.opt_level) != 0) {
+            pp_ctx_free(&pp_ctx);
+            arena_free(ast_arena);
+            free(code);
+            return 1;
+        }
+    }
+    else if (opts.dump_ir) {
+        if (run_ir_pipeline(root, opts.opt_level) != 0) {
+            pp_ctx_free(&pp_ctx);
+            arena_free(ast_arena);
+            free(code);
+            return 1;
+        }
+    }
     else
         run_ast_pipeline(root);
 

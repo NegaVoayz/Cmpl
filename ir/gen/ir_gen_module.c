@@ -198,6 +198,13 @@ ir_gen_module_ex(AST_Node* root, int is_device)
 
     gen_module_functions(root, mod, is_device, &sig_map);
 
+    /* a semantic error during IR gen (e.g. &bit-field) must fail the
+     * compile, not silently ship a garbage module (gcc parity) */
+    if (mod->had_error) {
+        arena_free(mod->arena);
+        return NULL;
+    }
+
     return mod;
 }
 

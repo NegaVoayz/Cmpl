@@ -85,57 +85,66 @@ run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
     if (device_mod) arena_free(device_mod->arena);
 }
 
-/* LLVM codegen path: IR gen → optimize → clang subprocess. */
-void
+/* LLVM codegen path: IR gen → optimize → clang subprocess.
+ * Returns 0 on success, nonzero when IR gen or codegen failed. */
+int
 run_codegen_pipeline(AST_Node* root, const char* filename, const char* out_file,
                      int codegen_mode, int opt_level)
 {
     printf("\n--- Generating IR for codegen ---\n");
     IR_Module* mod = ir_gen_program(root);
 
-    if (mod) {
-        ir_optimize(mod, opt_level);
-
-        /* derive output name from source if not specified */
-        char default_out[256];
-        const char* output = out_file;
-
-        if (!output) {
-            const char* dot = strrchr(filename, '.');
-            int baselen = dot ? (int)(dot - filename) : (int)strlen(filename);
-            const char* ext;
-
-            switch (codegen_mode) {
-            case CG_OUT_OBJECT:  ext = ".o";  break;
-            case CG_OUT_ASM:     ext = ".s";  break;
-            case CG_OUT_LLVM_IR: ext = ".ll"; break;
-            default:             ext = ".o";  break;
-            }
-            snprintf(default_out, sizeof(default_out), "%.*s%s",
-                     baselen, filename, ext);
-            output = default_out;
-        }
-
-        int result = cg_compile(mod, output, codegen_mode, opt_level);
-
-        if (result != 0)
-            fprintf(stderr, "Codegen failed.\n");
-        arena_free(mod->arena);
+    if (!mod) {
+        fprintf(stderr, "Codegen failed (IR generation error).\n");
+        return 1;
     }
+
+    ir_optimize(mod, opt_level);
+
+    /* derive output name from source if not specified */
+    char default_out[256];
+    const char* output = out_file;
+
+    if (!output) {
+        const char* dot = strrchr(filename, '.');
+        int baselen = dot ? (int)(dot - filename) : (int)strlen(filename);
+        const char* ext;
+
+        switch (codegen_mode) {
+        case CG_OUT_OBJECT:  ext = ".o";  break;
+        case CG_OUT_ASM:     ext = ".s";  break;
+        case CG_OUT_LLVM_IR: ext = ".ll"; break;
+        default:             ext = ".o";  break;
+        }
+        snprintf(default_out, sizeof(default_out), "%.*s%s",
+                 baselen, filename, ext);
+        output = default_out;
+    }
+
+    int result = cg_compile(mod, output, codegen_mode, opt_level);
+
+    if (result != 0)
+        fprintf(stderr, "Codegen failed.\n");
+    arena_free(mod->arena);
+    return result != 0;
 }
 
-/* IR dump path. */
-void
+/* IR dump path.  Returns 0 on success, nonzero when IR gen errored. */
+int
 run_ir_pipeline(AST_Node* root, int opt_level)
 {
     printf("\n--- IR ---\n");
     IR_Module* mod = ir_gen_program(root);
 
-    if (mod) {
-        ir_optimize(mod, opt_level);
-        ir_dump_module(mod, stdout);
-        arena_free(mod->arena);
+    if (!mod) {
+        fprintf(stderr, "IR generation failed.\n");
+        return 1;
     }
+
+    ir_optimize(mod, opt_level);
+    ir_dump_module(mod, stdout);
+    arena_free(mod->arena);
+    return 0;
 }
 
 /* AST dump path. */

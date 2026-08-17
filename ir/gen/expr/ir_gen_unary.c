@@ -58,6 +58,7 @@ gen_addr_of(GenCtx* ctx, AST_Node* n)
             if (loc.width != 8 * ir_type_size(loc.field_ty)) {
                 fprintf(stderr, "cmpl: error: cannot take address of"
                         " bit-field\n");
+                if (ctx->mod) ctx->mod->had_error = 1;
                 IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
                 v->kind = VAL_UNDEF; v->type = t_i32; return v;
             }
