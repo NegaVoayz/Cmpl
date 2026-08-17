@@ -80,7 +80,15 @@ ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee)
     case TYPE_CHAR:   return t_i8;
     case TYPE_SHORT:  return t_i16;
     case TYPE_INT:    return t_i32;
-    case TYPE_LONG:   return t_i64;
+    case TYPE_LONG:
+        /* `long double`: x86-64 f80 has no IR type here, and the chain
+         * LONG->DOUBLE previously collapsed to plain i64 with the DOUBLE
+         * link dropped — every long-double value was silently computed
+         * as a 64-bit INTEGER.  Map to f64 (double semantics) instead:
+         * exact for the common subset, and honest otherwise. */
+        if (ast->next && ast->next->kind == TYPE_DOUBLE)
+            return t_f64;
+        return t_i64;
     case TYPE_FLOAT:  return t_f32;
     case TYPE_DOUBLE: return t_f64;
     case TYPE_ENUM:   return t_i32;
