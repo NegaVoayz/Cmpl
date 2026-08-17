@@ -86,6 +86,13 @@ typedef enum {
     // spec
     TOK_EOF,
     TOK_ERROR,
+
+    // C99/C11 declaration-specifier keywords (appended at the END so the
+    // dense LR(1) action-table indices of every existing kind stay stable).
+    TOK_INLINE,     // inline
+    TOK_RESTRICT,   // restrict
+    TOK_NORETURN,   // _Noreturn
+
     NUM_TOKEN_KINDS
 } TokenKind;
 

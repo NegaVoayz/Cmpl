@@ -59,7 +59,8 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
     int addr_space = cuda_parse_var_qualifiers(p);
 
     while (p->tok->kind == TOK_TYPEDEF || p->tok->kind == TOK_STATIC ||
-           p->tok->kind == TOK_EXTERN  || p->tok->kind == TOK_REGISTER) {
+           p->tok->kind == TOK_EXTERN  || p->tok->kind == TOK_REGISTER ||
+           p->tok->kind == TOK_INLINE  || p->tok->kind == TOK_NORETURN) {
         if (p->tok->kind == TOK_TYPEDEF) is_typedef = 1;
         if (p->tok->kind == TOK_STATIC) linkage = 4;   /* LINK_STATIC */
         if (p->tok->kind == TOK_EXTERN) linkage = 5;   /* LINK_EXTERN */

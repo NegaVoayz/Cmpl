@@ -11,6 +11,7 @@ typedef struct {
 
 static const Keyword keywords[] = {
     {"_Bool",     TOK_BOOL},
+    {"_Noreturn", TOK_NORETURN},
     {"__attribute__", TOK_ATTRIBUTE},
     {"__constant__", TOK_KW_CONSTANT},
     {"__device__",   TOK_KW_DEVICE},
@@ -32,9 +33,11 @@ static const Keyword keywords[] = {
     {"for",      TOK_FOR},
     {"goto",     TOK_GOTO},
     {"if",       TOK_IF},
+    {"inline",   TOK_INLINE},
     {"int",      TOK_INT},
     {"long",     TOK_LONG},
     {"register", TOK_REGISTER},
+    {"restrict", TOK_RESTRICT},
     {"return",   TOK_RETURN},
     {"short",    TOK_SHORT},
     {"signed",   TOK_SIGNED},

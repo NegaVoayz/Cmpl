@@ -30,7 +30,7 @@ static int is_type_keyword(TokenKind k)
 
 static int is_qualifier(TokenKind k)
 {
-    return k == TOK_CONST || k == TOK_VOLATILE;
+    return k == TOK_CONST || k == TOK_VOLATILE || k == TOK_RESTRICT;
 }
 
 static TypeKind kw_to_typekind(TokenKind k)
@@ -99,7 +99,8 @@ Type* ll_parse_type_specs(LR1_Parser* p)
     int   is_const = 0;
     int   is_volatile = 0;
 
-    while (is_type_keyword(p->tok->kind) || is_qualifier(p->tok->kind)) {
+    while (is_type_keyword(p->tok->kind) || is_qualifier(p->tok->kind) ||
+           p->tok->kind == TOK_INLINE || p->tok->kind == TOK_NORETURN) {
         if (p->tok->kind == TOK_CONST) {
             is_const = 1;
             p->tok = p->tok->next;
@@ -108,6 +109,21 @@ Type* ll_parse_type_specs(LR1_Parser* p)
 
         if (p->tok->kind == TOK_VOLATILE) {
             is_volatile = 1;
+            p->tok = p->tok->next;
+            continue;
+        }
+
+        /* restrict is a type-qualifier (C99 6.7.3); accept and ignore —
+         * the IR has no aliasing model, so it is semantically inert. */
+        if (p->tok->kind == TOK_RESTRICT) {
+            p->tok = p->tok->next;
+            continue;
+        }
+
+        /* inline / _Noreturn may legally interleave with type specifiers
+         * (C99 6.7: declaration-specifiers in any order); accept and
+         * ignore — they are hints, not part of the type. */
+        if (p->tok->kind == TOK_INLINE || p->tok->kind == TOK_NORETURN) {
             p->tok = p->tok->next;
             continue;
         }

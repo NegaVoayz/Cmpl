@@ -245,8 +245,9 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
         ptr_count++;
         p->tok = p->tok->next;
 
-        /* skip trailing qualifiers after *: const, volatile */
-        while (p->tok->kind == TOK_CONST || p->tok->kind == TOK_VOLATILE)
+        /* skip trailing qualifiers after *: const, volatile, restrict */
+        while (p->tok->kind == TOK_CONST || p->tok->kind == TOK_VOLATILE ||
+               p->tok->kind == TOK_RESTRICT)
             p->tok = p->tok->next;
     }
 

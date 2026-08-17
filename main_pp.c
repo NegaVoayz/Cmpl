@@ -97,6 +97,9 @@ token_kind_name(TokenKind kind)
         [TOK_QUESTION]    = "TOK_QUESTION",
         [TOK_EOF]         = "TOK_EOF",
         [TOK_ERROR]       = "TOK_ERROR",
+        [TOK_INLINE]      = "TOK_INLINE",
+        [TOK_RESTRICT]    = "TOK_RESTRICT",
+        [TOK_NORETURN]    = "TOK_NORETURN",
     };
 
     return names[kind] ? names[kind] : "UNKNOWN";

@@ -133,6 +133,7 @@ int is_type_start(Token* tok)
         k == TOK_BOOL    || k == TOK_STRUCT  || k == TOK_UNION   || k == TOK_ENUM ||
         k == TOK_STATIC  || k == TOK_EXTERN  || k == TOK_CONST ||
         k == TOK_VOLATILE|| k == TOK_REGISTER|| k == TOK_TYPEDEF ||
+        k == TOK_INLINE  || k == TOK_RESTRICT|| k == TOK_NORETURN ||
         k == TOK_KW_GLOBAL || k == TOK_KW_DEVICE || k == TOK_KW_HOST ||
         k == TOK_KW_SHARED || k == TOK_KW_CONSTANT ||
         k == TOK_ATTRIBUTE)
@@ -146,7 +147,8 @@ int is_type_start(Token* tok)
 
         while (peek && (peek->kind == TOK_STAR ||
                         peek->kind == TOK_CONST ||
-                        peek->kind == TOK_VOLATILE))
+                        peek->kind == TOK_VOLATILE ||
+                        peek->kind == TOK_RESTRICT))
             peek = peek->next;
 
         if (peek && peek->kind == TOK_IDENT) {
