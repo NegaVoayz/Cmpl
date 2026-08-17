@@ -115,14 +115,28 @@ ir_build_bitfield_struct(Arena* a, IR_Type* t, Type* ast)
          f = f->next) {
         int S = 4, is_signed = 1;
         field_base_info(a, f->body.var_decl.var_type, &S, &is_signed);
-        if (S > align) align = S;
         long long W = (f->body.var_decl.bit_width)
             ? eval_width(f->body.var_decl.bit_width) : 0;
+
+        /* Plain (whole-type) fields use their REAL size + alignment —
+         * field_base_info clamps base sizes to [1,8] for bit-field
+         * types, which would shrink aggregate members (struct/union/
+         * array, e.g. a String) to 4 bytes and misplace every bit-field
+         * after them.  Bit-fields keep the clamped base size. */
+        int fsz = S, fal = S;
+        if (!f->body.var_decl.bit_width) {
+            IR_Type* it = ast_to_ir_type(a, f->body.var_decl.var_type);
+            fsz = (it && it->kind != IR_VOID) ? ir_type_size(it) : 4;
+            fal = ir_type_align(it);
+            if (fsz < 1) fsz = 4;
+            if (fal < 1) fal = 1;
+        }
+        if (fal > align) align = fal;
 
         Lay* L = &lays[n_lays++];
 
         if (is_union) {
-            int sz = S;
+            int sz = fsz;
             if (n_units == 0) {
                 units[0].start = 0; units[0].size = sz; n_units = 1;
             } else if (sz > units[0].size) {
@@ -136,15 +150,15 @@ ir_build_bitfield_struct(Arena* a, IR_Type* t, Type* ast)
         }
 
         if (!f->body.var_decl.bit_width) {
-            bitpos = round_up(bitpos, 8 * S);
+            bitpos = round_up(bitpos, 8 * fal);
             if (n_units < MAX_UNITS) {
                 units[n_units].start = bitpos / 8;
-                units[n_units].size = S;
+                units[n_units].size = fsz;
                 n_units++;
             }
             L->byte_off = bitpos / 8; L->bit = 0; L->width = 0;
             L->is_signed = is_signed;
-            bitpos += 8 * S;
+            bitpos += 8 * fsz;
             continue;
         }
 

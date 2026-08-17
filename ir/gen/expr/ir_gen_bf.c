@@ -23,6 +23,7 @@ bf_fill_loc(GenCtx* ctx, IR_Value* base, IR_Type* struct_ty, int raw_idx,
     loc->record = ir_type_size(struct_ty);
     loc->field_ty = t_i32;
     loc->byte = 0; loc->bit = 0; loc->width = 0; loc->is_signed = 0;
+    loc->plain_agg = 0;
 
     IR_FieldInfo* fi = ir_field_info(struct_ty, raw_idx);
     if (!fi) return;
@@ -31,8 +32,12 @@ bf_fill_loc(GenCtx* ctx, IR_Value* base, IR_Type* struct_ty, int raw_idx,
     loc->bit = fi->bit % 8;
     loc->width = fi->width;
     loc->is_signed = fi->is_signed;
-    if (loc->width == 0)
+    if (loc->width == 0) {
         loc->width = 8 * ir_type_size(loc->field_ty);
+        loc->plain_agg = (fi->ty && (fi->ty->kind == IR_STRUCT ||
+                                     fi->ty->kind == IR_UNION ||
+                                     fi->ty->kind == IR_ARRAY));
+    }
 }
 
 /* resolve a member expression (.f / ->f) of a bit-field struct to its
@@ -113,6 +118,16 @@ IR_Value*
 bf_load(GenCtx* ctx, const BfLoc* loc)
 {
     IR_Builder* b = ctx->b;
+
+    /* plain aggregate field: owns its bytes — plain typed load.  The
+     * piece machinery below would assemble the bytes as integers and
+     * bitcast to the aggregate, which LLVM rejects. */
+    if (loc->plain_agg) {
+        IR_Value* p = bf_byte_ptr(ctx, loc->base, loc->byte);
+        p = ir_build_bitcast(b, p, ir_ptr_type(b->arena, loc->field_ty, 0));
+        return ir_build_load(b, p);
+    }
+
     int pos = loc->byte;
     int taken = 0;
     IR_Value* acc = NULL;
@@ -152,6 +167,17 @@ bf_store(GenCtx* ctx, const BfLoc* loc, IR_Value* val)
 {
     IR_Builder* b = ctx->b;
     if (!val) return;
+
+    /* plain aggregate field: owns its bytes — plain typed store (no
+     * read-modify-write; the piece machinery cannot bitcast to the
+     * aggregate type). */
+    if (loc->plain_agg) {
+        IR_Value* v = coerce_to(b, val, loc->field_ty);
+        IR_Value* p = bf_byte_ptr(ctx, loc->base, loc->byte);
+        p = ir_build_bitcast(b, p, ir_ptr_type(b->arena, loc->field_ty, 0));
+        ir_build_store(b, v, p);
+        return;
+    }
 
     val = coerce_to(b, val, loc->field_ty);
     IR_Value* vm;

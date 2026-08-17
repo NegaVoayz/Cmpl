@@ -25,7 +25,10 @@ typedef struct SymSave {
 
 /* storage location of one field of a bit-field struct: base + byte/bit
  * (ir_gen_bf.c).  width==8*size(field_ty) marks a plain (whole-type)
- * field. */
+ * field.  plain_agg marks a plain field whose type is an aggregate
+ * (struct/union/array): it owns its bytes, so load/store use a typed
+ * byte-address access instead of the integer piece machinery (LLVM
+ * forbids bitcast between integer and aggregate). */
 typedef struct BfLoc {
     IR_Value* base;      /* pointer to the struct (element ptr for globals) */
     int       byte;      /* field's first byte offset in the struct */
@@ -34,6 +37,7 @@ typedef struct BfLoc {
     int       is_signed;
     IR_Type*  field_ty;  /* the field's own IR type (value coercion) */
     int       record;    /* struct size in bytes (load/store piece bound) */
+    int       plain_agg; /* plain field with aggregate type (typed access) */
 } BfLoc;
 
 /* generation context (one per function being lowered) */

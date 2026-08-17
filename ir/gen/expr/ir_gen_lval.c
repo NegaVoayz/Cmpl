@@ -1,6 +1,7 @@
 /* ir_gen_lval.c -- store-target pointer computation (gen_store_ptr). */
 
 #include "../ir_gen.h"
+#include "ir_gen_expr.h"
 
 #include <stdlib.h>
 
@@ -87,6 +88,20 @@ emit_member_ptr(GenCtx* ctx, IR_Value* struct_ptr, IR_Type* struct_ty,
     { int fi = 0;
       for (IR_Type* m = struct_ty->members; m; m = m->next, fi++)
           if (fi == field_idx) { field_ty = m; break; } }
+
+    if (ir_has_bitfields(struct_ty)) {
+        /* bit-field struct: `members` holds storage-unit fillers, not
+         * fields — resolve plain members through field_info to a byte
+         * address typed as the field (same pattern as bf_field_ptr in
+         * the init walker).  Bit-fields are not addressable. */
+        IR_FieldInfo* fi = ir_field_info(struct_ty, field_idx);
+        if (fi && fi->width == 0) {
+            IR_Value* p = bf_byte_ptr(ctx, struct_ptr, fi->byte_off);
+            return ir_build_bitcast(b, p,
+                ir_ptr_type(ctx->b->arena, fi->ty ? fi->ty : t_i32, 0));
+        }
+        return NULL;
+    }
 
     if (ast_struct && ast_struct->kind == TYPE_UNION) {
         /* union: all fields at offset 0 — bitcast */
