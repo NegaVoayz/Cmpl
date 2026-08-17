@@ -94,7 +94,10 @@ gen_call_expr(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
 
-    int n_args = 0; IR_Value* arg_buf[16]; String cn = {0,0};
+    /* up to 16 args inline; longer calls get an arena buffer so a long
+     * printf argument list is never truncated */
+    int n_args = 0; IR_Value* arg_buf[16]; IR_Value** dyn_buf = NULL;
+    IR_Value** args = arg_buf; String cn = {0,0};
     IR_Value* fn_ptr = NULL;
     if (n->body.call.callee->type == AST_IDENT) {
         cn = n->body.call.callee->body.ident.name;
@@ -108,8 +111,14 @@ gen_call_expr(GenCtx* ctx, AST_Node* n)
         }
     } else
         fn_ptr = gen_expr(ctx, n->body.call.callee);
-    for (AST_Node* a = n->body.call.args; a && n_args < 16; a = a->next)
-        arg_buf[n_args++] = gen_expr(ctx, a);
+    for (AST_Node* a = n->body.call.args; a; a = a->next) n_args++;
+    if (n_args > 16) {
+        dyn_buf = arena_alloc(b->arena, n_args * sizeof(IR_Value*));
+        args = dyn_buf;
+    }
+    n_args = 0;
+    for (AST_Node* a = n->body.call.args; a; a = a->next)
+        args[n_args++] = gen_expr(ctx, a);
     IR_Type* ret_t = t_i32;
     IR_Type* func_ty = NULL;
     if (cn.length > 0) {
@@ -145,19 +154,19 @@ gen_call_expr(GenCtx* ctx, AST_Node* n)
     if (func_ty && func_ty->inner) ret_t = func_ty->inner;
     if (!ret_t) ret_t = t_i32;
 
-    coerce_call_args(b, func_ty, arg_buf, n_args);
+    coerce_call_args(b, func_ty, args, n_args);
 
     if (fn_ptr) {
         /* indirect call through function pointer */
         IR_Value* result = ir_build_call_ptr(b, fn_ptr, ret_t,
-                                             arg_buf, n_args);
+                                             args, n_args);
         if (result && result->def_instr)
             result->def_instr->func_type = func_ty;
         return result;
     }
     char nb[128]; int nl = cn.length; if (nl > 127) nl = 127;
     memcpy(nb, cn.data, nl); nb[nl] = '\0';
-    { IR_Value* result = ir_build_call(b, nb, ret_t, arg_buf, n_args);
+    { IR_Value* result = ir_build_call(b, nb, ret_t, args, n_args);
       if (result && result->def_instr)
           result->def_instr->func_type = func_ty;
       return result; }

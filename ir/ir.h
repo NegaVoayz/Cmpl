@@ -29,6 +29,23 @@ typedef enum {
  * --------------------------------------------------------------- */
 
 typedef struct IR_Type IR_Type;
+
+/* per-field storage layout for structs that contain bit-fields, built by
+ * ir_type_bf.c.  Parallel to the AST field list (same order, incl.
+ * anonymous fields).  `unit` indexes the storage-unit member list (see
+ * t->members) and `byte_off` is the unit's byte offset within the struct;
+ * `bit` is the field's bit offset within that unit.  width==0 marks a
+ * plain (whole-type) field. */
+typedef struct IR_FieldInfo {
+    int   unit;         /* storage-unit member index (0..n_members-1) */
+    int   byte_off;     /* unit's byte offset in the struct */
+    int   bit;          /* field's bit offset within the unit */
+    int   width;        /* bit-field width; 0 = plain field */
+    int   is_signed;
+    IR_Type* ty;        /* field's own IR type (i8/i16/i32/i64/i1) */
+    struct IR_FieldInfo* next;
+} IR_FieldInfo;
+
 struct IR_Type {
     IR_TypeKind kind;
     IR_Type*    inner;       /* pointee / array elem / return type */
@@ -39,6 +56,11 @@ struct IR_Type {
     String      name;        /* struct tag */
     IR_Type*    members;     /* struct fields / func params (linked via next) */
     IR_Type*    next;        /* chain for members / named_types list */
+    int         has_bitfields; /* struct has >=1 bit-field: members are
+                                  storage units, field_info is populated */
+    IR_FieldInfo* field_info;  /* per-field storage layout (bitfield structs) */
+    int         align;         /* explicit alignment override (bytes); 0 = auto
+                                  (set for bitfield structs: max field align) */
 };
 
 /* ---------------------------------------------------------------

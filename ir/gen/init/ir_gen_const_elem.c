@@ -46,7 +46,9 @@ gen_const_cont_elem(Arena* a, IR_Value** elems, TypedefEntry* enum_vals,
         v = gen_const_init(a, e, slot_ty, enum_vals);
         e = e->next;
     }
-    gen_const_cont_set(elems[cont[0].idx], cont, *depth, v);
+    ContLevel* L0 = &cont[0];
+    int root_mi = (L0->agg && L0->agg->has_bitfields) ? L0->mem : L0->idx;
+    gen_const_cont_set(a, elems[root_mi], cont, *depth, v);
     cont_advance(cont, depth);
     if (*depth < 2) *depth = 0;
     return e;
@@ -60,7 +62,13 @@ gen_const_elided_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
                       int* pos)
 {
     int idx = *pos;
-    IR_Type* ct = gen_const_child_type(target_type, idx);
+    int raw = idx;
+    if (ir_has_bitfields(target_type)) {
+        /* positional cursor advances over NAMED fields */
+        raw = ir_struct_named_at(target_type, idx);
+        if (raw < 0) { (*pos)++; return e->next; }
+    }
+    IR_Type* ct = gen_const_child_type(target_type, raw);
 
     if (idx >= 0 && idx < slots && e->type != AST_INIT_LIST &&
         e->type != AST_STRING_LIT && ct &&
@@ -71,6 +79,7 @@ gen_const_elided_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
         int cap = (ct->kind == IR_ARRAY) ? ct->size : 0;
         if (ct->kind != IR_ARRAY)
             for (IR_Type* m = ct->members; m; m = m->next) cap++;
+        if (ct->has_bitfields) cap = ir_struct_named_count(ct);
         AST_Node* last = e;
         int n = 1;
         /* stop absorbing at a designator (C99 6.7.8p20: a designator
@@ -86,14 +95,23 @@ gen_const_elided_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
         synth.type = AST_INIT_LIST;
         synth.body.init_list.elems = e;
         synth.body.init_list.last_elem = last;
-        elems[idx] = gen_const_init(a, &synth, ct, enum_vals);
+        IR_Value* v = gen_const_init(a, &synth, ct, enum_vals);
+        if (ir_has_bitfields(target_type))
+            gen_const_field_store(a, elems, target_type, raw, v);
+        else
+            elems[idx] = v;
         last->next = saved;
         *pos = idx + 1;
         return saved;
     }
 
-    if (idx >= 0 && idx < slots)
-        elems[idx] = gen_const_init(a, e, ct, enum_vals);
+    if (idx >= 0 && idx < slots) {
+        IR_Value* v = gen_const_init(a, e, ct, enum_vals);
+        if (ir_has_bitfields(target_type))
+            gen_const_field_store(a, elems, target_type, raw, v);
+        else
+            elems[idx] = v;
+    }
     *pos = idx + 1;
     return e->next;
 }

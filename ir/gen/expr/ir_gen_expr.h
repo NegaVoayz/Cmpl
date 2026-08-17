@@ -27,4 +27,28 @@ IR_Value* build_phi2(IR_Builder* b, IR_Type* ty,
 int resolve_member_record(GenCtx* ctx, AST_Node* record, TokenKind op,
                           IR_Value** struct_ptr, IR_Type** struct_ty);
 
+/* ---- bit-field member access (ir_gen_bf.c) ----
+ * BfLoc is defined in ir_gen.h (shared with the init paths). */
+
+/* fill the location of raw field index `idx` of a bit-field struct. */
+void bf_fill_loc(GenCtx* ctx, IR_Value* base, IR_Type* struct_ty,
+                 int raw_idx, BfLoc* loc);
+
+/* resolve a member expression of a bit-field struct; 1 when resolved. */
+int bf_resolve_member(GenCtx* ctx, AST_Node* n, BfLoc* loc);
+
+/* load the field value (extract + mask + sign-extend). */
+IR_Value* bf_load(GenCtx* ctx, const BfLoc* loc);
+
+/* store the field value (read-modify-write of the storage pieces). */
+void bf_store(GenCtx* ctx, const BfLoc* loc, IR_Value* val);
+
+/* i8* at absolute byte `off` of the struct base (element-typed globals
+ * are GEP'd first). */
+IR_Value* bf_byte_ptr(GenCtx* ctx, IR_Value* base, int off);
+
+/* address of a REGULAR field of a bit-field struct, typed as the field;
+ * NULL for bit-fields (caller diagnoses the address-of error). */
+IR_Value* bf_byte_addr(GenCtx* ctx, AST_Node* n);
+
 #endif /* IR_GEN_EXPR_H */

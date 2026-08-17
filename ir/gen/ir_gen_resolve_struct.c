@@ -114,6 +114,26 @@ int resolve_compound_lit_type_cb(AST_Node* n, void* ctx)
     return 0;
 }
 
+/* ast_walk callback: attach struct fields to sizeof(type) / _Alignof(type)
+ * and cast type expressions.  These parse `struct S` as a name-only type
+ * (no inline body) inside the LR cast branch, which
+ * resolve_struct_refs_stmt never reaches (it only walks statements, not
+ * expressions) — without this, sizeof(struct S) computes the size of an
+ * unsized IR_STRUCT and returns 0. */
+int resolve_sizeof_cast_type_cb(AST_Node* n, void* ctx)
+{
+    Type* t = NULL;
+    if (n && n->type == AST_SIZEOF_TYPE)
+        t = n->body.sizeof_type.type_expr;
+    else if (n && n->type == AST_ALIGNOF_TYPE)
+        t = n->body.sizeof_type.type_expr;
+    else if (n && n->type == AST_CAST)
+        t = n->body.cast.type_expr;
+    if (t)
+        resolve_struct_refs_type(t, ctx);
+    return 0;
+}
+
 /* ast_walk callback: register standalone struct/union definitions that
  * appear INSIDE function bodies (`struct X {...};` as a statement) in
  * struct_map.  only top-level defs were collected before, so a later

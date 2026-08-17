@@ -36,10 +36,15 @@ gen_const_zero(Arena* a, IR_Type* ty)
 }
 
 /* child type at slot idx of an aggregate (array → inner; struct/union →
- * the idx-th member).  falls back to t_i32 when out of range. */
+ * the idx-th member; bit-field structs → the raw field's own type).
+ * falls back to t_i32 when out of range. */
 IR_Type*
 gen_const_child_type(IR_Type* ty, int idx)
 {
+    if (ir_has_bitfields(ty)) {
+        IR_FieldInfo* fi = ir_field_info(ty, idx);
+        return fi ? fi->ty : t_i32;
+    }
     if (ty->kind == IR_ARRAY) return ty->inner;
     if (ty->kind == IR_STRUCT || ty->kind == IR_UNION) {
         IR_Type* m = ty->members;
@@ -89,11 +94,17 @@ gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
         for (IR_Type* m = ty->members; m; m = m->next) n++;
         IR_Value** elems = arena_alloc(a, n * sizeof(IR_Value*));
         for (int j = 0; j < n; j++) elems[j] = NULL;
-        elems[fi] = gen_const_desig(a, gen_const_child_type(ty, fi),
-                                    s->next, val, enum_vals);
+        IR_Value* fv = gen_const_desig(a, gen_const_child_type(ty, fi),
+                                       s->next, val, enum_vals);
+        if (ir_has_bitfields(ty))
+            gen_const_field_store(a, elems, ty, fi, fv);
+        else
+            elems[fi] = fv;
         for (int j = 0; j < n; j++)
             if (!elems[j])
-                elems[j] = gen_const_zero(a, gen_const_child_type(ty, j));
+                elems[j] = gen_const_zero(a, ir_has_bitfields(ty)
+                    ? ir_struct_member_type(ty, j)
+                    : gen_const_child_type(ty, j));
         return ir_const_aggregate(a, ty, elems, n);
     }
 
@@ -163,6 +174,7 @@ gen_const_absorb(AST_Node* val, AST_Node* list_next, IR_Type* inner,
     int cap = (inner->kind == IR_ARRAY) ? inner->size : 0;
     if (inner->kind != IR_ARRAY)
         for (IR_Type* m = inner->members; m; m = m->next) cap++;
+    if (inner->has_bitfields) cap = ir_struct_named_count(inner);
     *old_val_next = val->next;
     val->next = list_next;
     AST_Node* l = val;

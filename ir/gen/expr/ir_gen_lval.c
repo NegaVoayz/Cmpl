@@ -137,7 +137,7 @@ gen_store_compound_ptr(GenCtx* ctx, AST_Node* n)
         if (ir_t && (ir_t->kind == IR_ARRAY || ir_t->kind == IR_STRUCT ||
                      ir_t->kind == IR_UNION))
             ir_gen_zero_fill(ctx, alloca_ptr, ir_t);
-        ir_gen_init_one(ctx, alloca_ptr, n->body.compound_lit.init, ir_t);
+        ir_gen_init_one(ctx, alloca_ptr, n->body.compound_lit.init, ir_t, NULL);
     }
     return alloca_ptr;
 }

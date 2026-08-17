@@ -19,7 +19,7 @@ typedef struct Type     Type;
  * one aggregate type plus the child index the cursor is at.  depth >= 2
  * only — single-step designators fall back to the plain top-level cursor. */
 #define CONT_MAX 8
-typedef struct ContLevel { IR_Type* agg; int idx; } ContLevel;
+typedef struct ContLevel { IR_Type* agg; int idx; int mem; } ContLevel;
 
 /* --- Common type singletons (defined in ir_type.c) --- */
 
@@ -45,6 +45,18 @@ const char* ir_type_name(IR_Type* t);
 Type*       ir_struct_ast_lookup(IR_Type* t);
 int         ir_struct_field_index(Type* ast_struct, String field_name);
 int         ir_agg_count(IR_Type* t);
+
+/* --- Bit-field struct queries (ir_type_bfq.c) --- */
+
+int          ir_has_bitfields(IR_Type* t);
+IR_FieldInfo* ir_field_info(IR_Type* t, int raw_idx);
+int          ir_struct_field_count(IR_Type* t);
+int          ir_struct_named_count(IR_Type* t);
+int          ir_struct_named_at(IR_Type* t, int named_idx);
+int          ir_struct_next_named(IR_Type* t, int raw_idx);
+int          ir_struct_named_before(IR_Type* t, int raw_idx);
+int          ir_struct_member_at(IR_Type* t, int byte_off, int* mstart);
+void         ir_build_bitfield_struct(Arena* a, IR_Type* t, Type* ast);
 
 /* --- Builder API (ir_builder.c) --- */
 

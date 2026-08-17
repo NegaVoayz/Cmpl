@@ -100,6 +100,11 @@ gen_member_expr(GenCtx* ctx, AST_Node* n)
     IR_Value* builtin = gen_cuda_builtin(ctx, n);
     if (builtin) return builtin;
 
+    /* bit-field structs: load + extract the field's bits */
+    BfLoc loc;
+    if (bf_resolve_member(ctx, n, &loc))
+        return bf_load(ctx, &loc);
+
     IR_Value* struct_ptr = NULL;
     IR_Type* struct_ty = NULL;
     if (!resolve_member_record(ctx, n->body.member.record,
@@ -151,7 +156,22 @@ gen_postfix_expr(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
 
-    IR_Value* ptr = gen_store_ptr(ctx, n->body.postfix.operand);
+    /* bit-field member ++/--: load, mutate, store back */
+    AST_Node* opnd = n->body.postfix.operand;
+    if (opnd && opnd->type == AST_MEMBER) {
+        BfLoc loc;
+        if (bf_resolve_member(ctx, opnd, &loc)) {
+            IR_Value* old_val = bf_load(ctx, &loc);
+            IR_Value* one = ir_const_int(b, loc.field_ty, 1);
+            IR_Value* new_val = (n->body.postfix.op == TOK_PLUSPLUS)
+                ? ir_build_add(b, old_val, one)
+                : ir_build_sub(b, old_val, one);
+            bf_store(ctx, &loc, new_val);
+            return old_val;
+        }
+    }
+
+    IR_Value* ptr = gen_store_ptr(ctx, opnd);
     if (!ptr) { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
     IR_Value* old_val = ir_build_load(b, ptr);
     IR_Value* new_val;

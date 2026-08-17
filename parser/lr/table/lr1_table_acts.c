@@ -40,6 +40,7 @@ static void fill_op_state(int st)
     set_cell(st, TOK_IDENT,    shift_ident);
     set_cell(st, TOK_LPAREN,   shift_lparen);
     set_cell(st, TOK_SIZEOF,   shift_sizeof);
+    set_cell(st, TOK_ALIGNOF,  shift_sizeof);   /* _Alignof reuses the sizeof state */
     set_cell(st, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(st, TOK_MINUSMINUS, shift_prefix_dec);
     for (int t = 0; t < NUM_TOKENS; t++)

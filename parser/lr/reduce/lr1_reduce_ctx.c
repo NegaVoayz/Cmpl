@@ -46,8 +46,10 @@ LR_Action reduce_unary_rhs(LR1_Parser* p)
 
     p->sp -= 2;
 
-    if (op == TOK_SIZEOF) {
-        AST_Node* n = ast_node_new(p->arena, AST_SIZEOF_EXPR, op_tok->loc.line, op_tok->loc.col);
+    if (op == TOK_SIZEOF || op == TOK_ALIGNOF) {
+        AST_Node* n = ast_node_new(p->arena,
+            (op == TOK_ALIGNOF) ? AST_ALIGNOF_EXPR : AST_SIZEOF_EXPR,
+            op_tok->loc.line, op_tok->loc.col);
         n->body.sizeof_expr.expr = operand;
         goto_push(p, n, SYM_UNARY);
         return LR_REDUCE;

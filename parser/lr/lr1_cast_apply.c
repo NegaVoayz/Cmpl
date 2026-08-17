@@ -21,10 +21,11 @@ parse_sizeof_type(LR1_Parser* p, Token* peek)
     if (p->tok->kind == TOK_RPAREN)
         p->tok = p->tok->next;
 
-    /* pop S_SIZEOF stack frame, push sizeof_type node */
+    /* pop S_SIZEOF stack frame, push sizeof_type / alignof_type node */
     Token* tok = p->stack[p->sp].token;
-    AST_Node* n = ast_node_new(p->arena, AST_SIZEOF_TYPE,
-                               tok->loc.line, tok->loc.col);
+    AST_Node* n = ast_node_new(p->arena,
+        (tok->kind == TOK_ALIGNOF) ? AST_ALIGNOF_TYPE : AST_SIZEOF_TYPE,
+        tok->loc.line, tok->loc.col);
 
     n->body.sizeof_type.type_expr = ct;
     p->sp--;

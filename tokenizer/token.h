@@ -92,6 +92,7 @@ typedef enum {
     TOK_INLINE,     // inline
     TOK_RESTRICT,   // restrict
     TOK_NORETURN,   // _Noreturn
+    TOK_ALIGNOF,    // _Alignof (type) — sizeof-like unary operator
 
     NUM_TOKEN_KINDS
 } TokenKind;

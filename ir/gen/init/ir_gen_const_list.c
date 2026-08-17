@@ -120,14 +120,22 @@ gen_const_desig_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
             synth.type = AST_INIT_LIST;
             synth.body.init_list.elems = dval;
             synth.body.init_list.last_elem = last;
-            elems[top_idx] = gen_const_desig(a, ct,
+            IR_Value* fv = gen_const_desig(a, ct,
                 s0 ? s0->next : NULL, &synth, enum_vals);
+            if (ir_has_bitfields(target_type))
+                gen_const_field_store(a, elems, target_type, top_idx, fv);
+            else
+                elems[top_idx] = fv;
             last->next = saved;
             dval->next = old_vn;
             e = saved;
         } else {
-            elems[top_idx] = gen_const_desig(a, ct,
+            IR_Value* fv = gen_const_desig(a, ct,
                 s0 ? s0->next : NULL, dval, enum_vals);
+            if (ir_has_bitfields(target_type))
+                gen_const_field_store(a, elems, target_type, top_idx, fv);
+            else
+                elems[top_idx] = fv;
             e = e->next;
         }
     } else {
@@ -158,6 +166,13 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
     if (slots == 0)
         for (AST_Node* e = init->body.init_list.elems; e; e = e->next) slots++;
 
+    /* cursor guard maxima: bit-field structs advance over fields (the
+     * elems array stays member-indexed) */
+    int desig_max = ir_has_bitfields(target_type)
+        ? ir_struct_field_count(target_type) : slots;
+    int pos_max = ir_has_bitfields(target_type)
+        ? ir_struct_named_count(target_type) : slots;
+
     IR_Value** elems = arena_alloc(a, slots * sizeof(IR_Value*));
     for (int i = 0; i < slots; i++) elems[i] = NULL;
 
@@ -172,7 +187,7 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                                      &union_done);
         else if (e->type == AST_DESIGNATOR)
             e = gen_const_desig_elem(a, elems, target_type, enum_vals, e,
-                                     slots, &pos, cont, &depth);
+                                     desig_max, &pos, cont, &depth);
         else if (depth >= 2)
             e = gen_const_cont_elem(a, elems, enum_vals, e, cont, &depth);
         else {
@@ -183,7 +198,7 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                 target_type->inner->kind == IR_I8)
                 return gen_const_init(a, e, target_type, enum_vals);
             e = gen_const_elided_elem(a, elems, target_type, enum_vals, e,
-                                      slots, &pos);
+                                      pos_max, &pos);
         }
     }
 
@@ -191,7 +206,9 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
         if (!elems[i]) {
             IR_Type* zt = (target_type->kind == IR_UNION)
                 ? ir_union_largest_member(target_type)
-                : gen_const_child_type(target_type, i);
+                : (ir_has_bitfields(target_type)
+                   ? ir_struct_member_type(target_type, i)
+                   : gen_const_child_type(target_type, i));
             elems[i] = gen_const_zero(a, zt);
         }
     }

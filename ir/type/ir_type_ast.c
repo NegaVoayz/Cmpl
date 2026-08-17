@@ -7,12 +7,19 @@
 
 #include <string.h>
 
-/* named struct type cache — deduplicates IR_Type objects for the same struct.
- * Disabled during pass 0 (pre-typedef-resolution) to avoid caching incomplete types. */
-#define MAX_STRUCT_CACHE 64
-static IR_Type* struct_cache[MAX_STRUCT_CACHE];
-static Type*    struct_cache_ast[MAX_STRUCT_CACHE]; /* AST ptr for anonymous dedup */
-static int n_struct_cache = 0;
+/* struct type cache — deduplicates IR_Type objects for the same struct.
+ * Unbounded (arena-linked): modules with many distinct struct types
+ * (the compiler's own sources exceed any fixed cap) must not evict a
+ * self-referential struct — a bounded cache lets structs past the cap
+ * recurse forever through their pointer cycles.
+ * Disabled during pass 0 (pre-typedef-resolution) to avoid caching
+ * incomplete types. */
+typedef struct StructCacheEntry {
+    IR_Type* ty;
+    Type*    ast;   /* AST ptr for anonymous dedup */
+    struct StructCacheEntry* next;
+} StructCacheEntry;
+static StructCacheEntry* struct_cache = NULL;
 static int cache_enabled = 0;
 
 /* clone a type for use in a linked list (params/members chain).
@@ -199,8 +206,8 @@ ast_to_struct_type(Arena* a, Type* ast)
 {
     if (cache_enabled) {
         if (ast->name.data) {
-            for (int i = 0; i < n_struct_cache; i++) {
-                IR_Type* sc = struct_cache[i];
+            for (StructCacheEntry* e = struct_cache; e; e = e->next) {
+                IR_Type* sc = e->ty;
                 if (sc->name.length == ast->name.length &&
                     memcmp(sc->name.data, ast->name.data,
                            ast->name.length) == 0) {
@@ -212,10 +219,9 @@ ast_to_struct_type(Arena* a, Type* ast)
                 }
             }
         } else {
-            for (int i = 0; i < n_struct_cache; i++)
-                if (!struct_cache[i]->name.data &&
-                    struct_cache_ast[i] == ast)
-                    return struct_cache[i];
+            for (StructCacheEntry* e = struct_cache; e; e = e->next)
+                if (!e->ty->name.data && e->ast == ast)
+                    return e->ty;
         }
     }
     IR_Type* t = ir_type_new(a,
@@ -224,13 +230,27 @@ ast_to_struct_type(Arena* a, Type* ast)
     /* Cache BEFORE building members so self-referencing fields
      * (e.g. Arena* prev inside struct Arena) hit the cache and
      * avoid infinite recursion -> stack overflow. */
-    if (cache_enabled && n_struct_cache < MAX_STRUCT_CACHE) {
-        struct_cache_ast[n_struct_cache] = ast;
-        struct_cache[n_struct_cache] = t;
-        n_struct_cache++;
+    if (cache_enabled) {
+        StructCacheEntry* e = arena_alloc(a, sizeof(StructCacheEntry));
+        e->ty = t;
+        e->ast = ast;
+        e->next = struct_cache;
+        struct_cache = e;
     }
     register_struct_ast(t, ast);
     if (ast->params) {
+        /* structs with bit-fields get the gcc storage-unit layout: a
+         * member list of units + padding and a parallel field_info list
+         * (ir_type_bf.c).  Plain structs keep one member per field. */
+        int has_bf = 0;
+        for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL;
+             f = f->next)
+            if (f->body.var_decl.bit_width) { has_bf = 1; break; }
+
+        if (has_bf) {
+            ir_build_bitfield_struct(a, t, ast);
+            return t;
+        }
         IR_Type** tail = &t->members;
         for (AST_Node* f = ast->params; f && f->type == AST_VAR_DECL; f = f->next) {
             IR_Type* ft = ast_to_ir_type(a, f->body.var_decl.var_type);
@@ -252,6 +272,6 @@ ir_clear_struct_cache(void)
 void
 ir_reset_struct_caches(void)
 {
-    n_struct_cache = 0;
+    struct_cache = NULL;
     cache_enabled = 0;
 }

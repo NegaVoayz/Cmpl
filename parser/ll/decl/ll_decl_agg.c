@@ -36,6 +36,17 @@ AST_Node* ll_parse_struct_fields(LR1_Parser* p)
             field->body.var_decl.var_type = full;
             field->body.var_decl.name = name;
             field->body.var_decl.init = NULL;
+            field->body.var_decl.bit_width = NULL;
+
+            /* bit-field: `name : const-int-expr` or anonymous `: expr`.
+             * The width is a constant integer expression (C11 6.7.2.1p3);
+             * the ast-opt fold pass reduces it to an int literal before
+             * IR layout (ast_walk visits bit_width). */
+            if (p->tok->kind == TOK_COLON) {
+                p->tok = p->tok->next;
+                field->body.var_decl.bit_width =
+                    parse_init_expr_until(p, TOK_SEMI);
+            }
 
             *tail = field;
             tail = &field->next;

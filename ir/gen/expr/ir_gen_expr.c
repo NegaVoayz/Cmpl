@@ -50,6 +50,19 @@ gen_expr_binary(GenCtx* ctx, AST_Node* n)
                            n->body.binary.right);
 
     if (op == TOK_EQ || is_cmpd) {
+        /* bit-field member assignment: RMW through the storage unit */
+        if (n->body.binary.left && n->body.binary.left->type == AST_MEMBER) {
+            BfLoc loc;
+            if (bf_resolve_member(ctx, n->body.binary.left, &loc)) {
+                IR_Value* rhs = gen_expr(ctx, n->body.binary.right);
+                IR_Value* result;
+                if (op == TOK_EQ) result = rhs;
+                else { IR_Value* old = bf_load(ctx, &loc);
+                       result = gen_binary_op(ctx, op, old, rhs); }
+                bf_store(ctx, &loc, result);
+                return result;
+            }
+        }
         IR_Value* rhs = gen_expr(ctx, n->body.binary.right);
         IR_Value* ptr = gen_store_ptr(ctx, n->body.binary.left);
         if (ptr) {
@@ -169,6 +182,17 @@ gen_expr(GenCtx* ctx, AST_Node* n)
       return ir_const_int(b, t_i32, ir_type_size(t)); }
 
     case AST_SIZEOF_EXPR: return gen_expr_sizeof_expr(ctx, n);
+
+    /* _Alignof(type): the type's alignment in bytes */
+    case AST_ALIGNOF_TYPE:
+    { IR_Type* t = ir_type_from_ast(ctx->b->arena, n->body.sizeof_type.type_expr);
+      return ir_const_int(b, t_i32, ir_type_align(t)); }
+
+    /* _Alignof(expr): alignment of the expression's type (not evaluated) */
+    case AST_ALIGNOF_EXPR:
+    { IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);
+      IR_Type* t = sub ? sub->type : t_i32;
+      return ir_const_int(b, t_i32, ir_type_align(t)); }
 
     case AST_POSTFIX: return gen_postfix_expr(ctx, n);
 

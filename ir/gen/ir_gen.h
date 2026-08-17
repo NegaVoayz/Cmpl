@@ -23,6 +23,19 @@ typedef struct SymSave {
     struct SymSave* next;
 } SymSave;
 
+/* storage location of one field of a bit-field struct: base + byte/bit
+ * (ir_gen_bf.c).  width==8*size(field_ty) marks a plain (whole-type)
+ * field. */
+typedef struct BfLoc {
+    IR_Value* base;      /* pointer to the struct (element ptr for globals) */
+    int       byte;      /* field's first byte offset in the struct */
+    int       bit;       /* bit offset within that byte */
+    int       width;     /* bit width (plain fields get 8*size) */
+    int       is_signed;
+    IR_Type*  field_ty;  /* the field's own IR type (value coercion) */
+    int       record;    /* struct size in bytes (load/store piece bound) */
+} BfLoc;
+
 /* generation context (one per function being lowered) */
 typedef struct {
     IR_Builder*     b;
@@ -88,8 +101,18 @@ IR_Value* gen_index_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_compound_lit(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_postfix_expr(GenCtx* ctx, AST_Node* n);
 
+/* ---- bit-field member access (ir/gen/expr/ir_gen_bf.c) ---- */
+void      bf_fill_loc(GenCtx* ctx, IR_Value* base, IR_Type* struct_ty,
+                      int raw_idx, BfLoc* loc);
+int       bf_resolve_member(GenCtx* ctx, AST_Node* n, BfLoc* loc);
+IR_Value* bf_load(GenCtx* ctx, const BfLoc* loc);
+void      bf_store(GenCtx* ctx, const BfLoc* loc, IR_Value* val);
+IR_Value* bf_byte_ptr(GenCtx* ctx, IR_Value* base, int off);
+IR_Value* bf_byte_addr(GenCtx* ctx, AST_Node* n);
+
 /* ---- runtime initializers (ir_gen_init.c) ---- */
-void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty);
+void      ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty,
+                          BfLoc* bf);
 void      ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty);
 void      gen_string_array_init(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty);
 
@@ -104,6 +127,7 @@ void resolve_ast_node(AST_Node* n, TypedefEntry* table);
 void resolve_array_sizes(Type* t, TypedefEntry* enum_vals);
 void resolve_struct_refs_type(Type* t, HashMap* struct_map);
 void resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map);
+int  resolve_sizeof_cast_type_cb(AST_Node* n, void* ctx);
 int  resolve_compound_lit_type_cb(AST_Node* n, void* ctx);
 int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 

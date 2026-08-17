@@ -28,13 +28,20 @@ dump_globals(FILE* out, IR_Module* mod)
             fprintf(out, " ");
             /* use zeroinitializer for array/struct types with zero init.
              * VAL_CONST_AGGREGATE with 0 elems emits zeroinitializer
-             * from dump_value. */
-            if (gv->type && (gv->type->kind == IR_ARRAY ||
-                             gv->type->kind == IR_STRUCT ||
-                             gv->type->kind == IR_UNION) &&
-                gv->body.init_val->kind == VAL_CONST_INT &&
+             * from dump_value.  A zero-valued pointer global must dump
+             * `null` — `ptr 0` is not valid LLVM. */
+            if (gv->body.init_val->kind == VAL_CONST_INT &&
                 gv->body.init_val->body.int_val == 0) {
-                fprintf(out, "zeroinitializer");
+                if (gv->type && gv->type->kind == IR_PTR) {
+                    fprintf(out, "null");
+                } else if (gv->type &&
+                           (gv->type->kind == IR_ARRAY ||
+                            gv->type->kind == IR_STRUCT ||
+                            gv->type->kind == IR_UNION)) {
+                    fprintf(out, "zeroinitializer");
+                } else {
+                    dump_value(out, gv->body.init_val);
+                }
             } else {
                 dump_value(out, gv->body.init_val);
             }

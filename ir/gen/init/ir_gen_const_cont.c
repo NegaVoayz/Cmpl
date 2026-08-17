@@ -28,6 +28,18 @@ gen_const_cont_build(IR_Type* ty, AST_Node* steps, ContLevel* cont, int* depth)
             if (fi < 0) break;   /* already diagnosed by the caller */
             cont[*depth].agg = cur;
             cont[*depth].idx = fi;
+            cont[*depth].mem = -1;
+            if (ir_has_bitfields(cur)) {
+                int mstart = 0;
+                IR_FieldInfo* finfo = ir_field_info(cur, fi);
+                if (finfo && finfo->width == 0)
+                    cont[*depth].mem =
+                        ir_struct_member_at(cur, finfo->byte_off, &mstart);
+                else
+                    cont[*depth].mem =
+                        ir_struct_member_at(cur,
+                            finfo->byte_off + finfo->bit / 8, &mstart);
+            }
             (*depth)++;
             cur = gen_const_child_type(cur, fi);
         } else if (s->body.desig_step.index_expr) {
@@ -35,6 +47,7 @@ gen_const_cont_build(IR_Type* ty, AST_Node* steps, ContLevel* cont, int* depth)
                 ? s->body.desig_step.index_expr->body.literal.int_val : 0;
             cont[*depth].agg = cur;
             cont[*depth].idx = (int)ii;
+            cont[*depth].mem = (int)ii;
             (*depth)++;
             cur = (cur->kind == IR_ARRAY) ? cur->inner : t_i32;
         }
@@ -45,12 +58,23 @@ gen_const_cont_build(IR_Type* ty, AST_Node* steps, ContLevel* cont, int* depth)
 /* merge a const value into the innermost continuation slot of `root`
  * (a VAL_CONST_AGGREGATE at level 0).  cont[1..depth-1] index the nested
  * aggregates, whose elems are already fully populated (zeros + designated
- * slot) by gen_const_desig, so mutate in place. */
+ * slot) by gen_const_desig, so mutate in place.  bit-field structs store
+ * via the member mapping (elems are storage units). */
 void
-gen_const_cont_set(IR_Value* root, ContLevel* cont, int depth, IR_Value* v)
+gen_const_cont_set(Arena* a, IR_Value* root, ContLevel* cont, int depth,
+                   IR_Value* v)
 {
     IR_Value* cur = root;
-    for (int i = 1; i < depth - 1; i++)
-        cur = cur->body.aggregate.elems[cont[i].idx];
-    cur->body.aggregate.elems[cont[depth - 1].idx] = v;
+    for (int i = 1; i < depth - 1; i++) {
+        ContLevel* L = &cont[i];
+        int mi = (L->agg && L->agg->has_bitfields) ? L->mem : L->idx;
+        cur = cur->body.aggregate.elems[mi];
+    }
+    ContLevel* inn = &cont[depth - 1];
+    if (inn->agg && inn->agg->has_bitfields) {
+        gen_const_field_store(a, cur->body.aggregate.elems, inn->agg,
+                              inn->idx, v);
+    } else {
+        cur->body.aggregate.elems[inn->idx] = v;
+    }
 }

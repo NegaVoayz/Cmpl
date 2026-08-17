@@ -27,7 +27,8 @@ ir_type_align(IR_Type* t)
     case IR_ARRAY: return ir_type_align(t->inner);
     case IR_STRUCT:
     case IR_UNION:
-    { int max_a = 1;
+    { if (t->align > 0) return t->align;   /* bit-field structs: max field align */
+      int max_a = 1;
       for (IR_Type* f = t->members; f; f = f->next) {
           int a = ir_type_align(f);
           if (a > max_a) max_a = a;
@@ -103,6 +104,10 @@ ir_agg_count(IR_Type* t)
     if (t->kind == IR_ARRAY) return t->size;
     if (t->kind == IR_UNION) return 1;
     if (t->kind == IR_STRUCT) {
+        /* bit-field structs: the init cursor advances over the AST
+         * fields (unnamed skipped by cont_advance via next_named) */
+        if (t->has_bitfields)
+            return ir_struct_field_count(t);
         int n = 0;
         for (IR_Type* m = t->members; m; m = m->next) n++;
         return n;

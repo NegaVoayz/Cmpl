@@ -55,6 +55,7 @@ static int walk_expr_children(AST_Node* n, AST_Walker pre, AST_Walker post,
     case AST_MEMBER:
         ch |= ast_walk(n->body.member.record, pre, post, ctx); break;
     case AST_SIZEOF_EXPR:
+    case AST_ALIGNOF_EXPR:
         ch |= ast_walk(n->body.sizeof_expr.expr, pre, post, ctx); break;
     default: break;
     }
@@ -98,7 +99,11 @@ static int walk_stmt_children(AST_Node* n, AST_Walker pre, AST_Walker post,
         ch |= ast_walk(n->body.label.stmt, pre, post, ctx); break;
     case AST_VAR_DECL:
         if (n->body.var_decl.init)
-            ch |= ast_walk(n->body.var_decl.init, pre, post, ctx); break;
+            ch |= ast_walk(n->body.var_decl.init, pre, post, ctx);
+        /* bit-field width expressions fold to int literals (struct fields) */
+        if (n->body.var_decl.bit_width)
+            ch |= ast_walk(n->body.var_decl.bit_width, pre, post, ctx);
+        break;
     case AST_FUNC_DEF:
         ch |= ast_walk(n->body.func_def.body, pre, post, ctx); break;
     case AST_STRUCT_DEF: case AST_UNION_DEF:

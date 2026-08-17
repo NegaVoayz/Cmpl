@@ -119,8 +119,10 @@ struct AST_Node {
         /* one designator step: `.field` or `[index]` (chained via ->next) */
         struct { String field_name; AST_Node* index_expr; } desig_step;
 
-        /* variable declaration */
-        struct { Type* var_type; String name; AST_Node* init; int addr_space; int linkage; } var_decl;
+        /* variable declaration.  bit_width is the :N suffix of a struct
+         * field (NULL = not a bit-field); anonymous fields keep name
+         * empty; the expression folds to an int literal before IR gen. */
+        struct { Type* var_type; String name; AST_Node* init; int addr_space; int linkage; AST_Node* bit_width; } var_decl;
 
         /* function definition */
         struct {

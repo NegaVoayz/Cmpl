@@ -32,6 +32,23 @@ arena_alloc(Arena* a, size_t size)
     /* align to pointer boundary */
     size_t align = (size + 7) & ~7;
 
+    /* allocations larger than a slab get a dedicated slab so the
+     * returned range never spills past the slab end (a >64KB slice
+     * handed out from a 64KB slab corrupts the heap) */
+    if (align > SLAB_SIZE) {
+        Arena* prev = calloc(1, sizeof(Arena));
+
+        prev->slab = a->slab;
+        prev->cap  = a->cap;
+        prev->prev = a->prev;
+        a->prev = prev;
+
+        a->slab = calloc(1, align);
+        a->cap = align;
+        a->offset = align;
+        return a->slab;
+    }
+
     if (a->offset + align > a->cap) {
         /* allocate new slab, chain old one */
         Arena* prev = calloc(1, sizeof(Arena));

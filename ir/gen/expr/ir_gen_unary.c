@@ -52,6 +52,19 @@ gen_addr_of(GenCtx* ctx, AST_Node* n)
 
     /* &ptr->field → return GEP pointer, don't load */
     if (opnd->type == AST_MEMBER) {
+        /* &bit-field is invalid C (no addressable storage) */
+        BfLoc loc;
+        if (bf_resolve_member(ctx, opnd, &loc)) {
+            if (loc.width != 8 * ir_type_size(loc.field_ty)) {
+                fprintf(stderr, "cmpl: error: cannot take address of"
+                        " bit-field\n");
+                IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+                v->kind = VAL_UNDEF; v->type = t_i32; return v;
+            }
+            /* regular field of a bit-field struct: byte address */
+            IR_Value* p = bf_byte_addr(ctx, opnd);
+            if (p) return p;
+        }
         TokenKind mop = opnd->body.member.op;
         String mname = opnd->body.member.member;
         IR_Value* struct_ptr = NULL;
@@ -102,7 +115,22 @@ gen_pre_incdec(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
 
-    IR_Value* ptr = gen_store_ptr(ctx, n->body.unary.operand);
+    /* bit-field member ++/--: load, mutate, store back */
+    AST_Node* opnd = n->body.unary.operand;
+    if (opnd && opnd->type == AST_MEMBER) {
+        BfLoc loc;
+        if (bf_resolve_member(ctx, opnd, &loc)) {
+            IR_Value* old_val = bf_load(ctx, &loc);
+            IR_Value* one = ir_const_int(b, loc.field_ty, 1);
+            IR_Value* new_val = (n->body.unary.op == TOK_PLUSPLUS)
+                ? ir_build_add(b, old_val, one)
+                : ir_build_sub(b, old_val, one);
+            bf_store(ctx, &loc, new_val);
+            return new_val;
+        }
+    }
+
+    IR_Value* ptr = gen_store_ptr(ctx, opnd);
     if (ptr) {
         IR_Value* old_val = ir_build_load(b, ptr);
         IR_Value* new_val;

@@ -41,6 +41,7 @@ init_elided_aggregate(GenCtx* ctx, IR_Value* slot, AST_Node* val,
     int cap = (child->kind == IR_ARRAY) ? child->size : 0;
     if (child->kind != IR_ARRAY)
         for (IR_Type* m = child->members; m; m = m->next) cap++;
+    if (child->has_bitfields) cap = ir_struct_named_count(child);
 
     AST_Node* last = val;
     int n = 1;
@@ -61,7 +62,7 @@ init_elided_aggregate(GenCtx* ctx, IR_Value* slot, AST_Node* val,
     synth.next = NULL;
     synth.body.init_list.elems = val;
     synth.body.init_list.last_elem = last;
-    ir_gen_init_one(ctx, slot, &synth, child);
+    ir_gen_init_one(ctx, slot, &synth, child, NULL);
     last->next = saved;
     if (is_desig) val->next = old_vnext;
 
@@ -70,9 +71,11 @@ init_elided_aggregate(GenCtx* ctx, IR_Value* slot, AST_Node* val,
 
 /* store one initializer element into dst; nested lists recurse into
  * the corresponding sub-slot (arrays/structs) of the aggregate.  shared
- * with ir_gen_stmt.c (var-decl brace inits). */
+ * with ir_gen_stmt.c (var-decl brace inits).  `bf` (optional) marks a
+ * bit-field destination: the value is masked into the storage unit. */
 void
-ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
+ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty,
+                BfLoc* bf)
 {
     IR_Builder* b = ctx->b;
 
@@ -87,10 +90,12 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
             IR_Type* child = NULL;
             IR_Value* slot = dst;
             AST_Node* val = sub;
+            BfLoc bslot;
 
+            memset(&bslot, 0, sizeof bslot);
             if (!init_slot_for_element(ctx, dst, ty, &sub, is_desig,
                                        &slot, &child, &val, &pos, cont,
-                                       &depth))
+                                       &depth, &bslot))
                 continue;
 
             if (val->type != AST_INIT_LIST &&
@@ -100,7 +105,8 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
                 sub = init_elided_aggregate(ctx, slot, val, sub, child,
                                             is_desig);
             } else {
-                ir_gen_init_one(ctx, slot, val, child);
+                ir_gen_init_one(ctx, slot, val, child, bslot.base ? &bslot
+                                : NULL);
                 sub = sub->next;
             }
 
@@ -124,48 +130,28 @@ ir_gen_init_one(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
     if (!v) return;
     if (ty && v->type && !ir_type_eq(v->type, ty))
         v = coerce_to(b, v, ty);
-    ir_build_store(b, v, dst);
+    if (bf && bf->base)
+        bf_store(ctx, bf, v);
+    else
+        ir_build_store(b, v, dst);
 }
 
-/* zero-fill every scalar slot of an aggregate.  C99 requires brace-init
- * slots not covered by the list (skipped by [i]/designators or short
- * lists) to be zero-initialized; without this the alloca keeps stack
- * garbage.  shared with ir_gen_stmt.c. */
+/* zero-fill a whole aggregate.  C99 requires brace-init slots not
+ * covered by the list (skipped by [i]/designators or short lists) to be
+ * zero-initialized — and gcc zeroes the PADDING too, so byte dumps of
+ * partially initialized structs must match.  One zeroinitializer store
+ * over the whole record covers members + padding in a single
+ * instruction (a per-byte loop would bloat functions with many big
+ * locals).  shared with ir_gen_stmt.c. */
 void
 ir_gen_zero_fill(GenCtx* ctx, IR_Value* dst, IR_Type* ty)
 {
     IR_Builder* b = ctx->b;
-    if (!ty) return;
+    if (!ty || ir_type_size(ty) == 0) return;
 
-    if (ty->kind == IR_ARRAY) {
-        for (int i = 0; i < ty->size; i++) {
-            IR_Value* slot = ir_build_gep(b, dst,
-                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, i));
-            ir_gen_zero_fill(ctx, slot, ty->inner);
-        }
-    } else if (ty->kind == IR_UNION) {
-        /* union emits a single largest-member slot at offset 0; the GEP
-         * gives the first member's pointer, so bitcast to the largest */
-        IR_Type* largest = ir_union_largest_member(ty);
-        if (largest) {
-            IR_Value* slot = ir_build_gep(b, dst,
-                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, 0));
-            slot = ir_build_bitcast(b, slot, ir_ptr_type(b->arena, largest, 0));
-            ir_gen_zero_fill(ctx, slot, largest);
-        }
-    } else if (ty->kind == IR_STRUCT) {
-        int i = 0;
-        for (IR_Type* m = ty->members; m; m = m->next, i++) {
-            IR_Value* slot = ir_build_gep(b, dst,
-                ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, i));
-            ir_gen_zero_fill(ctx, slot, m);
-        }
-    } else if (ty->kind == IR_PTR) {
-        ir_build_store(b, ir_const_null(ctx->b->arena, ty), dst);
-    } else {
-        IR_Value* z = (ty->kind == IR_F32 || ty->kind == IR_F64)
-            ? ir_const_float(ctx->b->arena, ty, 0.0)
-            : ir_const_int(b, ty, 0);
-        ir_build_store(b, z, dst);
-    }
+    int sz = ir_type_size(ty);
+    IR_Type* arr = ir_array_type(b->arena, t_i8, sz);
+    IR_Value* p = ir_build_bitcast(b, dst, ir_ptr_type(b->arena, arr, 0));
+    IR_Value* z = ir_const_aggregate(b->arena, arr, NULL, 0);
+    ir_build_store(b, z, p);
 }

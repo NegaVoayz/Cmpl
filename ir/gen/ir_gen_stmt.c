@@ -173,7 +173,7 @@ static void gen_stmt_var_decl(GenCtx* ctx, AST_Node* n)
         if (vt->kind == IR_ARRAY || vt->kind == IR_STRUCT ||
             vt->kind == IR_UNION)
             ir_gen_zero_fill(ctx, al, vt);
-        ir_gen_init_one(ctx, al, n->body.var_decl.init, vt);
+        ir_gen_init_one(ctx, al, n->body.var_decl.init, vt, NULL);
     } else if (n->body.var_decl.init) {
         AST_Node* initn = n->body.var_decl.init;
         if (initn->type == AST_STRING_LIT && vt &&

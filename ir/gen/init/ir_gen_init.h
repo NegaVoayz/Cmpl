@@ -17,14 +17,16 @@
 IR_Type* init_child_type(IR_Type* ty, int idx);
 
 /* walk a designator step chain from dst emitting nested GEPs; sets
- * *final_ty and *top_idx and records the path into cont/depth. */
+ * *final_ty and *top_idx and records the path into cont/depth.  a
+ * bit-field final step fills *bf instead of returning a slot. */
 IR_Value* desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                           AST_Node* steps, IR_Type** final_ty, int* top_idx,
-                          ContLevel* cont, int* depth);
+                          ContLevel* cont, int* depth, BfLoc* bf);
 
 /* descend a continuation path emitting GEPs into the innermost slot. */
 IR_Value* cont_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
-                         ContLevel* cont, int depth, IR_Type** child);
+                         ContLevel* cont, int depth, IR_Type** child,
+                         BfLoc* bf);
 
 /* advance a continuation path past its just-filled slot. */
 void cont_advance(ContLevel* cont, int* depth);
@@ -32,11 +34,11 @@ void cont_advance(ContLevel* cont, int* depth);
 /* resolve the destination slot for one init-list element (designator /
  * continuation / positional); returns 0 when the element is consumed
  * inline (a skip, *sub already advanced), 1 when *slot is a destination
- * to fill. */
+ * to fill (or *bf a bit-field location). */
 int init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                           AST_Node** sub, int is_desig, IR_Value** slot,
                           IR_Type** child, AST_Node** val, int* pos,
-                          ContLevel* cont, int* depth);
+                          ContLevel* cont, int* depth, BfLoc* bf);
 
 /* ---- constant initializer helpers (ir_gen_const_desig.c) ---- */
 
@@ -56,12 +58,18 @@ AST_Node* gen_const_absorb(AST_Node* val, AST_Node* list_next, IR_Type* inner,
                            AST_Node** last, AST_Node** old_val_next);
 IR_Type*  gen_const_desig_inner_type(IR_Type* ct, AST_Node* steps);
 
+/* ---- const bit-field stores (ir_gen_const_bf.c) ---- */
+
+IR_Type* ir_struct_member_type(IR_Type* t, int idx);
+void gen_const_field_store(Arena* a, IR_Value** elems, IR_Type* ty,
+                           int raw_idx, IR_Value* v);
+
 /* ---- const continuation cursor (ir_gen_const_cont.c) ---- */
 
 IR_Type* gen_const_cont_build(IR_Type* ty, AST_Node* steps,
                               ContLevel* cont, int* depth);
-void     gen_const_cont_set(IR_Value* root, ContLevel* cont, int depth,
-                            IR_Value* v);
+void     gen_const_cont_set(Arena* a, IR_Value* root, ContLevel* cont,
+                            int depth, IR_Value* v);
 
 /* ---- const init-list driver + element cases ---- */
 

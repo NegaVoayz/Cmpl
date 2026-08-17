@@ -1,16 +1,28 @@
 /* ir_gen_init_desig.c -- runtime designator-walk helpers.
- * TODO(refactor): 209 lines > 200 limit — split further if init/ gains room. */
+ *
+ * For bit-field structs the destination of an element is the field's
+ * byte slot (storage units are addressed via the struct base), so the
+ * GEP-by-member-index path is replaced by byte pointers + a BfLoc
+ * (ir_gen_bf.c).  Plain structs keep the old member-index GEPs.
+ */
 
 #include "../ir_gen.h"
 #include "ir_gen_init.h"
 
 #include <stdio.h>
+#include <string.h>
 
-/* child (element/member) type at position idx of an aggregate type */
+/* child (element/member) type at position idx of an aggregate type.
+ * For bit-field structs idx is a RAW field index (parallel to the AST
+ * fields, unnamed included). */
 IR_Type*
 init_child_type(IR_Type* ty, int idx)
 {
     if (!ty) return NULL;
+    if (ir_has_bitfields(ty)) {
+        IR_FieldInfo* fi = ir_field_info(ty, idx);
+        return fi ? fi->ty : NULL;
+    }
     if (ty->kind == IR_ARRAY) return ty->inner;
     if (ty->kind == IR_STRUCT || ty->kind == IR_UNION) {
         IR_Type* m = ty->members;
@@ -20,16 +32,28 @@ init_child_type(IR_Type* ty, int idx)
     return NULL;
 }
 
+/* typed pointer to a REGULAR field of a bit-field struct (for nested
+ * recursion); NULL when the field is a bit-field. */
+static IR_Value*
+bf_field_ptr(GenCtx* ctx, IR_Value* dst, IR_Type* ty, int raw_idx)
+{
+    IR_Builder* b = ctx->b;
+    BfLoc loc;
+    bf_fill_loc(ctx, dst, ty, raw_idx, &loc);
+    if (loc.width != 8 * ir_type_size(loc.field_ty)) return NULL;
+    IR_Value* p = bf_byte_ptr(ctx, dst, loc.byte);
+    return ir_build_bitcast(b, p, ir_ptr_type(b->arena, loc.field_ty, 0));
+}
+
 /* walk a designator step chain from `dst` (type `ty`), emitting nested
- * GEPs into the target slot.  sets *final_ty to the slot's type and
- * *top_idx to the first step's resolved slot index (for cursor advance).
- * returns the final slot, or NULL (after printing an error) on a bad
- * field name or out-of-range [i].  mirrors gen_const_desig in
- * ir_gen_const_desig.c. */
+ * GEPs / byte pointers into the target slot.  sets *final_ty, *top_idx
+ * and records the path into cont/depth.  A bit-field field (no further
+ * steps allowed) fills *bf instead of a slot.  returns the final slot,
+ * or NULL (after printing an error) on a bad field name. */
 IR_Value*
 desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                 AST_Node* steps, IR_Type** final_ty, int* top_idx,
-                ContLevel* cont, int* depth)
+                ContLevel* cont, int* depth, BfLoc* bf)
 {
     IR_Builder* b = ctx->b;
     IR_Value* slot = dst;
@@ -38,6 +62,7 @@ desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
 
     *final_ty = NULL;
     *top_idx = -1;
+    if (bf) bf->base = NULL;
     if (depth) *depth = 0;
 
     for (AST_Node* s = steps; s; s = s->next) {
@@ -57,14 +82,30 @@ desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                 cont[*depth].idx = fi;
                 (*depth)++;
             }
+
+            if (ir_has_bitfields(cur)) {
+                IR_FieldInfo* finfo = ir_field_info(cur, fi);
+                if (finfo && finfo->width > 0) {
+                    /* bit-field: must be the final step */
+                    if (s->next) {
+                        fprintf(stderr, "cmpl: error: designator walks"
+                                " into a bit-field\n");
+                        return NULL;
+                    }
+                    if (bf) bf_fill_loc(ctx, slot, cur, fi, bf);
+                    *final_ty = finfo->ty;
+                    return NULL;
+                }
+                slot = bf_field_ptr(ctx, slot, cur, fi);
+                cur = finfo ? finfo->ty : t_i32;
+                continue;
+            }
+
             int is_union = (cur && cur->kind == IR_UNION);
             int gep = is_union ? 0 : fi;
             slot = ir_build_gep(b, slot,
                 ir_const_int(b, t_i32, 0), ir_const_int(b, t_i32, gep));
             cur = init_child_type(cur, fi);
-            /* union is emitted as { largest_member }: the offset-0 GEP gives
-             * the largest member's pointer, so bitcast to the accessed
-             * member's type (mirrors the member-access path). */
             if (is_union && cur)
                 slot = ir_build_bitcast(b, slot, ir_ptr_type(b->arena, cur, 0));
         } else if (s->body.desig_step.index_expr) {
@@ -98,17 +139,32 @@ desig_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
 }
 
 /* descend a continuation path (built by desig_walk_slot) emitting GEPs
- * into the innermost slot; sets *child to that slot's type. */
+ * into the innermost slot; sets *child to that slot's type.  a bit-field
+ * innermost target fills *bf instead. */
 IR_Value*
 cont_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
-               ContLevel* cont, int depth, IR_Type** child)
+               ContLevel* cont, int depth, IR_Type** child, BfLoc* bf)
 {
     IR_Builder* b = ctx->b;
     IR_Value* slot = dst;
     IR_Type* cur = ty;
 
+    if (bf) bf->base = NULL;
     for (int i = 0; i < depth; i++) {
         int idx = cont[i].idx;
+
+        if (ir_has_bitfields(cur)) {
+            IR_FieldInfo* finfo = ir_field_info(cur, idx);
+            if (finfo && finfo->width > 0) {
+                if (bf) bf_fill_loc(ctx, slot, cur, idx, bf);
+                *child = finfo ? finfo->ty : t_i32;
+                return NULL;
+            }
+            slot = bf_field_ptr(ctx, slot, cur, idx);
+            cur = finfo ? finfo->ty : t_i32;
+            continue;
+        }
+
         int is_union = (cur && cur->kind == IR_UNION);
         int gep = is_union ? 0 : idx;
         slot = ir_build_gep(b, slot,
@@ -121,17 +177,17 @@ cont_walk_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
     return slot;
 }
 
-/* advance a continuation path past its current (just-filled) slot: bump
- * the deepest index; on overflow pop and increment the parent.  leaves
- * *depth at its post-advance value (the caller drops back to the plain
- * top-level cursor once depth < 2).  shared by the runtime and const
- * init-list walkers. */
+/* advance a continuation path past its (just-filled) slot: bump the
+ * deepest index; on overflow pop and increment the parent.  unnamed
+ * fields of bit-field structs are skipped (gcc skips them). */
 void
 cont_advance(ContLevel* cont, int* depth)
 {
     while (*depth > 0) {
         ContLevel* L = &cont[*depth - 1];
         L->idx++;
+        if (L->agg && L->agg->has_bitfields)
+            L->idx = ir_struct_next_named(L->agg, L->idx);
         if (L->idx < ir_agg_count(L->agg)) return;
         (*depth)--;
     }
@@ -140,14 +196,13 @@ cont_advance(ContLevel* cont, int* depth)
 /* resolve the destination slot for one init-list element `*sub`.  A
  * designator walks its steps; an active continuation descends its
  * recorded path; otherwise the element is positional.  Returns 0 when
- * the element is consumed inline (a skip — union excess, whole-array
- * string fill, or beyond-capacity excess — with *sub advanced past it),
- * 1 when *slot holds a destination to fill. */
+ * the element is consumed inline (a skip, *sub advanced past it), 1
+ * when *slot holds a destination to fill (or *bf a bit-field loc). */
 int
 init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                       AST_Node** sub, int is_desig, IR_Value** slot,
                       IR_Type** child, AST_Node** val, int* pos,
-                      ContLevel* cont, int* depth)
+                      ContLevel* cont, int* depth, BfLoc* bf)
 {
     IR_Builder* b = ctx->b;
 
@@ -156,27 +211,54 @@ init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
         *depth = 0;
         *val = (*sub)->body.designator.value;
         *slot = desig_walk_slot(ctx, dst, ty, (*sub)->body.designator.steps,
-                                child, &top_idx, cont, depth);
-        if (!*slot) { *depth = 0; *sub = (*sub)->next; return 0; }
+                                child, &top_idx, cont, depth, bf);
+        if (!*slot && !(bf && bf->base)) {
+            *depth = 0; *sub = (*sub)->next; return 0;
+        }
         if (*depth < 2) *depth = 0;   /* single-step: no continuation */
-        *pos = top_idx + 1;
+        *pos = ir_has_bitfields(ty)
+            ? ir_struct_named_before(ty, top_idx) + 1
+            : top_idx + 1;
         return 1;
     }
 
     if (*depth >= 2) {
         /* continue inside the innermost designated subobject */
-        *slot = cont_walk_slot(ctx, dst, ty, cont, *depth, child);
+        *slot = cont_walk_slot(ctx, dst, ty, cont, *depth, child, bf);
         return 1;
     }
 
     /* a union has a single slot: only the first positional element
-     * initializes it; later ones are excess elements (gcc ignores them —
-     * and a per-member GEP would be invalid on the one-slot union type) */
+     * initializes it; later ones are excess elements (gcc ignores them) */
     if (ty->kind == IR_UNION && *pos > 0) {
         (*pos)++;
         *sub = (*sub)->next;
         return 0;
     }
+
+    /* bit-field struct: positional elements advance over NAMED fields */
+    if (ir_has_bitfields(ty)) {
+        int raw = ir_struct_named_at(ty, *pos);
+        IR_FieldInfo* finfo = (raw >= 0) ? ir_field_info(ty, raw) : NULL;
+        if (!finfo) {
+            (*pos)++;
+            *sub = (*sub)->next;
+            return 0;
+        }
+        *child = finfo->ty;
+        BfLoc loc;
+        bf_fill_loc(ctx, dst, ty, raw, &loc);
+        if (loc.width == 8 * ir_type_size(loc.field_ty)) {
+            IR_Value* p = bf_byte_ptr(ctx, dst, loc.byte);
+            *slot = ir_build_bitcast(b, p,
+                ir_ptr_type(b->arena, loc.field_ty, 0));
+        } else {
+            *slot = NULL;
+            if (bf) *bf = loc;
+        }
+        return 1;
+    }
+
     /* a string literal directly inside a char array's brace list fills
      * the WHOLE array (C11 6.7.9p14); the cursor jumps past it */
     if ((*val)->type == AST_STRING_LIT && ty->kind == IR_ARRAY &&

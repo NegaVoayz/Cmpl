@@ -28,6 +28,8 @@ typedef enum {
     AST_MEMBER,       /* .  or  -> */
     AST_SIZEOF_EXPR,  /* sizeof expr */
     AST_SIZEOF_TYPE,  /* sizeof(type) */
+    AST_ALIGNOF_EXPR, /* _Alignof expr — same body as sizeof_expr */
+    AST_ALIGNOF_TYPE, /* _Alignof(type) — same body as sizeof_type */
 
     /* statements */
     AST_BLOCK,

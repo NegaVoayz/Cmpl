@@ -57,6 +57,8 @@ resolve_struct_refs_all(Arena* a, AST_Node* root)
             resolve_struct_refs_stmt(decl->body.func_def.body, &struct_map);
             ast_walk(decl->body.func_def.body,
                      resolve_compound_lit_type_cb, NULL, &struct_map);
+            ast_walk(decl->body.func_def.body,
+                     resolve_sizeof_cast_type_cb, NULL, &struct_map);
         }
     }
 }

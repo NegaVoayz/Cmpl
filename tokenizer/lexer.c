@@ -10,6 +10,7 @@ typedef struct {
 } Keyword;
 
 static const Keyword keywords[] = {
+    {"_Alignof",  TOK_ALIGNOF},
     {"_Bool",     TOK_BOOL},
     {"_Noreturn", TOK_NORETURN},
     {"__attribute__", TOK_ATTRIBUTE},

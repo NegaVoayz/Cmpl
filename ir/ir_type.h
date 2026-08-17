@@ -19,4 +19,17 @@ void register_struct_ast(IR_Type* ir, Type* ast);
 void register_clone_ast(IR_Type* clone, IR_Type* src);
 void ir_reset_ast_map(void);
 
+/* bit-field layout (ir_type_bf.c): gcc storage units + field_info */
+void ir_build_bitfield_struct(Arena* a, IR_Type* t, Type* ast);
+
+/* bit-field struct queries (ir_type_bfq.c) */
+int ir_has_bitfields(IR_Type* t);
+IR_FieldInfo* ir_field_info(IR_Type* t, int raw_idx);
+int ir_struct_field_count(IR_Type* t);
+int ir_struct_named_count(IR_Type* t);
+int ir_struct_named_at(IR_Type* t, int named_idx);
+int ir_struct_next_named(IR_Type* t, int raw_idx);
+int ir_struct_named_before(IR_Type* t, int raw_idx);
+int ir_struct_member_at(IR_Type* t, int byte_off, int* mstart);
+
 #endif /* IR_TYPE_H */
