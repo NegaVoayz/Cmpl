@@ -72,6 +72,11 @@ static int walk_stmt_children(AST_Node* n, AST_Walker pre, AST_Walker post,
     case AST_EXPR_STMT:
         if (n->body.expr_stmt.expr)
             ch |= ast_walk(n->body.expr_stmt.expr, pre, post, ctx); break;
+    case AST_STATIC_ASSERT:
+        /* walk the condition (the message is a String, not a node);
+         * lets opt_enum/fold reach enum constants inside it */
+        if (n->body.static_assert.expr)
+            ch |= ast_walk(n->body.static_assert.expr, pre, post, ctx); break;
     case AST_BLOCK:
         ch |= ast_walk(n->body.block.stmts, pre, post, ctx); break;
     case AST_IF:

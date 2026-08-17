@@ -225,6 +225,10 @@ void gen_stmt(GenCtx* ctx, AST_Node* n)
         break;
     case AST_GOTO: gen_stmt_goto(ctx, n); break;
     case AST_LABEL: gen_stmt_label(ctx, n); break;
+    case AST_STATIC_ASSERT:
+        /* already evaluated module-wide (ir_check_static_asserts);
+         * a true assert emits no code */
+        break;
     default: break;
     }
 }

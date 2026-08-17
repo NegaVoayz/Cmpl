@@ -27,7 +27,7 @@ static int is_stmt_type(AST_Type t)
            t == AST_CASE || t == AST_DEFAULT || t == AST_GOTO ||
            t == AST_LABEL || t == AST_EXPR_STMT || t == AST_VAR_DECL ||
            t == AST_FUNC_DEF || t == AST_STRUCT_DEF || t == AST_UNION_DEF ||
-           t == AST_ENUM_DEF || t == AST_TYPEDEF;
+           t == AST_ENUM_DEF || t == AST_TYPEDEF || t == AST_STATIC_ASSERT;
 }
 
 static void resolve_stmt_chain(AST_Node* first, TypedefEntry* table,
@@ -86,6 +86,10 @@ void resolve_ast_node(AST_Node* n, TypedefEntry* table)
         resolve_expr_types(n->body.ret.expr, table); break;
     case AST_EXPR_STMT:
         resolve_expr_types(n->body.expr_stmt.expr, table); break;
+    case AST_STATIC_ASSERT:
+        /* resolve typedef/type refs inside the condition so the
+         * constant evaluator sees fully resolved types */
+        resolve_expr_types(n->body.static_assert.expr, table); break;
     case AST_SWITCH:
         resolve_expr_types(n->body.switch_stmt.condition, table);
         resolve_ast_node(n->body.switch_stmt.body, table); break;

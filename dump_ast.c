@@ -166,6 +166,12 @@ static void dump_stmt(AST_Node* n, int depth)
         printf("EXPR_STMT\n");
         if (n->body.expr_stmt.expr)
             dump_ast(n->body.expr_stmt.expr, depth + 1); break;
+    case AST_STATIC_ASSERT:
+        printf("STATIC_ASSERT: \"%.*s\"\n",
+               n->body.static_assert.message.length,
+               n->body.static_assert.message.data);
+        if (n->body.static_assert.expr)
+            dump_ast(n->body.static_assert.expr, depth + 1); break;
     default: break;
     }
 }

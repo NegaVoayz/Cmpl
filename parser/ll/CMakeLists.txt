@@ -3,6 +3,7 @@ add_library(parser_ll STATIC
     ll_stmt.c
     ll_stmt_ctrl.c
     ll_stmt_ctrl_jump.c
+    ll_sa.c
     decl/ll_decl.c
     decl/ll_decl_common.c
     decl/ll_decl_dispatch.c

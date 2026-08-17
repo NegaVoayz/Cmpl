@@ -153,6 +153,10 @@ struct AST_Node {
 
         /* translation unit (root node) */
         struct { AST_Node* decls; AST_Node* last_decl; } program;
+
+        /* C11 _Static_assert(expr, "msg"); — condition must be an
+         * integer constant expression (evaluated during IR gen) */
+        struct { AST_Node* expr; String message; } static_assert;
     } body;
 };
 

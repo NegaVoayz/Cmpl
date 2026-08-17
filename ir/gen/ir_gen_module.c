@@ -176,6 +176,11 @@ ir_gen_module_ex(AST_Node* root, int is_device)
      * subsequent ir_type_from_ast() calls get consistent IR_Type* */
     ir_clear_struct_cache();
 
+    /* C11 _Static_assert: evaluate every condition (file + block scope);
+     * a false or non-constant one sets mod->had_error so the compile
+     * fails with a nonzero exit (gcc parity) */
+    ir_check_static_asserts(a, mod, root);
+
     HashMap sig_map;
     hashmap_init(&sig_map, a, 64);
     collect_func_sigs(a, root, &sig_map);

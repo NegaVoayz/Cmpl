@@ -2,6 +2,8 @@
 
 #include "ll.h"
 
+#include <string.h>
+
 /* forward */
 static AST_Node* ll_parse_block(LR1_Parser* p);
 static AST_Node* ll_parse_expr_stmt(LR1_Parser* p);
@@ -143,6 +145,11 @@ AST_Node* ll_parse_stmt(LR1_Parser* p)
     case TOK_IDENT:
         if (p->tok->next && p->tok->next->kind == TOK_COLON)
             { result = ll_parse_label(p); break; }
+        /* C11 _Static_assert — intercept before the expression-statement
+         * path (it is a declaration, not a call expression) */
+        if (p->tok->body.ident.length == 14 &&
+            memcmp(p->tok->body.ident.data, "_Static_assert", 14) == 0)
+            { result = ll_parse_static_assert(p); break; }
         result = ll_parse_expr_stmt(p);
         break;
 

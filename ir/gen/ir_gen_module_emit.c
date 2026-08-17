@@ -59,6 +59,10 @@ resolve_struct_refs_all(Arena* a, AST_Node* root)
                      resolve_compound_lit_type_cb, NULL, &struct_map);
             ast_walk(decl->body.func_def.body,
                      resolve_sizeof_cast_type_cb, NULL, &struct_map);
+        } else if (decl->type == AST_STATIC_ASSERT) {
+            /* file-scope asserts: resolve sizeof/alignof/cast type refs
+             * so sizeof(struct S) in a condition is not unsized */
+            ast_walk(decl, resolve_sizeof_cast_type_cb, NULL, &struct_map);
         }
     }
 }

@@ -141,6 +141,9 @@ void emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
 void gen_module_functions(AST_Node* root, IR_Module* mod, int is_device,
                           HashMap* sig_map);
 
+/* ---- C11 _Static_assert (ir_gen_sa.c) ---- */
+void ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root);
+
 /* ---- expression operators + coercion (ir/gen/expr/) ---- */
 IR_Value* coerce_to_i1(IR_Builder* b, IR_Value* v);
 IR_Value* coerce_to(IR_Builder* b, IR_Value* v, IR_Type* target);

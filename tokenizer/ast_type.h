@@ -63,7 +63,12 @@ typedef enum {
     AST_DESIG_STEP,   /* one designator step: `.field` or `[index]` */
 
     /* top-level */
-    AST_PROGRAM
+    AST_PROGRAM,
+
+    /* C11 _Static_assert(integer-constant-expression, string-literal);
+     * parsed as a statement at file and block scope (appended at the
+     * end so dense LR(1) action-table indices stay stable) */
+    AST_STATIC_ASSERT
 } AST_Type;
 
 #endif /* AST_TYPE_H */
