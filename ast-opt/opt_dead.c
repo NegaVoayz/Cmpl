@@ -47,6 +47,38 @@ static AST_Node* find_tail(AST_Node* n)
 
 /* --- Constant-condition if/while pruning --- */
 
+/* does this subtree contain a C11 _Static_assert?  static assertions
+ * must be evaluated even in dead code (gcc fails a false assert inside
+ * `if (0)`), so branches containing one are never pruned away. */
+static int subtree_has_sa(AST_Node* n)
+{
+    for (; n; n = n->next) {
+        if (n->type == AST_STATIC_ASSERT) return 1;
+
+        switch (n->type) {
+        case AST_BLOCK:
+            if (subtree_has_sa(n->body.block.stmts)) return 1; break;
+        case AST_IF:
+            if (subtree_has_sa(n->body.if_stmt.then_branch) ||
+                subtree_has_sa(n->body.if_stmt.else_branch)) return 1; break;
+        case AST_WHILE: case AST_DO_WHILE:
+            if (subtree_has_sa(n->body.loop.body)) return 1; break;
+        case AST_FOR:
+            if (subtree_has_sa(n->body.for_stmt.init) ||
+                subtree_has_sa(n->body.for_stmt.body)) return 1; break;
+        case AST_SWITCH:
+            if (subtree_has_sa(n->body.switch_stmt.body)) return 1; break;
+        case AST_CASE: case AST_DEFAULT:
+            if (subtree_has_sa(n->body.case_stmt.stmt)) return 1; break;
+        case AST_LABEL:
+            if (subtree_has_sa(n->body.label.stmt)) return 1; break;
+        default: break;
+        }
+    }
+
+    return 0;
+}
+
 static int prune_const_branch(AST_Node** prev, AST_Node* cur)
 {
     AST_Node* repl;
@@ -55,6 +87,9 @@ static int prune_const_branch(AST_Node** prev, AST_Node* cur)
     if (cur->type == AST_IF
         && cur->body.if_stmt.condition
         && cur->body.if_stmt.condition->type == AST_INT_LIT) {
+        if (subtree_has_sa(cur->body.if_stmt.then_branch) ||
+            subtree_has_sa(cur->body.if_stmt.else_branch))
+            return 0;
 
         cond_val = cur->body.if_stmt.condition->body.literal.int_val;
         repl = (cond_val == 0) ? cur->body.if_stmt.else_branch
@@ -74,6 +109,8 @@ static int prune_const_branch(AST_Node** prev, AST_Node* cur)
         && cur->body.loop.condition
         && cur->body.loop.condition->type == AST_INT_LIT
         && cur->body.loop.condition->body.literal.int_val == 0) {
+        if (subtree_has_sa(cur->body.loop.body))
+            return 0;
         *prev = cur->next;
         return 1;
     }
@@ -97,6 +134,11 @@ static int process_block_stmts(AST_Node** head_ptr)
              * resume live processing (a goto can target it) */
             if (cur->type == AST_LABEL) {
                 seen_term = 0;
+                prev = &cur->next;
+                continue;
+            }
+            /* static assertions are evaluated even after a return */
+            if (cur->type == AST_STATIC_ASSERT) {
                 prev = &cur->next;
                 continue;
             }
