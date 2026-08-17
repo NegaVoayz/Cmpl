@@ -23,7 +23,7 @@ struct AST_Node {
             char   char_val;
             double float_val;
             String str_val;
-            int    is_unsigned;  /* integer literal u/U suffix */
+            unsigned is_unsigned : 1;  /* integer literal u/U suffix */
         } literal;
 
         /* identifier */
@@ -132,8 +132,8 @@ struct AST_Node {
             AST_Node* last_param;
             AST_Node* body;
             int       linkage;       /* 0=host, 1=device, 2=global, 3=host_device */
-            int       is_constructor; /* __attribute__((constructor)) */
-            int       is_variadic;    /* function has ... */
+            unsigned  is_constructor : 1; /* __attribute__((constructor)) */
+            unsigned  is_variadic    : 1; /* function has ... */
         } func_def;
 
         /* struct / union definition */

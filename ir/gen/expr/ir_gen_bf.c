@@ -170,12 +170,15 @@ bf_store(GenCtx* ctx, const BfLoc* loc, IR_Value* val)
 
     /* plain aggregate field: owns its bytes — plain typed store (no
      * read-modify-write; the piece machinery cannot bitcast to the
-     * aggregate type). */
+     * aggregate type).  Stored with the VALUE's own type: the same
+     * anonymous struct can exist as several IR_Type clones, so
+     * coercing to loc->field_ty would emit a self-bitcast on an
+     * aggregate (LLVM rejects bitcast on aggregates). */
     if (loc->plain_agg) {
-        IR_Value* v = coerce_to(b, val, loc->field_ty);
+        IR_Type* vt = (val && val->type) ? val->type : loc->field_ty;
         IR_Value* p = bf_byte_ptr(ctx, loc->base, loc->byte);
-        p = ir_build_bitcast(b, p, ir_ptr_type(b->arena, loc->field_ty, 0));
-        ir_build_store(b, v, p);
+        p = ir_build_bitcast(b, p, ir_ptr_type(b->arena, vt, 0));
+        ir_build_store(b, val, p);
         return;
     }
 

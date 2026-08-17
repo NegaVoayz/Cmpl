@@ -51,13 +51,13 @@ struct IR_Type {
     IR_Type*    inner;       /* pointee / array elem / return type */
     int         size;        /* array element count */
     int         addrspace;   /* 0=host, 1=device global, 2=shared, 3=constant */
-    int         is_variadic; /* function type has ... */
-    int         is_unsigned; /* integer type is unsigned (0 = signed) */
+    unsigned    is_variadic : 1; /* function type has ... */
+    unsigned    is_unsigned : 1; /* integer type is unsigned (0 = signed) */
     String      name;        /* struct tag */
     IR_Type*    members;     /* struct fields / func params (linked via next) */
     IR_Type*    next;        /* chain for members / named_types list */
-    int         has_bitfields; /* struct has >=1 bit-field: members are
-                                  storage units, field_info is populated */
+    unsigned    has_bitfields : 1; /* struct has >=1 bit-field: members are
+                                      storage units, field_info is populated */
     IR_FieldInfo* field_info;  /* per-field storage layout (bitfield structs) */
     int         align;         /* explicit alignment override (bytes); 0 = auto
                                   (set for bitfield structs: max field align) */

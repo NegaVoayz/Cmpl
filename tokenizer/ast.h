@@ -33,13 +33,13 @@ struct Type {
     String    name;       /* tag name for struct/union/enum, or typedef name */
     AST_Node* params;     /* function parameters (AST_PARAM_DECL list) */
     int       arr_size;   /* array size, 0 if unsized like int[] */
-    int       is_const;
-    int       is_volatile;
-    int       is_variadic; /* function type has ... */
-    int       func_form;   /* function-FORM typedef (typedef int *FP(int);):
-                              its PTR/ARRAY inner is the function's OWN
-                              return, not a pointer-layer (fnptr semantics) */
-    int       size_inferred; /* arr_size came from initializer count (int a[] = {...}) */
+    unsigned  is_const     : 1;
+    unsigned  is_volatile  : 1;
+    unsigned  is_variadic  : 1; /* function type has ... */
+    unsigned  func_form    : 1; /* function-FORM typedef (typedef int *FP(int);):
+                                   its PTR/ARRAY inner is the function's OWN
+                                   return, not a pointer-layer (fnptr semantics) */
+    unsigned  size_inferred: 1; /* arr_size came from initializer count (int a[] = {...}) */
     String    size_name;  /* unresolved size identifier (enum constant / macro) */
 };
 
