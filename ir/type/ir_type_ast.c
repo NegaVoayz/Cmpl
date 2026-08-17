@@ -208,6 +208,13 @@ ast_to_struct_type(Arena* a, Type* ast)
         if (ast->name.data) {
             for (StructCacheEntry* e = struct_cache; e; e = e->next) {
                 IR_Type* sc = e->ty;
+                /* Exact AST node identity: the entry is cached BEFORE
+                 * its members are built, so a cycle back into this very
+                 * node (self-/mutual recursion through pointers) must
+                 * return the in-flight type — the members/params guard
+                 * below would skip it and recurse forever. */
+                if (e->ast == ast)
+                    return sc;
                 if (sc->name.length == ast->name.length &&
                     memcmp(sc->name.data, ast->name.data,
                            ast->name.length) == 0) {
@@ -215,6 +222,14 @@ ast_to_struct_type(Arena* a, Type* ast)
                      * shadow its later complete definition of the same
                      * tag: keep scanning for a complete cached entry. */
                     if (sc->members || !ast->params)
+                        return sc;
+                    /* In-flight entry of the SAME definition: struct
+                     * references resolved by resolve_struct_refs share
+                     * the definition's field list (same params pointer),
+                     * so a reference nested inside the definition being
+                     * built must map to the in-flight type — a fresh
+                     * clone would duplicate %struct.NAME in the IR. */
+                    if (e->ast->params == ast->params)
                         return sc;
                 }
             }
