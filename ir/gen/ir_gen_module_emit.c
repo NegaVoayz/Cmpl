@@ -98,13 +98,14 @@ resolve_array_sizes_pass(AST_Node* root, TypedefEntry* enum_vals)
 }
 
 /* upgrade an extern global to a definition when this decl has an init
- * or is a tentative definition (linkage==0, no extern keyword). */
+ * or is a tentative definition (LINK_HOST, no extern keyword). */
 void
 upgrade_existing_global(Arena* a, AST_Node* decl, IR_Value* existing,
                         TypedefEntry* enum_vals)
 {
     if (!existing->body.init_val &&
-        (decl->body.var_decl.init || decl->body.var_decl.linkage == 0)) {
+        (decl->body.var_decl.init ||
+         decl->body.var_decl.linkage == LINK_HOST)) {
         if (decl->body.var_decl.init)
             existing->body.init_val = gen_const_init(a,
                 decl->body.var_decl.init, existing->type, enum_vals);
@@ -152,12 +153,13 @@ emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
         gv->type = t_i8;
 
     /* set linkage for global: 0=internal(static), 1=external */
-    gv->linkage = (decl->body.var_decl.linkage == 4) ? 0 : 1;
+    gv->linkage = (decl->body.var_decl.linkage == LINK_STATIC)
+                  ? IR_LINK_INTERNAL : IR_LINK_EXTERNAL;
 
     if (decl->body.var_decl.init) {
         gv->body.init_val = gen_const_init(a, decl->body.var_decl.init,
                                            gv->type, enum_vals);
-    } else if (decl->body.var_decl.linkage != 5) {
+    } else if (decl->body.var_decl.linkage != LINK_EXTERN) {
         /* not extern: tentative definition or static → zero-initialize */
         IR_Value* init = arena_alloc(a, sizeof(IR_Value));
         if (gv->type->kind == IR_PTR) {

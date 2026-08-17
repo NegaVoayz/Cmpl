@@ -65,7 +65,7 @@ infer_array_size_from_string(LR1_Parser* p, Type* full)
 
 static AST_Node*
 parse_vardef_tail(LR1_Parser* p, Token* start, Type* full, String dname,
-                  int is_typedef, int linkage, int addr_space)
+                  int is_typedef, CudaLinkage linkage, CudaAddrSpace addr_space)
 {
     AST_Node* vd = ast_node_new(p->arena, AST_VAR_DECL,
                                 start->loc.line, start->loc.col);
@@ -124,7 +124,8 @@ static int fnptr_inner_has_ptr(Type* t)
 
 AST_Node*
 parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
-                    int linkage, int addr_space, int is_constructor)
+                    CudaLinkage linkage, CudaAddrSpace addr_space,
+                    int is_constructor)
 {
     AST_Node* head = NULL;
     AST_Node** tail = &head;

@@ -184,13 +184,18 @@ struct IR_Block {
 
 /* ---------------------------------------------------------------
  *  Function linkage (extended for CUDA)
+ *
+ *  IR-side linkage for emitted functions.  Members carry the IR_LINK_
+ *  prefix because the CUDA node-tag enum (cuda.h, LINK_HOST/DEVICE/...)
+ *  is visible in every translation unit via ast_node.h, and two enums
+ *  cannot share enumerator names in the same scope.
  * --------------------------------------------------------------- */
 
 typedef enum {
-    LINK_INTERNAL,   /* static */
-    LINK_EXTERNAL,   /* default */
-    LINK_DEVICE,     /* __device__ */
-    LINK_KERNEL      /* __global__ entry point */
+    IR_LINK_INTERNAL,   /* static */
+    IR_LINK_EXTERNAL,   /* default */
+    IR_LINK_DEVICE,     /* __device__ */
+    IR_LINK_KERNEL      /* __global__ entry point */
 } IR_Linkage;
 
 /* ---------------------------------------------------------------

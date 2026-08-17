@@ -51,9 +51,10 @@ void emit_types(SPV_Writer* w, IdMap* tm, int tn)
         case IR_F32: case IR_F64:
             E2(SpvOpTypeFloat, id, 32); break;
         case IR_PTR: {
-            int sc = (ty->addrspace == 2) ? SpvStorageWorkgroup :
-                     (ty->addrspace == 3) ? SpvStorageUniformC :
-                     (ty->addrspace == 1) ? SpvStorageCross : SpvStorageFunc;
+            int sc = (ty->addrspace == ADDR_SHARED)   ? SpvStorageWorkgroup :
+                     (ty->addrspace == ADDR_CONSTANT) ? SpvStorageUniformC :
+                     (ty->addrspace == ADDR_GLOBAL)   ? SpvStorageCross :
+                                                        SpvStorageFunc;
             E3(SpvOpTypePointer, id, sc, find_id(tm, tn, ty->inner)); break;
         }
         default: break;

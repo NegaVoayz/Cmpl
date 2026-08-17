@@ -124,7 +124,7 @@ static IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
     gv->name.data = nm;
     gv->name.length = (int)strlen(nm);
     gv->type = vt;
-    gv->linkage = 0;              /* internal */
+    gv->linkage = IR_LINK_INTERNAL;   /* static local: internal */
 
     if (n->body.var_decl.init) {
         gv->body.init_val = gen_const_init(b->arena,
@@ -151,7 +151,7 @@ static void gen_stmt_var_decl(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
 
-    if (n->body.var_decl.linkage == 4) {   /* static local */
+    if (n->body.var_decl.linkage == LINK_STATIC) {   /* static local */
         gen_static_local(ctx, n);
         return;
     }

@@ -159,7 +159,7 @@ inline_in_module(IR_Module* mod)
                     if (cf->name.length == nlen &&
                         memcmp(cf->name.data, name, nlen) == 0 &&
                         cf->blocks &&
-                        cf->linkage == LINK_DEVICE) {
+                        cf->linkage == IR_LINK_DEVICE) {
                         callee = cf; break;
                     }
                 }

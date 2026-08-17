@@ -115,10 +115,10 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
 
     /* map AST linkage to IR_Linkage */
     switch (fd->body.func_def.linkage) {
-    case 2: func->linkage = LINK_KERNEL;   break;  /* LINK_GLOBAL */
-    case 1: func->linkage = LINK_DEVICE;   break;  /* LINK_DEVICE */
-    case 4: func->linkage = LINK_INTERNAL; break;  /* static */
-    default: func->linkage = LINK_EXTERNAL; break; /* host */
+    case LINK_GLOBAL:    func->linkage = IR_LINK_KERNEL;   break;
+    case LINK_DEVICE:    func->linkage = IR_LINK_DEVICE;   break;
+    case LINK_STATIC:    func->linkage = IR_LINK_INTERNAL; break;
+    default:             func->linkage = IR_LINK_EXTERNAL; break; /* host / host_device / extern */
     }
 
     b->cur_func = func;

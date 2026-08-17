@@ -3,25 +3,43 @@
 #ifndef CUDA_H
 #define CUDA_H
 
+/* ---------------------------------------------------------------
+ *  Node tags (multi-valued) — typed enums replacing bare ints.
+ *
+ *  The values are the numeric contract across the parser, the AST,
+ *  IR_Type.addrspace, and the vk_spirv storage-class switch; they MUST
+ *  NOT change.  Defined BEFORE the includes below: tokenizer/ast_node.h
+ *  includes this header for the field types, and the include cycle
+ *  (cuda.h -> lr1.h -> ast.h -> ast_node.h -> cuda.h) only resolves when
+ *  the tags are visible before any include that reaches ast_node.h.
+ * --------------------------------------------------------------- */
+
+/* Linkage kinds for functions (0-3: CUDA qualifiers; 4-5: parser-only
+ * storage-class tags carried in the same AST field). */
+typedef enum {
+    LINK_HOST         = 0,   /* default host function / unqualified var */
+    LINK_DEVICE       = 1,   /* __device__ */
+    LINK_GLOBAL       = 2,   /* __global__ kernel entry point */
+    LINK_HOST_DEVICE  = 3,   /* __host__ __device__ */
+    LINK_STATIC       = 4,   /* static — parser tag, not a CUDA qualifier */
+    LINK_EXTERN       = 5    /* extern — parser tag, not a CUDA qualifier */
+} CudaLinkage;
+
+/* Address spaces for variables */
+typedef enum {
+    ADDR_HOST        = 0,
+    ADDR_GLOBAL      = 1,
+    ADDR_SHARED      = 2,
+    ADDR_CONSTANT    = 3
+} CudaAddrSpace;
+
 #include "lr1.h"
 
-/* ---------------------------------------------------------------
- *  Linkage kinds for functions
- * --------------------------------------------------------------- */
-
-#define LINK_HOST        0
-#define LINK_DEVICE      1
-#define LINK_GLOBAL      2
-#define LINK_HOST_DEVICE 3
-
-/* ---------------------------------------------------------------
- *  Address spaces for variables
- * --------------------------------------------------------------- */
-
-#define ADDR_HOST       0
-#define ADDR_GLOBAL     1
-#define ADDR_SHARED     2
-#define ADDR_CONSTANT   3
+/* forward declaration: cuda.h is included from ast_node.h, which the
+ * include cycle can reach while lr1.h is still mid-parse (lr1.h ->
+ * ast.h -> ast_node.h -> cuda.h -> lr1.h, guard skips before the
+ * LR1_Parser typedef at lr1.h:113).  A redundant typedef is legal. */
+typedef struct LR1_Parser LR1_Parser;
 
 /* ---------------------------------------------------------------
  *  Qualifier parsing (cuda_qual.c)
@@ -30,12 +48,12 @@
 /* Parse GPU qualifiers before a function declaration.
  * Consumes __global__ / __device__ / __host__ tokens.
  * Returns OR'd linkage bits: LINK_HOST|LINK_DEVICE = LINK_HOST_DEVICE. */
-int cuda_parse_qualifiers(LR1_Parser* p);
+CudaLinkage cuda_parse_qualifiers(LR1_Parser* p);
 
 /* Parse GPU qualifiers before a variable declaration.
  * Consumes __shared__ / __constant__ tokens.
  * Returns address space (ADDR_SHARED or ADDR_CONSTANT). */
-int cuda_parse_var_qualifiers(LR1_Parser* p);
+CudaAddrSpace cuda_parse_var_qualifiers(LR1_Parser* p);
 
 /* ---------------------------------------------------------------
  *  Device/Host split (cuda_split.c)

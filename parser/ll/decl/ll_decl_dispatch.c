@@ -11,9 +11,11 @@
 extern void ll_expect(LR1_Parser* p, TokenKind k);
 extern AST_Node* ll_parse_enum_def(LR1_Parser* p);
 extern AST_Node* parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
-                                          int linkage, int addr_space);
+                                          CudaLinkage linkage,
+                                          CudaAddrSpace addr_space);
 extern AST_Node* parse_var_list_decl(LR1_Parser* p, Token* start, Type* base,
-                                     int is_typedef, int linkage, int addr_space,
+                                     int is_typedef, CudaLinkage linkage,
+                                     CudaAddrSpace addr_space,
                                      int is_constructor);
 
 /* ---------------------------------------------------------------
@@ -55,15 +57,15 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
     Token* start = p->tok;
     int is_typedef = 0;
     int is_constructor = parse_attribute(p);
-    int linkage = cuda_parse_qualifiers(p);
-    int addr_space = cuda_parse_var_qualifiers(p);
+    CudaLinkage linkage = cuda_parse_qualifiers(p);
+    CudaAddrSpace addr_space = cuda_parse_var_qualifiers(p);
 
     while (p->tok->kind == TOK_TYPEDEF || p->tok->kind == TOK_STATIC ||
            p->tok->kind == TOK_EXTERN  || p->tok->kind == TOK_REGISTER ||
            p->tok->kind == TOK_INLINE  || p->tok->kind == TOK_NORETURN) {
         if (p->tok->kind == TOK_TYPEDEF) is_typedef = 1;
-        if (p->tok->kind == TOK_STATIC) linkage = 4;   /* LINK_STATIC */
-        if (p->tok->kind == TOK_EXTERN) linkage = 5;   /* LINK_EXTERN */
+        if (p->tok->kind == TOK_STATIC) linkage = LINK_STATIC;
+        if (p->tok->kind == TOK_EXTERN) linkage = LINK_EXTERN;
         p->tok = p->tok->next;
     }
 

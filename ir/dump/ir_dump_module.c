@@ -22,7 +22,7 @@ dump_globals(FILE* out, IR_Module* mod)
         if (gv->body.init_val) {
             /* definition */
             fprintf(out, "@%.*s = ", gv->name.length, gv->name.data);
-            if (gv->linkage == 0) fprintf(out, "internal ");  /* static */
+            if (gv->linkage == IR_LINK_INTERNAL) fprintf(out, "internal ");  /* static */
             fprintf(out, "global ");
             dump_type(out, gv->type);
             fprintf(out, " ");

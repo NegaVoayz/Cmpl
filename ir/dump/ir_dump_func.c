@@ -51,9 +51,9 @@ dump_func(FILE* out, IR_Func* func)
 
     /* linkage qualifier (after define/declare) */
     switch (func->linkage) {
-    case LINK_INTERNAL: fprintf(out, "internal "); break;
-    case LINK_DEVICE:   fprintf(out, "spir_func "); break;
-    case LINK_KERNEL:   fprintf(out, "spir_kernel "); break;
+    case IR_LINK_INTERNAL: fprintf(out, "internal "); break;
+    case IR_LINK_DEVICE:   fprintf(out, "spir_func "); break;
+    case IR_LINK_KERNEL:   fprintf(out, "spir_kernel "); break;
     default: break;
     }
 

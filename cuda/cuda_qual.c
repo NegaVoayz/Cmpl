@@ -6,7 +6,7 @@
  *  Function qualifiers: __global__ / __device__ / __host__
  * --------------------------------------------------------------- */
 
-int
+CudaLinkage
 cuda_parse_qualifiers(LR1_Parser* p)
 {
     int has_host = 0, has_device = 0, has_global = 0;
@@ -42,10 +42,10 @@ cuda_parse_qualifiers(LR1_Parser* p)
  *  Variable qualifiers: __shared__ / __constant__
  * --------------------------------------------------------------- */
 
-int
+CudaAddrSpace
 cuda_parse_var_qualifiers(LR1_Parser* p)
 {
-    int addr = ADDR_HOST;
+    CudaAddrSpace addr = ADDR_HOST;
 
     while (p->tok->kind == TOK_KW_SHARED ||
            p->tok->kind == TOK_KW_CONSTANT) {

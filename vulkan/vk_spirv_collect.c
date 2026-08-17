@@ -20,7 +20,7 @@ void collect_ids(IR_Module* mod, IdMap* tm, int* tn, IdMap* vm, int* vn,
     map_id(tm, tn, MAX_TY, t_f64);
 
     for (IR_Func* f = mod->funcs; f; f = f->next) {
-        if (!f->blocks || (f->linkage != LINK_KERNEL && f->linkage != LINK_DEVICE))
+        if (!f->blocks || (f->linkage != IR_LINK_KERNEL && f->linkage != IR_LINK_DEVICE))
             continue;
 
         map_id(fm, fnc, MAX_FN, f);

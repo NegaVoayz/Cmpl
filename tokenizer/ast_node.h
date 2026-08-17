@@ -5,6 +5,7 @@
 
 #include "token.h"
 #include "ast_type.h"
+#include "cuda.h"   /* CudaLinkage / CudaAddrSpace node tags */
 
 typedef struct Type    Type;
 typedef struct AST_Node AST_Node;
@@ -121,17 +122,21 @@ struct AST_Node {
 
         /* variable declaration.  bit_width is the :N suffix of a struct
          * field (NULL = not a bit-field); anonymous fields keep name
-         * empty; the expression folds to an int literal before IR gen. */
-        struct { Type* var_type; String name; AST_Node* init; int addr_space; int linkage; AST_Node* bit_width; } var_decl;
+         * empty; the expression folds to an int literal before IR gen.
+         * linkage is a CudaLinkage (0-3 CUDA qualifiers, 4 static,
+         * 5 extern); addr_space is a CudaAddrSpace (host/global/
+         * shared/constant). */
+        struct { Type* var_type; String name; AST_Node* init; CudaAddrSpace addr_space; CudaLinkage linkage; AST_Node* bit_width; } var_decl;
 
-        /* function definition */
+        /* function definition.  linkage is a CudaLinkage (0-3 CUDA
+         * qualifiers, 4 static, 5 extern). */
         struct {
             Type*     ret_type;
             String    name;
             AST_Node* params;
             AST_Node* last_param;
             AST_Node* body;
-            int       linkage;       /* 0=host, 1=device, 2=global, 3=host_device */
+            CudaLinkage linkage;
             unsigned  is_constructor : 1; /* __attribute__((constructor)) */
             unsigned  is_variadic    : 1; /* function has ... */
         } func_def;

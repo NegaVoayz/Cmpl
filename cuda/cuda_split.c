@@ -57,7 +57,7 @@ cuda_split(AST_Node* root, CudaSplit* out)
         AST_Node* next = decl->next;  /* save before append_node clobbers it */
 
         if (decl->type == AST_FUNC_DEF) {
-            int linkage = decl->body.func_def.linkage;
+            CudaLinkage linkage = decl->body.func_def.linkage;
 
             if (linkage == LINK_GLOBAL || linkage == LINK_DEVICE) {
                 append_node(&dev_head, &dev_tail, decl);
@@ -71,7 +71,7 @@ cuda_split(AST_Node* root, CudaSplit* out)
             }
 
         } else if (decl->type == AST_VAR_DECL) {
-            int addr_space = decl->body.var_decl.addr_space;
+            CudaAddrSpace addr_space = decl->body.var_decl.addr_space;
 
             if (addr_space != ADDR_HOST)
                 append_node(&dev_head, &dev_tail, decl);

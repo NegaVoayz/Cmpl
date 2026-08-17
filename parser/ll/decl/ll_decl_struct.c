@@ -11,7 +11,8 @@ extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
  * --------------------------------------------------------------- */
 
 static AST_Node*
-parse_struct_var_list(LR1_Parser* p, Token* stok, Type* stype, int linkage)
+parse_struct_var_list(LR1_Parser* p, Token* stok, Type* stype,
+                      CudaLinkage linkage)
 {
     AST_Node* var_head = NULL;
     AST_Node** var_tail = &var_head;
@@ -61,7 +62,7 @@ parse_struct_var_list(LR1_Parser* p, Token* stok, Type* stype, int linkage)
 
 AST_Node*
 parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
-                        int linkage, int addr_space)
+                        CudaLinkage linkage, CudaAddrSpace addr_space)
 {
     String tag = {NULL, 0};
 

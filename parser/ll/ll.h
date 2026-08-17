@@ -22,7 +22,8 @@ AST_Node* ll_parse_decl(LR1_Parser* p);
 
 /* build an AST_FUNC_DEF for a function-type declarator; NULL otherwise */
 AST_Node* decl_build_func_def(LR1_Parser* p, Token* start, Type* full,
-                              String dname, int linkage, int is_constructor);
+                              String dname, CudaLinkage linkage,
+                              int is_constructor);
 
 /* peel a function-form typedef's leading PTRs into its return type
  * (typedef int *FP(int); -> FUNC(params, PTR(ret))); NULL if not that shape */

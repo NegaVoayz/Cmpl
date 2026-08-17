@@ -21,7 +21,7 @@ extern void emit_instr(SPV_Writer* w, IR_Instr* inst, IdMap* tm, int tn, IdMap* 
 void emit_func(SPV_Writer* w, IR_Func* f, IdMap* tm, int tn, IdMap* vm, int vn,
                IdMap* fm, int fnc, IdMap* bm, int bn)
 {
-    if (!f->blocks || (f->linkage != LINK_KERNEL && f->linkage != LINK_DEVICE))
+    if (!f->blocks || (f->linkage != IR_LINK_KERNEL && f->linkage != IR_LINK_DEVICE))
         return;
 
     int ret_ty = find_id(tm, tn, f->ret_type);
@@ -62,7 +62,7 @@ void emit_func(SPV_Writer* w, IR_Func* f, IdMap* tm, int tn, IdMap* vm, int vn,
 void emit_entries(SPV_Writer* w, IR_Module* mod, IdMap* fm, int fnc)
 {
     for (IR_Func* f = mod->funcs; f; f = f->next) {
-        if (f->linkage != LINK_KERNEL || !f->blocks) continue;
+        if (f->linkage != IR_LINK_KERNEL || !f->blocks) continue;
 
         int fid = find_id(fm, fnc, f);
         int nlen = f->name.length;
