@@ -65,6 +65,10 @@ void stringize_arg(const char* s, int slen, Buffer* out);
 void append_va_args(const char** arg_starts, const int* arg_lens,
                     int start, int argc, Buffer* out);
 
+/* #__VA_ARGS__ helper: stringize the joined variadic args (", "). */
+void stringize_va_args(const char** arg_starts, const int* arg_lens,
+                       int start, int argc, Buffer* out);
+
 /* Conditional compilation stack */
 typedef enum {
     COND_TAKING,

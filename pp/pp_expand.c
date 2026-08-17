@@ -51,6 +51,16 @@ expand_func_body(Macro* macro, const char** arg_starts, const int* arg_lens,
             int qlen = scan_ident(q, be);
             int found = -1;
 
+            /* `#__VA_ARGS__` stringizes the WHOLE variadic argument
+             * text (joined with ", "), not the first element. */
+            if (macro->variadic && qlen == 11 &&
+                strncmp(q, "__VA_ARGS__", 11) == 0) {
+                stringize_va_args(arg_starts, arg_lens,
+                                  macro->nparams, argc, out);
+                bp = q + qlen;
+                continue;
+            }
+
             for (int i = 0; qlen > 0 && i < macro->nparams; i++) {
                 if (qlen == (int)strlen(macro->params[i])
                     && strncmp(q, macro->params[i], qlen) == 0) {

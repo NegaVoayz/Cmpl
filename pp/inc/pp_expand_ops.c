@@ -30,3 +30,23 @@ append_va_args(const char** arg_starts, const int* arg_lens,
         buf_append(out, arg_starts[i], arg_lens[i]);
     }
 }
+
+/* `#__VA_ARGS__`: stringize the FULL variadic argument text (gcc joins
+ * the args with ", "), escaping " and \ like a normal stringized
+ * argument (C11 6.10.3.2p2). */
+void
+stringize_va_args(const char** arg_starts, const int* arg_lens,
+                  int start, int argc, Buffer* out)
+{
+    buf_append(out, "\"", 1);
+    for (int i = start; i < argc; i++) {
+        if (i > start) buf_append(out, ", ", 2);
+        for (int j = 0; j < arg_lens[i]; j++) {
+            char c = arg_starts[i][j];
+
+            if (c == '"' || c == '\\') buf_append(out, "\\", 1);
+            buf_append(out, &c, 1);
+        }
+    }
+    buf_append(out, "\"", 1);
+}
