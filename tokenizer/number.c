@@ -20,6 +20,25 @@ read_number(Lexer* lex)
         while (isxdigit((unsigned char)peek(lex))) {
             buf[len++] = *lex->cur; advance(lex);
         }
+        /* C99 hex float: 0x1.8p3, 0x.8p-2 — fraction + binary exponent.
+         * strtod() below already parses this form natively. */
+        if (peek(lex) == '.') {
+            is_float = 1;
+            buf[len++] = *lex->cur; advance(lex);
+            while (isxdigit((unsigned char)peek(lex))) {
+                buf[len++] = *lex->cur; advance(lex);
+            }
+        }
+        if (peek(lex) == 'p' || peek(lex) == 'P') {
+            is_float = 1;
+            buf[len++] = *lex->cur; advance(lex);
+            if (peek(lex) == '+' || peek(lex) == '-') {
+                buf[len++] = *lex->cur; advance(lex);
+            }
+            while (isdigit((unsigned char)peek(lex))) {
+                buf[len++] = *lex->cur; advance(lex);
+            }
+        }
     } else {
         while (isdigit((unsigned char)peek(lex))) {
             buf[len++] = *lex->cur; advance(lex);
