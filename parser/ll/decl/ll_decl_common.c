@@ -115,6 +115,7 @@ ll_typedef_func_ret_type(Type* full, Arena* a)
     }
     tl->inner = sc->inner;
     sc->inner = rt;
+    sc->func_form = 1;   /* the PTR chain is this function's return */
     return sc;
 }
 

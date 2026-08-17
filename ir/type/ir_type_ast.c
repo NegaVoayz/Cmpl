@@ -102,14 +102,14 @@ ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee)
          * typedefs (typedef int (*BI)(int,int);) carry their PTR/ARRAY
          * layers as pointer-layers — drop the pointee context entering
          * them (BI arr[2] stays [2 x ptr]).  Function-form typedefs
-         * (typedef int *FP(int);) are FUNC-rooted: in a pointee context
-         * (FP *p3) the layers describe the function's OWN return, so
-         * keep pointee=1 — dropping it re-lifted the return pointer
-         * into a second fnptr layer (over-pointing). */
+         * (typedef int *FP(int);, marked func_form) are FUNC-rooted:
+         * in a pointee context (FP *p3) the layers describe the
+         * function's OWN return, so keep pointee=1 — dropping it
+         * re-lifted the return pointer into a second fnptr layer. */
         if (ast->inner) {
             Type* rt = ast->inner;
             while (rt && rt->kind == TYPE_NAMED) rt = rt->inner;
-            if (pointee && rt && rt->kind == TYPE_FUNC)
+            if (pointee && rt && rt->kind == TYPE_FUNC && rt->func_form)
                 return ast_to_ir_type_ctx(a, ast->inner, 1);
             return ast_to_ir_type_ctx(a, ast->inner, 0);
         }

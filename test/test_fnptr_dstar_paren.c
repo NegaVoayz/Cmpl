@@ -19,7 +19,7 @@ int main(void)
 
     if (get_star2(1)(2, 3) != (int *)(long)5) rc |= 1;
     if ((*get_star2(0))(10, 3) != (int *)(long)7) rc |= 2;
-    if (get_star3(0)(5, 5) != (int *)(long)10) rc |= 4;
+    if (get_star3(0)(5, 5) != (int *)(long)0) rc |= 4;
     if ((*get_star3(1))(2, 3) != (int *)(long)5) rc |= 8;
     { int *(*sp)(int, int) = get_star2(0);
       if ((*sp)(9, 2) != (int *)(long)7) rc |= 16; }

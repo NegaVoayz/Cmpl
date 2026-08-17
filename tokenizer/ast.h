@@ -36,6 +36,9 @@ struct Type {
     int       is_const;
     int       is_volatile;
     int       is_variadic; /* function type has ... */
+    int       func_form;   /* function-FORM typedef (typedef int *FP(int);):
+                              its PTR/ARRAY inner is the function's OWN
+                              return, not a pointer-layer (fnptr semantics) */
     int       size_inferred; /* arr_size came from initializer count (int a[] = {...}) */
     String    size_name;  /* unresolved size identifier (enum constant / macro) */
 };
