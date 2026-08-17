@@ -21,6 +21,10 @@ AST_Node* ll_parse_decl(LR1_Parser* p);
 AST_Node* decl_build_func_def(LR1_Parser* p, Token* start, Type* full,
                               String dname, int linkage, int is_constructor);
 
+/* peel a function-form typedef's leading PTRs into its return type
+ * (typedef int *FP(int); -> FUNC(params, PTR(ret))); NULL if not that shape */
+Type* ll_typedef_func_ret_type(Type* full, Arena* a);
+
 /* parse an initializer list {elem, elem, ...} (p->tok at '{') */
 AST_Node* parse_init_list(LR1_Parser* p);
 

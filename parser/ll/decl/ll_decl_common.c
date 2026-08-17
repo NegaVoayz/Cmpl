@@ -84,6 +84,40 @@ decl_build_func_def(LR1_Parser* p, Token* start, Type* full, String dname,
     return fn;
 }
 
+/* For a function-form typedef with leading pointer layers
+ * (`typedef int *FP(int);`) the PTRs are the function's RETURN pointers
+ * — return the peeled FUNC type FUNC(params, PTRⁿ(ret)) so `FP *p3`
+ * resolves to PTR(FUNC(int -> PTR(int))).  decl_build_func_def would
+ * read the PTR-wrapped declarator as the identifier's own pointer (a
+ * fnptr variable), so the typedef path must peel first.  Returns NULL
+ * when full is not that shape (pointer-form typedefs fall through to
+ * the normal var/fn-def paths). */
+Type*
+ll_typedef_func_ret_type(Type* full, Arena* a)
+{
+    Type* sc = full;
+    int np = 0;
+
+    while (sc && sc->kind == TYPE_PTR) {
+        np++;
+        sc = sc->inner;
+    }
+    if (!(sc && sc->kind == TYPE_FUNC && sc->inner &&
+          sc->inner->kind != TYPE_PTR && sc->inner->kind != TYPE_ARRAY))
+        return NULL;
+
+    Type* rt = type_new(a, TYPE_PTR);
+    Type* tl = rt;
+
+    for (int i = 1; i < np; i++) {
+        tl->inner = type_new(a, TYPE_PTR);
+        tl = tl->inner;
+    }
+    tl->inner = sc->inner;
+    sc->inner = rt;
+    return sc;
+}
+
 /* ---------------------------------------------------------------
  *  is_type_start -- tokens that begin a declaration
  * --------------------------------------------------------------- */

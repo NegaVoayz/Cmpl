@@ -98,10 +98,21 @@ ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee)
     case TYPE_UNION:
         return ast_to_struct_type(a, ast);
     case TYPE_NAMED:
-        /* a typedef reference names a COMPLETE type (e.g. a typedef'd
-         * fnptr FUNC(A, PTR(B)) whose PTR is a pointer-layer, not a
-         * return pointer) — drop the pointee context when entering it. */
-        if (ast->inner) return ast_to_ir_type_ctx(a, ast->inner, 0);
+        /* a typedef reference names a COMPLETE type.  Pointer-form
+         * typedefs (typedef int (*BI)(int,int);) carry their PTR/ARRAY
+         * layers as pointer-layers — drop the pointee context entering
+         * them (BI arr[2] stays [2 x ptr]).  Function-form typedefs
+         * (typedef int *FP(int);) are FUNC-rooted: in a pointee context
+         * (FP *p3) the layers describe the function's OWN return, so
+         * keep pointee=1 — dropping it re-lifted the return pointer
+         * into a second fnptr layer (over-pointing). */
+        if (ast->inner) {
+            Type* rt = ast->inner;
+            while (rt && rt->kind == TYPE_NAMED) rt = rt->inner;
+            if (pointee && rt && rt->kind == TYPE_FUNC)
+                return ast_to_ir_type_ctx(a, ast->inner, 1);
+            return ast_to_ir_type_ctx(a, ast->inner, 0);
+        }
         return t_i32;
     default:
         return t_i32;

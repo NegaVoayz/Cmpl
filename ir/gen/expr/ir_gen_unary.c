@@ -18,7 +18,18 @@ gen_addr_of(GenCtx* ctx, AST_Node* n)
         IR_Value* ptr = sym_lookup(ctx, opnd->body.ident.name);
         if (ptr) return ptr;
         ptr = global_lookup(ctx->mod, opnd->body.ident.name);
-        if (ptr) return ptr;
+        if (ptr) {
+            /* globals store the ELEMENT type (ir_gen_module_emit.c), so
+             * &g must re-type the global reference as a pointer (ptr @g),
+             * not return the element-typed value (which the caller would
+             * inttoptr into invalid IR). */
+            IR_Value* addr = arena_alloc(ctx->b->arena, sizeof(IR_Value));
+            addr->kind = VAL_GLOBAL;
+            addr->name = ptr->name;
+            addr->type = ir_ptr_type(ctx->b->arena,
+                ptr->type ? ptr->type : t_i8, 0);
+            return addr;
+        }
         /* &function_name → address of function symbol */
         if (ctx->sig_map) {
             IR_Type* func_ty = func_type_lookup(ctx->sig_map,

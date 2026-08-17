@@ -37,22 +37,35 @@ wrap_ptr_layers(LR1_Parser* p, Type** result, int* count)
  * pointer to a function returning int*), not around the outer function.
  * The walk descends FUNC -> PTR -> FUNC chains; for a Type-B rotation
  * (identifier's own pointer on top, (*(*q)(int))(char)) it first steps
- * over that PTR so the star still lands at the bottom. */
-static void
+ * over that PTR so the star still lands at the bottom.
+ *
+ * A FUNC whose return is a pointer to another FUNC only ever arises
+ * from a rotation, so the walk doubles as the rotation test: it returns
+ * 1 (and threads the stars) iff at least one FUNC -> PTR -> FUNC link
+ * was crossed.  Without that link (int *(*q)(int): the FUNC is the
+ * pointee of the identifier's own pointer) the pending stars stay
+ * outside as the identifier's own pointer(s). */
+static int
 thread_ptr_layers(LR1_Parser* p, Type* result, int* count)
 {
     Type* t = result;
+    int descended = 0;
 
     if (t->kind == TYPE_PTR && t->inner && t->inner->kind == TYPE_FUNC)
         t = t->inner;
 
     while (t->kind == TYPE_FUNC && t->inner &&
            t->inner->kind == TYPE_PTR && t->inner->inner &&
-           t->inner->inner->kind == TYPE_FUNC)
+           t->inner->inner->kind == TYPE_FUNC) {
         t = t->inner->inner;
+        descended = 1;
+    }
 
-    if (t->kind == TYPE_FUNC)
+    if (descended && t->kind == TYPE_FUNC) {
         wrap_ptr_layers(p, &t->inner, count);
+        return 1;
+    }
+    return 0;
 }
 
 /* Parse one array suffix [N] / [name] / [] / [expr].  p->tok at '['; leaves
@@ -266,7 +279,6 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
     #define MAX_SUFFIX 16
     Type* array_suffixes[MAX_SUFFIX];
     int n_arrays = 0;
-    int rotated = 0;    /* a paren-group function suffix was rotated */
 
     for (;;) {
         if (p->tok->kind == TOK_LBRACKET) {
@@ -283,13 +295,11 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
                     /* (*q)(int): the FUNC's return is the identifier's
                      * own data pointer — swap the pointers. */
                     result = rotate_paren_func_suffix_dataptr(p, result);
-                    rotated = 1;
                 } else if (paren_ptrfunc_rotatable(result)) {
                     /* (*name(inner))(outer): the outer parameter list
                      * belongs to the RETURNED function pointer, not to the
                      * identifier's own function — rotate the chain. */
                     result = rotate_paren_func_suffix(p, result);
-                    rotated = 1;
                 } else {
                     result = parse_func_suffix(p, result);
                 }
@@ -325,11 +335,15 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth
      * front of a ROTATED paren group at the TOP-MOST declarator depth
      * (int *(*get_star(int sel))(int,int)) belong to the innermost
      * return type — thread them in instead of wrapping them around the
-     * whole chain.  Inside a nested paren group the stars must keep
-     * wrapping (int (*(*fp(void))(int))(char): the inner `*` is the
+     * whole chain.  thread_ptr_layers decides structurally (a FUNC
+     * whose return is a pointer to a FUNC only comes from a rotation),
+     * so it also catches rotations that happened inside an extra paren
+     * group (int *((*get_star(int sel))(int,int))).  Without a rotation
+     * the stars keep wrapping (int *(*q)(int): the identifier's own
+     * pointer; int (*(*fp(void))(int))(char): the inner `*` is the
      * middle function's return pointer and the outer suffix rotation
      * consumes it). */
-    if (depth == 0 && rotated && ptr_count > 0)
+    if (depth == 0 && ptr_count > 0)
         thread_ptr_layers(p, result, &ptr_count);
     wrap_ptr_layers(p, &result, &ptr_count);
 

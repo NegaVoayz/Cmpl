@@ -1,21 +1,15 @@
-/* ll_decl.c -- LL declaration parser: variable declarations and function
- * definitions.  Struct/union/enum and the shared func-def helper live in
- * ll_decl_struct.c / ll_decl_common.c.
- *
- * Delegates sub-expressions to lr1_parse_expr().
- */
+/* ll_decl.c -- LL declaration parser: variables and function defs.
+ * Struct/union/enum and the shared func-def helper live elsewhere. */
 
 #include "../ll.h"
 
 /* from ll.c */
 extern void ll_expect(LR1_Parser* p, TokenKind k);
 
-/* ---------------------------------------------------------------
- *  Array-size inference from initializers
- * --------------------------------------------------------------- */
+/* --- Array-size inference from initializers --- */
 
 /* Count a braced initializer's elements to infer an unsized array's
- * length (int a[] = {1,2,3}), mirroring C99.  p->tok is at the '{'. */
+ * length (int a[] = {1,2,3}), mirroring C99. */
 static void
 infer_array_size_from_brace(LR1_Parser* p, Type* full)
 {
@@ -51,9 +45,7 @@ infer_array_size_from_brace(LR1_Parser* p, Type* full)
     }
 }
 
-/* char a[] = "s": infer an unsized char array's length from the string
- * literal (chars + NUL), like the brace-count path above.  p->tok is at
- * the TOK_STRING_LIT. */
+/* char a[] = "s": infer the length from the string literal + NUL. */
 static void
 infer_array_size_from_string(LR1_Parser* p, Type* full)
 {
@@ -69,10 +61,7 @@ infer_array_size_from_string(LR1_Parser* p, Type* full)
     }
 }
 
-/* ---------------------------------------------------------------
- *  parse_vardef_tail -- build a VAR_DECL (or TYPEDEF) node, parsing
- *  any initializer.  Returns the node to append to the declarator list.
- * --------------------------------------------------------------- */
+/* --- parse_vardef_tail: VAR_DECL (or TYPEDEF) node + optional init --- */
 
 static AST_Node*
 parse_vardef_tail(LR1_Parser* p, Token* start, Type* full, String dname,
@@ -111,15 +100,12 @@ parse_vardef_tail(LR1_Parser* p, Token* start, Type* full, String dname,
     return vd;
 }
 
-/* ---------------------------------------------------------------
- *  parse_var_list_decl -- declarator list (var decls, func defs)
- * --------------------------------------------------------------- */
+/* --- parse_var_list_decl: declarator list (var decls, func defs) --- */
 
 /* True when a TYPE_FUNC's inner chain names a pointer-to-function
  * VARIABLE (or an array of them) rather than a function definition:
- * (*f)(args) / (*f[N])(args).  A pointer whose ultimate target is itself
- * a function — (*f(int))(args), a function RETURNING a function pointer —
- * is a definition, not a variable. */
+ * (*f)(args) / (*f[N])(args).  A pointer whose ultimate target is a
+ * function — (*f(int))(args) — is a definition, not a variable. */
 static int fnptr_inner_has_ptr(Type* t)
 {
     while (t && (t->kind == TYPE_ARRAY || t->kind == TYPE_PTR)) {
@@ -147,10 +133,8 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
         String dname = {NULL, 0};
         Type* full = ll_parse_declarator(p, base, &dname, 0);
 
-        /* pointer-to-function: TYPE_FUNC->TYPE_PTR->...
-         * e.g. void (*f)(void) — treat as variable/typedef, not func def.
-         * parse_vardef_tail handles the optional `= init`; the trailing
-         * ';' is consumed below (no comma) or by the shared tail. */
+        /* pointer-to-function: TYPE_FUNC->TYPE_PTR->... e.g. void
+         * (*f)(void) — a variable/typedef, not a func def. */
         if (full->kind == TYPE_FUNC && full->inner &&
             fnptr_inner_has_ptr(full->inner)) {
             AST_Node* vd = parse_vardef_tail(p, start, full, dname,
@@ -162,9 +146,9 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             else { ll_expect(p, TOK_SEMI); return head; }
         }
 
-        /* typedef of a FUNCTION TYPE (`typedef int fn2(int,int);`) names
-         * a type, not a function: build a TYPEDEF so `fn2 *fp` resolves
-         * to PTR(FUNC) instead of silently becoming a function decl. */
+        /* typedef of a FUNCTION TYPE (`typedef int fn2(int,int);`)
+         * names a type, not a function: `fn2 *fp` must resolve to
+         * PTR(FUNC), not a silent function declaration. */
         if (is_typedef && full->kind == TYPE_FUNC) {
             AST_Node* vd = parse_vardef_tail(p, start, full, dname,
                                              is_typedef, linkage, addr_space);
@@ -173,6 +157,23 @@ parse_var_list_decl(LR1_Parser* p, Token* start, Type* base, int is_typedef,
             tail = &vd->next;
             if (p->tok->kind == TOK_COMMA) { p->tok = p->tok->next; continue; }
             else { ll_expect(p, TOK_SEMI); return head; }
+        }
+
+        /* typedef of a function with a pointer return (`typedef int
+         * *FP(int);`): the PTRs are RETURN pointers — peel them. */
+        if (is_typedef && full->kind == TYPE_PTR) {
+            Type* ty = ll_typedef_func_ret_type(full, p->arena);
+
+            if (ty) {
+                AST_Node* vd = parse_vardef_tail(p, start, ty, dname,
+                                                 is_typedef, linkage,
+                                                 addr_space);
+                if (!head) head = vd;
+                *tail = vd;
+                tail = &vd->next;
+                if (p->tok->kind == TOK_COMMA) { p->tok = p->tok->next; continue; }
+                else { ll_expect(p, TOK_SEMI); return head; }
+            }
         }
 
         AST_Node* fn = decl_build_func_def(p, start, full, dname,
