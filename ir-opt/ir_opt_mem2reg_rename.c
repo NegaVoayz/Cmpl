@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_STACK 64
+#define MAX_RENAME_STACK 64
 
 /* ---------------------------------------------------------------
  *  Build dominator-tree children from idom array
@@ -43,7 +43,7 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca,
         if (inst->opcode != IROP_PHI) break;
         if (inst->phi_alloca == alloca) {
             cur = inst->result;
-            if (*top < MAX_STACK - 1) stack[++(*top)] = cur;
+            if (*top < MAX_RENAME_STACK - 1) stack[++(*top)] = cur;
         }
     }
 
@@ -53,7 +53,7 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca,
 
         if (inst->opcode == IROP_STORE && inst->operands[1] == alloca) {
             cur = inst->operands[0];
-            if (*top < MAX_STACK - 1) stack[++(*top)] = cur;
+            if (*top < MAX_RENAME_STACK - 1) stack[++(*top)] = cur;
         }
 
         if (inst->opcode == IROP_LOAD && inst->operands[0] == alloca) {
@@ -99,7 +99,7 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca,
 void
 rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
 {
-    IR_Value* stack[MAX_STACK];
+    IR_Value* stack[MAX_RENAME_STACK];
     int       top = -1;
 
     build_domtree(bi, n);
