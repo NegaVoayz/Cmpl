@@ -69,32 +69,36 @@ resolve_struct_refs_all(Arena* a, AST_Node* root)
 
 /* resolve enum-sized dimensions on local arrays: the parser stores
  * `int arr[N]` as size_name (unresolved), and only top-level var decls
- * were walked — local arrays with enum sizes stayed [0 x N]. */
+ * were walked — local arrays with enum sizes stayed [0 x N].
+ * Returns 1 if a VLA bound was found (resolve_array_sizes printed it). */
 static int
 resolve_local_arr_cb(AST_Node* n, void* ctx)
 {
     if (n->type == AST_VAR_DECL)
-        resolve_array_sizes(n->body.var_decl.var_type,
-                            (TypedefEntry*)ctx);
+        return resolve_array_sizes(n->body.var_decl.var_type,
+                                   (TypedefEntry*)ctx);
     return 0;
 }
 
-void
+int
 resolve_array_sizes_pass(AST_Node* root, TypedefEntry* enum_vals)
 {
+    int bad = 0;
+
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type == AST_VAR_DECL)
-            resolve_array_sizes(decl->body.var_decl.var_type, enum_vals);
+            bad |= resolve_array_sizes(decl->body.var_decl.var_type, enum_vals);
         else if (decl->type == AST_FUNC_DEF) {
-            resolve_array_sizes(decl->body.func_def.ret_type, enum_vals);
+            bad |= resolve_array_sizes(decl->body.func_def.ret_type, enum_vals);
             for (AST_Node* p = decl->body.func_def.params;
                  p && p->type == AST_PARAM_DECL; p = p->next)
-                resolve_array_sizes(p->body.param_decl.param_type, enum_vals);
+                bad |= resolve_array_sizes(p->body.param_decl.param_type, enum_vals);
             if (decl->body.func_def.body)
-                ast_walk(decl->body.func_def.body,
-                         resolve_local_arr_cb, NULL, enum_vals);
+                bad |= (ast_walk(decl->body.func_def.body,
+                                 resolve_local_arr_cb, NULL, enum_vals) > 0);
         }
     }
+    return bad;
 }
 
 /* upgrade an extern global to a definition when this decl has an init

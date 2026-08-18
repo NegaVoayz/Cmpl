@@ -128,7 +128,7 @@ IR_Value* gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
 void resolve_type_tree(Type* t, TypedefEntry* table);
 void resolve_expr_types(AST_Node* e, TypedefEntry* table);
 void resolve_ast_node(AST_Node* n, TypedefEntry* table);
-void resolve_array_sizes(Type* t, TypedefEntry* enum_vals);
+int  resolve_array_sizes(Type* t, TypedefEntry* enum_vals);
 void resolve_struct_refs_type(Type* t, HashMap* struct_map);
 void resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map);
 int  resolve_sizeof_cast_type_cb(AST_Node* n, void* ctx);
@@ -137,7 +137,7 @@ int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 
 /* ---- module emission passes (ir_gen_module_emit.c) ---- */
 void resolve_struct_refs_all(Arena* a, AST_Node* root);
-void resolve_array_sizes_pass(AST_Node* root, TypedefEntry* enum_vals);
+int  resolve_array_sizes_pass(AST_Node* root, TypedefEntry* enum_vals);
 void upgrade_existing_global(Arena* a, AST_Node* decl, IR_Value* existing,
                              TypedefEntry* enum_vals);
 void emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,

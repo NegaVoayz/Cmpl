@@ -126,14 +126,39 @@ void resolve_expr_types(AST_Node* e, TypedefEntry* table)
     }
 }
 
-void resolve_array_sizes(Type* t, TypedefEntry* enum_vals)
+/* Resolve enum-sized dimensions on local arrays: the parser stores
+ * `int arr[N]` as size_name (unresolved), and only top-level var decls
+ * were walked — local arrays with enum sizes stayed [0 x N].
+ *
+ * Also the fail-loudly gate for VLA bounds: the parser marks a
+ * non-constant `[expr]` bound with arr_size == -1 and a runtime-variable
+ * `[ident]` bound with size_name; both must reject the declaration
+ * instead of silently emitting `alloca [0 x i32]` (OOB writes).
+ * Returns 1 if a VLA bound was found. */
+int resolve_array_sizes(Type* t, TypedefEntry* enum_vals)
 {
-    if (!t) return;
-    resolve_array_sizes(t->inner, enum_vals);
-    resolve_array_sizes(t->next, enum_vals);
-    if (t->kind == TYPE_ARRAY && t->arr_size == 0 &&
-        t->size_name.data && enum_vals) {
-        Type* found = typedef_lookup(enum_vals, t->size_name);
-        if (found) t->arr_size = (int)(intptr_t)found;
+    if (!t) return 0;
+
+    int bad = resolve_array_sizes(t->inner, enum_vals);
+    bad |= resolve_array_sizes(t->next, enum_vals);
+
+    if (t->kind != TYPE_ARRAY) return bad;
+
+    if (t->arr_size == -1) {
+        fprintf(stderr, "ir: array bound is not a constant expression (VLA not supported)\n");
+        return 1;
     }
+
+    if (t->arr_size == 0 && t->size_name.data) {
+        Type* found = enum_vals ? typedef_lookup(enum_vals, t->size_name) : NULL;
+
+        if (found)
+            t->arr_size = (int)(intptr_t)found;
+        else {
+            fprintf(stderr, "ir: array bound '%.*s' is not a constant expression (VLA not supported)\n",
+                    (int)t->size_name.length, t->size_name.data);
+            bad = 1;
+        }
+    }
+    return bad;
 }

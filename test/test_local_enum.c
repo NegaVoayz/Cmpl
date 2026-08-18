@@ -9,6 +9,15 @@
  *     stopped resolve_stmt_chain (is_stmt_type lacked AST_ENUM_DEF /
  *     AST_TYPEDEF), leaving following local var decls with unresolved
  *     TYPE_NAMED → member access on them emitted undef.
+ *
+ * Negative case (verified by probe vla_reject.sh, NOT a harness test —
+ * the battery expects every test/*.c to compile):
+ *     int f(int n){ int a[n]; }      -> VLA, compile fails, exit 1
+ *     int f(int n){ int a[n+1]; }    -> VLA, compile fails, exit 1
+ *     int f(void){ int a[sizeof(int)]; } -> non-literal bound, fails
+ * The bound must be a literal / literal-binary / enum constant; anything
+ * else is rejected loudly instead of silently emitting `alloca [0 x i32]`
+ * (OOB writes at runtime).
  */
 #include <stdio.h>
 

@@ -170,7 +170,13 @@ ir_gen_module_ex(AST_Node* root, int is_device)
         resolve_ast_node(decl, typedefs);
 
     resolve_struct_refs_all(a, root);
-    resolve_array_sizes_pass(root, enum_vals);
+
+    /* VLA bounds are unsupported: resolve_array_sizes marks a non-constant
+     * `[expr]` bound with arr_size == -1 and an unresolvable `[ident]`
+     * bound with size_name; both fail the compile loudly here instead of
+     * silently emitting `alloca [0 x i32]` (OOB writes at runtime). */
+    if (resolve_array_sizes_pass(root, enum_vals))
+        mod->had_error = 1;
 
     /* enable struct type dedup cache — typedefs are now resolved, so
      * subsequent ir_type_from_ast() calls get consistent IR_Type* */
