@@ -33,12 +33,17 @@ infer_array_size_from_brace(LR1_Parser* p, Type* full)
     }
     if (has_elem) elem_count++;
 
-    /* set array size from initializer count */
+    /* set array size from initializer count — only for a truly unsized
+     * array (int a[] = {...}).  An ident-bound array (int a[N] = {...},
+     * N an enum constant or a runtime VLA) keeps its size_name so the
+     * resolve pass resolves or rejects it; overwriting arr_size here
+     * would mask a VLA into a silently wrong fixed-size array. */
     if (elem_count > 0) {
         Type* scan = full;
         while (scan && scan->kind == TYPE_PTR)
             scan = scan->inner;
-        if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0) {
+        if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0 &&
+            !scan->size_name.data) {
             scan->arr_size = elem_count;
             scan->size_inferred = 1;
         }
@@ -55,6 +60,7 @@ infer_array_size_from_string(LR1_Parser* p, Type* full)
         scan = scan->inner;
 
     if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0 &&
+        !scan->size_name.data &&
         scan->inner && scan->inner->kind == TYPE_CHAR) {
         scan->arr_size = (int)(p->tok->body.str_val.length + 1);
         scan->size_inferred = 1;
