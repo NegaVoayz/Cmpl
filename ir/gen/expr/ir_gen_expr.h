@@ -51,4 +51,9 @@ IR_Value* bf_byte_ptr(GenCtx* ctx, IR_Value* base, int off);
  * NULL for bit-fields (caller diagnoses the address-of error). */
 IR_Value* bf_byte_addr(GenCtx* ctx, AST_Node* n);
 
+/* C11 _Generic selection (ir_gen_generic.c): select the association
+ * whose type-name matches the controlling expression's type and
+ * generate ONLY that arm. */
+IR_Value* gen_expr_generic(GenCtx* ctx, AST_Node* n);
+
 #endif /* IR_GEN_EXPR_H */

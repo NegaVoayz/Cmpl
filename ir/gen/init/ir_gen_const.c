@@ -145,6 +145,10 @@ gen_const_union_aggregate(Arena* a, IR_Type* agg, IR_Value* mv)
     return ir_const_aggregate(a, agg, elems, n);
 }
 
+/* _Generic with a constant controlling expression in a const-init path:
+ * handled in ir_gen_const_generic.c (the ast-opt fold normally resolves
+ * it first). */
+
 IR_Value*
 gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
                TypedefEntry* enum_vals)
@@ -189,6 +193,9 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
 
     case AST_UNARY:
         return gen_const_unary(a, init, target_type, enum_vals);
+
+    case AST_GENERIC:
+        return gen_const_generic(a, init, target_type, enum_vals);
 
     default:
         fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);

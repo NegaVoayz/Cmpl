@@ -3,6 +3,7 @@ add_library(parser_lr STATIC
     lr1_cast.c
     lr1_cast_apply.c
     lr1_shift.c
+    lr1_generic.c
     reduce/lr1_reduce.c
     reduce/lr1_reduce_passthrough.c
     reduce/lr1_reduce_postfix.c

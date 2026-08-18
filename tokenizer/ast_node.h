@@ -162,6 +162,20 @@ struct AST_Node {
         /* C11 _Static_assert(expr, "msg"); — condition must be an
          * integer constant expression (evaluated during IR gen) */
         struct { AST_Node* expr; String message; } static_assert;
+
+        /* C11 _Generic selection: controlling expr + a linked list of
+         * AST_GENERIC_ASSOC nodes (chain via ->next) + the default arm.
+         * The controlling expression is used only for its type; exactly
+         * one arm (the match, else default) is evaluated. */
+        struct {
+            AST_Node* controlling;
+            AST_Node* assoc_list;
+            AST_Node* last_assoc;
+        } generic;
+
+        /* one _Generic association: type-name : expr.  type NULL marks
+         * the `default:` arm. */
+        struct { Type* type; AST_Node* expr; } generic_assoc;
     } body;
 };
 

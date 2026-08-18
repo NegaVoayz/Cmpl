@@ -73,6 +73,13 @@ LR_Action shift_sizeof(LR1_Parser* p)
     return do_shift(p, S_SIZEOF);
 }
 
+/* --- _Generic keyword (the selection is parsed wholesale at its '(') --- */
+
+LR_Action shift_generic(LR1_Parser* p)
+{
+    return do_shift(p, S_GENERIC);
+}
+
 /* --- prefix increment/decrement --- */
 
 LR_Action shift_prefix_inc(LR1_Parser* p)

@@ -15,6 +15,7 @@ LR_Action shift_ident(LR1_Parser* p);
 LR_Action shift_lparen(LR1_Parser* p);
 LR_Action shift_unary_op(LR1_Parser* p);
 LR_Action shift_sizeof(LR1_Parser* p);
+LR_Action shift_generic(LR1_Parser* p);
 LR_Action shift_prefix_inc(LR1_Parser* p);
 LR_Action shift_prefix_dec(LR1_Parser* p);
 LR_Action shift_postfix_lbrack(LR1_Parser* p);
@@ -41,6 +42,7 @@ static void fill_op_state(int st)
     set_cell(st, TOK_LPAREN,   shift_lparen);
     set_cell(st, TOK_SIZEOF,   shift_sizeof);
     set_cell(st, TOK_ALIGNOF,  shift_sizeof);   /* _Alignof reuses the sizeof state */
+    set_cell(st, TOK__GENERIC, shift_generic);
     set_cell(st, TOK_PLUSPLUS, shift_prefix_inc);
     set_cell(st, TOK_MINUSMINUS, shift_prefix_dec);
     for (int t = 0; t < NUM_TOKENS; t++)

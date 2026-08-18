@@ -68,7 +68,12 @@ typedef enum {
     /* C11 _Static_assert(integer-constant-expression, string-literal);
      * parsed as a statement at file and block scope (appended at the
      * end so dense LR(1) action-table indices stay stable) */
-    AST_STATIC_ASSERT
+    AST_STATIC_ASSERT,
+
+    /* C11 _Generic selection (appended at the end — the dense LR(1)
+     * action-table indices of every earlier kind stay stable) */
+    AST_GENERIC,      /* _Generic(ctrl, type-name: expr, ..., default: expr) */
+    AST_GENERIC_ASSOC /* one association: type-name : expr (type NULL = default) */
 } AST_Type;
 
 #endif /* AST_TYPE_H */

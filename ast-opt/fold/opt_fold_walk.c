@@ -9,6 +9,9 @@
 extern int try_fold_binary(AST_Node* n);
 extern int try_fold_unary(AST_Node* n);
 
+/* from opt_fold_generic.c */
+extern int try_fold_generic(AST_Node* n);
+
 /* ---------------------------------------------------------------
  *  Post-order callback: try folding after children processed
  * --------------------------------------------------------------- */
@@ -21,6 +24,8 @@ static int try_fold(AST_Node* n, void* ctx)
         return try_fold_binary(n);
     if (n->type == AST_UNARY)
         return try_fold_unary(n);
+    if (n->type == AST_GENERIC)
+        return try_fold_generic(n);
     return 0;
 }
 

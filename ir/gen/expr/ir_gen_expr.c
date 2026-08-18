@@ -1,6 +1,7 @@
 /* ir_gen_expr.c -- AST-to-IR expression generation (dispatch). */
 
 #include "../ir_gen.h"
+#include "ir_gen_expr.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -147,6 +148,10 @@ gen_expr_sizeof_expr(GenCtx* ctx, AST_Node* n)
     return ir_const_int(ctx->b, t_i32, sz);
 }
 
+/* ---------------------------------------------------------------
+ *  C11 _Generic selection (implemented in ir_gen_generic.c)
+ * --------------------------------------------------------------- */
+
 IR_Value*
 gen_expr(GenCtx* ctx, AST_Node* n)
 {
@@ -195,6 +200,8 @@ gen_expr(GenCtx* ctx, AST_Node* n)
       return ir_const_int(b, t_i32, ir_type_align(t)); }
 
     case AST_POSTFIX: return gen_postfix_expr(ctx, n);
+
+    case AST_GENERIC: return gen_expr_generic(ctx, n);
 
     default:
     { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }

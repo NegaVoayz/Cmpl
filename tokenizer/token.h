@@ -93,6 +93,7 @@ typedef enum {
     TOK_RESTRICT,   // restrict
     TOK_NORETURN,   // _Noreturn
     TOK_ALIGNOF,    // _Alignof (type) — sizeof-like unary operator
+    TOK__GENERIC,   // _Generic (controlling-expr, type-name: expr, ...)
 
     NUM_TOKEN_KINDS
 } TokenKind;

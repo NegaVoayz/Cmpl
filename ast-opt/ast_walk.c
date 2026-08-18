@@ -57,6 +57,11 @@ static int walk_expr_children(AST_Node* n, AST_Walker pre, AST_Walker post,
     case AST_SIZEOF_EXPR:
     case AST_ALIGNOF_EXPR:
         ch |= ast_walk(n->body.sizeof_expr.expr, pre, post, ctx); break;
+    case AST_GENERIC:
+        ch |= ast_walk(n->body.generic.controlling, pre, post, ctx);
+        ch |= ast_walk(n->body.generic.assoc_list, pre, post, ctx); break;
+    case AST_GENERIC_ASSOC:
+        ch |= ast_walk(n->body.generic_assoc.expr, pre, post, ctx); break;
     default: break;
     }
 

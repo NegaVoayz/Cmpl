@@ -117,6 +117,16 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
         if (try_parse_cast(p, state))
             continue;
 
+        /* _Generic(...) — the whole selection is parsed wholesale at
+         * its '(' so the type-name colons never reach the LR loop */
+        if (state == S_GENERIC && p->tok->kind == TOK_LPAREN) {
+            if (!lr1_parse_generic(p)) {
+                p->error = 1;
+                return NULL;
+            }
+            continue;
+        }
+
         LR_Action action = func(p);
 
         switch (action) {

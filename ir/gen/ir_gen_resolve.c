@@ -112,6 +112,17 @@ void resolve_expr_types(AST_Node* e, TypedefEntry* table)
         if (e->body.compound_lit.init)
             resolve_expr_types(e->body.compound_lit.init, table);
         break;
+    case AST_GENERIC:
+        /* resolve typedef names in the association type-names so
+         * ir_type_eq matching at gen time sees concrete types */
+        resolve_expr_types(e->body.generic.controlling, table);
+        for (AST_Node* a = e->body.generic.assoc_list; a; a = a->next) {
+            if (a->type != AST_GENERIC_ASSOC) continue;
+            if (a->body.generic_assoc.type)
+                resolve_type_tree(a->body.generic_assoc.type, table);
+            resolve_expr_types(a->body.generic_assoc.expr, table);
+        }
+        break;
     case AST_INIT_LIST:
         for (AST_Node* elem = e->body.init_list.elems;
              elem; elem = elem->next)

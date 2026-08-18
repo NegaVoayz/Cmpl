@@ -83,4 +83,9 @@ AST_Node* gen_const_elided_elem(Arena* a, IR_Value** elems,
                                 IR_Type* target_type, TypedefEntry* enum_vals,
                                 AST_Node* e, int slots, int* pos);
 
+/* _Generic in a const init (ir_gen_const_generic.c): safety net behind
+ * the ast-opt fold; selects the arm of a constant controlling expr. */
+IR_Value* gen_const_generic(Arena* a, AST_Node* init, IR_Type* target_type,
+                            TypedefEntry* enum_vals);
+
 #endif /* IR_GEN_INIT_H */
