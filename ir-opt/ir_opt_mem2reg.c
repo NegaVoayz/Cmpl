@@ -26,11 +26,21 @@ alloca_ok(IR_Func* fn, IR_Value* a)
 
     for (IR_Block* b = fn->blocks; b; b = b->next) {
         for (IR_Instr* i = b->first; i; i = i->next) {
-            int mem = i->opcode == IROP_LOAD || i->opcode == IROP_STORE;
+            /* Address-taken escape: the alloca may only appear as the
+               memory operand -- LOAD.operands[0] (source) or
+               STORE.operands[1] (destination).  Any other operand slot,
+               including STORE.operands[0] (storing the alloca's ADDRESS,
+               e.g. `&count` into a struct field), call args, or phi
+               in_vals, means the address escapes and promotion would
+               leave dangling references when remove_dead unlinks it. */
+            for (int o = 0; o < 3; o++) {
+                if (i->operands[o] != a) continue;
 
-            for (int o = 0; o < 3; o++)
-                if (i->operands[o] == a && !mem)
-                    return 0;
+                int ok_slot =
+                    (i->opcode == IROP_LOAD && o == 0) ||
+                    (i->opcode == IROP_STORE && o == 1);
+                if (!ok_slot) return 0;
+            }
 
             if (i->call_args)
                 for (int c = 0; c < i->n_call_args; c++)

@@ -188,6 +188,24 @@ static void gen_stmt_var_decl(GenCtx* ctx, AST_Node* n)
                 !n->body.var_decl.var_type->inner &&
                 init->type && init->type->kind == IR_PTR)
                 vt = ir_ptr_type(b->arena, t_i8, 0);
+            /* Coerce the init to the variable's type before storing:
+               `int* p = 0;` must store a full-width null pointer, not
+               a 4-byte i32 0 into an 8-byte `alloca ptr` (the load then
+               read 4 garbage bytes -> `p == 0` was false).  Only scalar
+               coercions are allowed here: an aggregate init whose type is
+               an anonymous struct/union CLONE fails ir_type_eq (clones
+               compare by pointer identity) and coerce_to would emit a
+               self-bitcast on a value, which LLVM rejects.  An aggregate
+               store is already valid as-is (value type drives the store). */
+            if (init && init->type && vt &&
+                !ir_type_eq(init->type, vt) &&
+                !(init->type->kind == IR_STRUCT ||
+                  init->type->kind == IR_UNION ||
+                  init->type->kind == IR_ARRAY) &&
+                !(vt->kind == IR_STRUCT ||
+                  vt->kind == IR_UNION ||
+                  vt->kind == IR_ARRAY))
+                init = coerce_to(b, init, vt);
             if (init) ir_build_store(b, init, al);
         }
     }
