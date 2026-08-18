@@ -40,10 +40,21 @@ Fixes TYPE_STRUCT/TYPE_UNION nodes that have a tag name but no params:
 
 ### `resolve_array_sizes(Type* t, TypedefEntry* enum_vals)`
 
-Resolves enum constant names used as array dimensions:
-- Checks `t->kind == TYPE_ARRAY && t->arr_size == 0 && t->size_name.data`
-- Looks up the name in the enum values table
-- Sets `t->arr_size` to the integer value
+Resolves enum constant names used as array dimensions and rejects
+variable-length arrays loudly:
+- If `t->kind == TYPE_ARRAY && t->arr_size == -1` (parser marker for a
+  non-constant `[expr]` bound like `[n+1]` or `[sizeof(int)]`), prints
+  `ir: array bound is not a constant expression (VLA not supported)` and
+  returns 1.
+- If `t->kind == TYPE_ARRAY && t->arr_size == 0 && t->size_name.data`,
+  looks up the name in the enum values table; on success sets
+  `t->arr_size` to the integer value, on failure (a runtime-variable
+  bound like `[n]`) prints the same VLA error and returns 1.
+- Returns 0 when every array bound resolved; 1 when any VLA bound was
+  found (the caller sets `mod->had_error`, so the compile exits nonzero
+  instead of silently emitting `alloca [0 x i32]`).
+- Function parameters decay to pointers before this pass, so VLA params
+  (`int a[n]` in a prototype) stay legal.
 
 ### Struct field typedef resolution (NEW)
 
