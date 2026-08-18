@@ -104,6 +104,8 @@ struct IR_Value {
         } aggregate;
     } body;
     int          linkage;    /* for globals: 0=internal(static), 1=external */
+    unsigned     is_wide : 1; /* VAL_CONST_STRING with 4-byte wchar (i32)
+                                 elements (L"..." literal) */
     IR_Instr*    def_instr;   /* instruction that defines this value (or NULL) */
     IR_Instr**   uses;        /* dynamic: instructions that use this value */
     int          n_uses;

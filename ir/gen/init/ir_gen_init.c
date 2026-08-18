@@ -10,21 +10,23 @@
 
 /* char a[N] = "s": copy the string's BYTES into the array element by
  * element, zero-padding the remainder and truncating at N (C11 6.7.9p14,
- * p21).  A string operand is a pointer — storing it directly would write
- * the pointer value into the array slot. */
+ * p21).  wchar_t a[N] = L"s" stores each byte as one i32 wchar element.
+ * A string operand is a pointer — storing it directly would write the
+ * pointer value into the array slot. */
 void
 gen_string_array_init(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type* ty)
 {
     IR_Builder* b = ctx->b;
     String st = e->body.literal.str_val;
     long n = ty->size;
+    IR_Type* et = (e->body.literal.wide && ty->inner) ? ty->inner : t_i8;
 
     for (long i = 0; i < n; i++) {
-        long byte = (i < (long)st.length)
+        long v = (i < (long)st.length)
             ? (unsigned char)st.data[i] : 0;
         IR_Value* p = ir_build_gep(b, dst, ir_const_int(b, t_i32, 0),
                                    ir_const_int(b, t_i32, i));
-        ir_build_store(b, ir_const_int(b, t_i8, byte), p);
+        ir_build_store(b, ir_const_int(b, et, v), p);
     }
 }
 

@@ -116,9 +116,9 @@ void dump_value(FILE* out, IR_Value* val)
 
     case VAL_CONST_STRING:
         {
-            int idx = dump_str_index(val->body.str_val);
+            int idx = dump_str_index(val->body.str_val, val->is_wide);
             if (idx >= 0)
-                fprintf(out, "@.str.%d", idx);
+                fprintf(out, val->is_wide ? "@.wstr.%d" : "@.str.%d", idx);
             else
                 fprintf(out, "null");
         }

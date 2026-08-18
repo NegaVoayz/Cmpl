@@ -13,22 +13,28 @@
 #include <string.h>
 
 /* char a[N] = "s" at file scope: byte array constant, zero-padded /
- * truncated to N (C11 6.7.9p14/p21).  Otherwise a VAL_CONST_STRING. */
+ * truncated to N (C11 6.7.9p14/p21).  wchar_t a[N] = L"s" fills [N x i32]
+ * elements (each source byte becomes one 4-byte wchar value).  Otherwise
+ * a VAL_CONST_STRING (plain or wide). */
 static IR_Value*
 gen_const_string(Arena* a, AST_Node* init, IR_Type* target_type)
 {
     String st = init->body.literal.str_val;
+    int wide = init->body.literal.wide;
+
     if (target_type && target_type->kind == IR_ARRAY &&
         target_type->size > 0) {
         int n = target_type->size;
+        IR_Type* et = target_type->inner ? target_type->inner
+                     : (wide ? t_i32 : t_i8);
         IR_Value** elems = arena_alloc(a, sizeof(IR_Value*) * n);
         for (int i = 0; i < n; i++) {
-            long byte = (i < (int)st.length)
+            long v = (i < (int)st.length)
                 ? (unsigned char)st.data[i] : 0;
             IR_Value* ev = arena_alloc(a, sizeof(IR_Value));
             ev->kind = VAL_CONST_INT;
-            ev->type = t_i8;
-            ev->body.int_val = byte;
+            ev->type = et;
+            ev->body.int_val = v;
             elems[i] = ev;
         }
         return ir_const_aggregate(a, target_type, elems, n);
@@ -36,6 +42,7 @@ gen_const_string(Arena* a, AST_Node* init, IR_Type* target_type)
     IR_Value* v = arena_alloc(a, sizeof(IR_Value));
     v->kind = VAL_CONST_STRING;
     v->type = target_type;
+    v->is_wide = wide;
     v->body.str_val = init->body.literal.str_val;
     return v;
 }

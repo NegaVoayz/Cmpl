@@ -111,9 +111,18 @@ read_number(Lexer* lex)
 }
 
 Token*
-read_char_or_string(Lexer* lex, char quote)
+read_char_or_string(Lexer* lex, char quote, int wide, int u8)
 {
     int line = lex->line, col = lex->col;
+
+    /* consume the L / u8 prefix (the caller verified it precedes the
+     * quote); the quote is consumed below */
+    if (wide)
+        advance(lex);
+    else if (u8) {
+        advance(lex);
+        advance(lex);
+    }
     advance(lex);
 
     if (quote == '\'') {
@@ -148,7 +157,12 @@ read_char_or_string(Lexer* lex, char quote)
         }
         advance(lex);
         Token* tok = token_new(lex,TOK_CHAR_LIT, line, col);
-        tok->body.char_val = val;
+        tok->wide = wide;
+        /* a wide char literal is an int-sized wchar value */
+        if (wide)
+            tok->body.int_val = (unsigned char)val;
+        else
+            tok->body.char_val = val;
         return tok;
     }
 
@@ -182,6 +196,8 @@ read_char_or_string(Lexer* lex, char quote)
 
     buf[len] = '\0';
     Token* tok = token_new(lex, TOK_STRING_LIT, line, col);
+    tok->wide = wide;
+    tok->u8str = u8;
     tok->body.str_val.data = buf;
     tok->body.str_val.length = len;
     return tok;

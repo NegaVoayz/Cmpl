@@ -2,7 +2,8 @@
  *
  * Collects VAL_CONST_STRING values from the IR module and emits
  * them as LLVM 19 opaque-pointer-style global constants before
- * function definitions.
+ * function definitions.  Wide (L"..." wchar_t) strings are emitted
+ * as [N x i32] constants; plain/u8 strings as [N x i8].
  */
 
 #include "ir.h"
@@ -16,13 +17,18 @@
  * self-built compiler. */
 #define MAX_STR_CONSTS 256
 
-static String  str_table[MAX_STR_CONSTS];
-static int     str_count = 0;
-static int     str_emitted_count = 0;  /* strings emitted as globals so far */
+typedef struct {
+    String s;
+    int    wide;   /* 1 = wchar (i32) elements, 0 = bytes */
+} StrEntry;
+
+static StrEntry str_table[MAX_STR_CONSTS];
+static int      str_count = 0;
+static int      str_emitted_count = 0;  /* strings emitted as globals so far */
 
 /* --- forward --- */
 
-static int  str_index_of(String s);
+static int  str_index_of(String s, int wide);
 
 /* --- public API (called from ir_dump_func.c + ir_dump.c) --- */
 
@@ -33,33 +39,48 @@ dump_str_reset(void)
     str_emitted_count = 0;
 }
 
+static void
+dump_str_bytes(FILE* out, const char* data, int len)
+{
+    for (int j = 0; j < len; j++) {
+        char c = data[j];
+
+        if (c == '\n')
+            fprintf(out, "\\0A");
+        else if (c == '\t')
+            fprintf(out, "\\09");
+        else if (c == '\r')
+            fprintf(out, "\\0D");
+        else if (c == '"')
+            fprintf(out, "\\22");
+        else if (c == '\\')
+            fprintf(out, "\\\\");
+        else if (c >= 32 && c < 127)
+            fputc(c, out);
+        else
+            fprintf(out, "\\%02X", (unsigned char)c);
+    }
+}
+
 void
 dump_str_globals(FILE* out)
 {
     for (int i = 0; i < str_count; i++) {
-        String* s = &str_table[i];
+        StrEntry* e = &str_table[i];
 
-        fprintf(out, "@.str.%d = private unnamed_addr constant [%d x i8] c\"",
-                i, s->length + 1);
-
-        for (int j = 0; j < s->length; j++) {
-            char c = s->data[j];
-            if (c == '\n')
-                fprintf(out, "\\0A");
-            else if (c == '\t')
-                fprintf(out, "\\09");
-            else if (c == '\r')
-                fprintf(out, "\\0D");
-            else if (c == '"')
-                fprintf(out, "\\22");
-            else if (c == '\\')
-                fprintf(out, "\\\\");
-            else if (c >= 32 && c < 127)
-                fputc(c, out);
-            else
-                fprintf(out, "\\%02X", (unsigned char)c);
+        if (e->wide) {
+            fprintf(out, "@.wstr.%d = private unnamed_addr constant [%d x i32] [",
+                    i, e->s.length + 1);
+            for (int j = 0; j < e->s.length; j++)
+                fprintf(out, "%si32 %u", j ? ", " : "",
+                        (unsigned char)e->s.data[j]);
+            fprintf(out, "%si32 0], align 4\n", e->s.length ? ", " : "");
+        } else {
+            fprintf(out, "@.str.%d = private unnamed_addr constant [%d x i8] c\"",
+                    i, e->s.length + 1);
+            dump_str_bytes(out, e->s.data, e->s.length);
+            fprintf(out, "\\00\", align 1\n");
         }
-        fprintf(out, "\\00\", align 1\n");
     }
     str_emitted_count = str_count;
 }
@@ -68,7 +89,7 @@ static void collect_from_value(IR_Value* val)
 {
     if (!val) return;
     if (val->kind == VAL_CONST_STRING)
-        str_index_of(val->body.str_val);
+        str_index_of(val->body.str_val, val->is_wide);
     else if (val->kind == VAL_CONST_AGGREGATE) {
         for (int i = 0; i < val->body.aggregate.count; i++)
             collect_from_value(val->body.aggregate.elems[i]);
@@ -116,9 +137,10 @@ dump_str_collect_module(IR_Module* mod)
 }
 
 int
-dump_str_index(String s)
+dump_str_index(String s, int wide)
 {
-    int idx = str_index_of(s);
+    int idx = str_index_of(s, wide);
+
     /* a string appended after the globals were emitted means the collector
      * missed it — the reference would be a dangling @.str.N */
     if (idx >= str_emitted_count)
@@ -130,11 +152,12 @@ dump_str_index(String s)
 /* --- internal --- */
 
 static int
-str_index_of(String s)
+str_index_of(String s, int wide)
 {
     for (int i = 0; i < str_count; i++) {
-        if (str_table[i].length == s.length &&
-            memcmp(str_table[i].data, s.data, s.length) == 0)
+        if (str_table[i].s.length == s.length &&
+            str_table[i].wide == wide &&
+            memcmp(str_table[i].s.data, s.data, s.length) == 0)
             return i;
     }
     if (str_count >= MAX_STR_CONSTS) {
@@ -148,6 +171,8 @@ str_index_of(String s)
         return -1;
     }
 
-    str_table[str_count++] = s;
+    str_table[str_count].s = s;
+    str_table[str_count].wide = wide;
+    str_count++;
     return str_count - 1;
 }

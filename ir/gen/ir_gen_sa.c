@@ -354,8 +354,15 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
       case AST_FLOAT_LIT: sz = 4; al = 4; break;
       case AST_DOUBLE_LIT: sz = 8; al = 8; break;
       case AST_STRING_LIT:
-          sz = op->body.literal.str_val.length + 1;  /* char array w/ NUL */
-          al = 1;
+          /* char array w/ NUL; a wide (wchar_t) string has 4-byte
+           * elements, so sizeof is (len+1)*4 */
+          if (op->body.literal.wide) {
+              sz = (op->body.literal.str_val.length + 1) * 4;
+              al = 4;
+          } else {
+              sz = op->body.literal.str_val.length + 1;
+              al = 1;
+          }
           break;
       default:
           if (why) *why = "sizeof operand is not constant in static assertion";

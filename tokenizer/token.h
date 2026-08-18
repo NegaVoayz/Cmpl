@@ -113,6 +113,8 @@ struct Token {
     SourceLoc loc;
     Token*    next;
     unsigned  is_unsigned : 1;  /* integer literal had a u/U suffix */
+    unsigned  wide        : 1;  /* L-prefixed string/char literal */
+    unsigned  u8str       : 1;  /* u8-prefixed string literal */
 
     union {
         long long int_val;      // TOK_INT_LIT / TOK_LONG_LIT (64-bit)

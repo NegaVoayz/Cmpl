@@ -40,7 +40,7 @@ void dump_gep(FILE* out, IR_Instr* inst);
 void dump_str_reset(void);
 void dump_str_globals(FILE* out);
 void dump_str_collect_module(IR_Module* mod);
-int  dump_str_index(String s);
+int  dump_str_index(String s, int wide);
 
 /* --- struct type collector/emitter (ir_dump_struct.c) --- */
 void emit_struct_types(FILE* out, IR_Module* mod);

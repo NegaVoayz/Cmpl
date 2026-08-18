@@ -25,6 +25,8 @@ struct AST_Node {
             double float_val;
             String str_val;
             unsigned is_unsigned : 1;  /* integer literal u/U suffix */
+            unsigned wide        : 1;  /* L-prefixed string/char literal */
+            unsigned u8str       : 1;  /* u8-prefixed string literal */
         } literal;
 
         /* identifier */

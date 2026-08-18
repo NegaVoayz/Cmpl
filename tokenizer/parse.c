@@ -84,9 +84,13 @@ skip_ws_and_comments(Lexer* lex)
 }
 
 /* Merge adjacent string literals ("a" "b" -> "ab").
- * C11 5.1.1.2 Translation phase 6: adjacent string literal tokens
- * are concatenated.  Uses arena for merged string data. */
-static void
+ * C11 5.1.1.2 Translation phase 6: adjacent string literal tokens are
+ * concatenated, but only when they carry the SAME prefix (C11 6.4.5p5:
+ * "identically prefixed"); a prefix mismatch (L"a" "b", u8"a" L"b") is a
+ * constraint violation and fails the compile.  Uses arena for merged
+ * string data.  Returns 1 on a prefix mismatch (message already
+ * printed). */
+static int
 merge_adjacent_strings(Token* head, Arena* a)
 {
     Token* prev = head;
@@ -100,6 +104,12 @@ merge_adjacent_strings(Token* head, Arena* a)
         Token* cur = prev->next;
 
         while (cur && cur->kind == TOK_STRING_LIT) {
+            if (prev->wide != cur->wide || prev->u8str != cur->u8str) {
+                fprintf(stderr, "tokenizer: adjacent string literals with "
+                        "different prefixes at line %d (C11 6.4.5p5)\n",
+                        cur->loc.line);
+                return 1;
+            }
             /* merge prev and cur: arena-allocate the joined string */
             int new_len = prev->body.str_val.length + cur->body.str_val.length;
             char* new_data = arena_alloc(a, new_len + 1);
@@ -119,6 +129,7 @@ merge_adjacent_strings(Token* head, Arena* a)
 
         prev = prev->next;
     }
+    return 0;
 }
 
 /* --- public API --- */
@@ -150,10 +161,19 @@ parse(const char* code, Arena* a)
 
         if (isdigit((unsigned char)c)) {
             tok = read_number(&lex);
+        } else if (c == '"' || c == '\'') {
+            tok = read_char_or_string(&lex, c, 0, 0);
+        } else if (c == 'L' &&
+                   (peek_next(&lex) == '"' || peek_next(&lex) == '\'')) {
+            /* wide string/char literal L"..." / L'...' */
+            tok = read_char_or_string(&lex, peek_next(&lex), 1, 0);
+        } else if (c == 'u' && peek_next(&lex) == '8' &&
+                   (lex.cur[2] == '"' || lex.cur[2] == '\'')) {
+            /* u8"..." UTF-8 string literal (u8'x' is C23; treat it as
+             * a plain char literal) */
+            tok = read_char_or_string(&lex, lex.cur[2], 0, 1);
         } else if (isalpha((unsigned char)c) || c == '_') {
             tok = read_ident_or_keyword(&lex);
-        } else if (c == '"' || c == '\'') {
-            tok = read_char_or_string(&lex, c);
         } else {
             tok = read_operator(&lex);
         }
@@ -169,6 +189,10 @@ parse(const char* code, Arena* a)
         }
     }
 
-    merge_adjacent_strings(lex.head, a);
+    if (merge_adjacent_strings(lex.head, a) && lex.head) {
+        /* prefix mismatch: mark the head so parse_program reports a
+         * parse failure (the message was already printed) */
+        lex.head->kind = TOK_ERROR;
+    }
     return lex.head;
 }

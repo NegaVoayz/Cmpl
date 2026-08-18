@@ -27,7 +27,7 @@ void skip_ws_and_comments(Lexer* lex);
 
 /* Token readers (implemented across split files) */
 Token* read_number(Lexer* lex);
-Token* read_char_or_string(Lexer* lex, char quote);
+Token* read_char_or_string(Lexer* lex, char quote, int wide, int u8);
 Token* read_ident_or_keyword(Lexer* lex);
 Token* read_operator(Lexer* lex);
 

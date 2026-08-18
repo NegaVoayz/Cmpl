@@ -50,7 +50,9 @@ infer_array_size_from_brace(LR1_Parser* p, Type* full)
     }
 }
 
-/* char a[] = "s": infer the length from the string literal + NUL. */
+/* char a[] = "s" / wchar_t a[] = L"s": infer the element count from the
+ * string literal + NUL (each source char is one element, 1 byte for a
+ * plain/u8 string, 4 bytes for a wide one). */
 static void
 infer_array_size_from_string(LR1_Parser* p, Type* full)
 {
@@ -60,10 +62,22 @@ infer_array_size_from_string(LR1_Parser* p, Type* full)
         scan = scan->inner;
 
     if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0 &&
-        !scan->size_name.data &&
-        scan->inner && scan->inner->kind == TYPE_CHAR) {
-        scan->arr_size = (int)(p->tok->body.str_val.length + 1);
-        scan->size_inferred = 1;
+        !scan->size_name.data && scan->inner) {
+        int inner_is_char = (scan->inner->kind == TYPE_CHAR);
+        /* a wide literal may size any int-typed element array (wchar_t
+         * is a typedef, so TYPE_NAMED is the common case) */
+        int inner_is_intish = (scan->inner->kind == TYPE_NAMED ||
+                               scan->inner->kind == TYPE_INT ||
+                               scan->inner->kind == TYPE_LONG ||
+                               scan->inner->kind == TYPE_SHORT ||
+                               scan->inner->kind == TYPE_CHAR ||
+                               scan->inner->kind == TYPE_SIGNED ||
+                               scan->inner->kind == TYPE_UNSIGNED);
+
+        if (inner_is_char || (p->tok->wide && inner_is_intish)) {
+            scan->arr_size = (int)(p->tok->body.str_val.length + 1);
+            scan->size_inferred = 1;
+        }
     }
 }
 

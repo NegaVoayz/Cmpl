@@ -54,11 +54,20 @@ LR_Action reduce_primary_lit(LR1_Parser* p)
         n->body.literal.int_val = t->body.int_val;
         n->body.literal.is_unsigned = t->is_unsigned;   break;
     case TOK_CHAR_LIT:
-        n->body.literal.char_val = t->body.char_val; break;
+        /* a wide char literal carries its int-sized value in int_val */
+        if (t->wide)
+            n->body.literal.int_val = t->body.int_val;
+        else
+            n->body.literal.char_val = t->body.char_val;
+        n->body.literal.wide = t->wide;
+        break;
     case TOK_FLOAT_LIT: case TOK_DOUBLE_LIT:
         n->body.literal.float_val = t->body.float_val; break;
     case TOK_STRING_LIT:
-        n->body.literal.str_val = t->body.str_val;   break;
+        n->body.literal.str_val = t->body.str_val;
+        n->body.literal.wide = t->wide;
+        n->body.literal.u8str = t->u8str;
+        break;
     default: break;
     }
 

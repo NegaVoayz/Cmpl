@@ -162,13 +162,18 @@ gen_expr(GenCtx* ctx, AST_Node* n)
     switch (n->type) {
     case AST_INT_LIT:   return ir_const_int(b, n->body.literal.is_unsigned ? t_u32 : t_i32, n->body.literal.int_val);
     case AST_LONG_LIT:  return ir_const_int(b, n->body.literal.is_unsigned ? t_u64 : t_i64, n->body.literal.int_val);
-    case AST_CHAR_LIT:  return ir_const_int(b, t_i8, n->body.literal.char_val);
+    case AST_CHAR_LIT:  return n->body.literal.wide
+                             ? ir_const_int(b, t_i32, n->body.literal.int_val)
+                             : ir_const_int(b, t_i8, n->body.literal.char_val);
     case AST_FLOAT_LIT: return ir_const_float(ctx->b->arena, t_f32, n->body.literal.float_val);
     case AST_DOUBLE_LIT:return ir_const_float(ctx->b->arena, t_f64, n->body.literal.float_val);
 
     case AST_STRING_LIT:
     { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-      v->kind = VAL_CONST_STRING; v->type = ir_ptr_type(ctx->b->arena, t_i8, 0);
+      v->kind = VAL_CONST_STRING;
+      v->type = ir_ptr_type(ctx->b->arena,
+                  n->body.literal.wide ? t_i32 : t_i8, 0);
+      v->is_wide = n->body.literal.wide;
       v->body.str_val = n->body.literal.str_val; return v; }
 
     case AST_IDENT: return gen_expr_ident(ctx, n);
