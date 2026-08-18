@@ -133,7 +133,16 @@ compute_df(BlkInfo* bi, int n)
 int
 compute_idf(BlkInfo* bi, int n, int* defs, int nd, int* out)
 {
-    int in[MAX_BLK] = {0}, n_out = 0, changed;
+    /* Iterated dominance frontier (Cytron et al.): phi nodes go at the
+       DF-closure of the defining blocks, NOT at the defs themselves.  The
+       old code seeded `in` with the defs and then emitted every `in` block,
+       which also placed a spurious phi at each def site -- a def block with
+       0 preds yielded a 0-incoming phi (invalid LLVM), and a def block that
+       simplify_cfg later folds into its successor turned into a
+       self-referential phi.  Use a separate `phi` flag so only DF-discovered
+       blocks become phi sites; the defs are just worklist seeds. */
+    int phi[MAX_BLK] = {0}, in[MAX_BLK] = {0};
+    int n_out = 0, changed;
 
     for (int i = 0; i < nd; i++) in[defs[i]] = 1;
 
@@ -143,13 +152,13 @@ compute_idf(BlkInfo* bi, int n, int* defs, int nd, int* out)
             if (!in[b]) continue;
             for (int f = 0; f < bi[b].n_df; f++) {
                 int fb = bi[b].df[f];
-                if (!in[fb]) { in[fb] = 1; changed = 1; }
+                if (!phi[fb]) { phi[fb] = 1; in[fb] = 1; changed = 1; }
             }
         }
     } while (changed);
 
     for (int b = 0; b < n; b++)
-        if (in[b]) out[n_out++] = b;
+        if (phi[b]) out[n_out++] = b;
     return n_out;
 }
 

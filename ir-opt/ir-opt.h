@@ -50,4 +50,12 @@ int opt_inline_dev(IR_Module* mod);
 
 void build_use_lists(IR_Func* fn, Arena* a);
 
+/* ---------------------------------------------------------------
+ *  Rewire all users of old_val to use new_val (operands[0..2],
+ *  call_args[], phi in_vals[]).  Requires build_use_lists() to have
+ *  run first.  Shared by GVN and mem2reg.
+ * --------------------------------------------------------------- */
+
+void redirect_users(IR_Value* old_val, IR_Value* new_val);
+
 #endif /* IR_OPT_H */

@@ -41,15 +41,22 @@ uses_reserve(IR_Value* v, Arena* a)
 void
 build_use_lists(IR_Func* fn, Arena* a)
 {
-    for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
-
-            /* clear old use lists (rebuilding from scratch) */
+    /* Pass 1: clear every result's use list.  This must run to completion
+       BEFORE any use is recorded: a phi (or any user) can precede its
+       defining instruction in block order (loop back-edges, break edges),
+       and clearing the def's list mid-add would wipe uses already recorded
+       by earlier users. */
+    for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
+        for (IR_Instr* inst = blk->first; inst; inst = inst->next)
             if (inst->result) {
                 inst->result->uses = NULL;
                 inst->result->n_uses = 0;
                 inst->result->max_uses = 0;
             }
+
+    /* Pass 2: record uses (operands, call args, phi in_vals). */
+    for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
+        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
 
             /* operands 0..2 */
             for (int o = 0; o < 3; o++) {

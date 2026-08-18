@@ -95,7 +95,7 @@ can_cse(IR_Instr* inst)
  *  Redirect all users of old_val to use new_val.
  * --------------------------------------------------------------- */
 
-static void
+void
 redirect_users(IR_Value* old_val, IR_Value* new_val)
 {
     for (int u = 0; u < old_val->n_uses; u++) {

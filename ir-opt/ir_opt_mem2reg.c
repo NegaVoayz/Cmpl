@@ -12,7 +12,8 @@ extern void compute_df(BlkInfo* bi, int n);
 extern int compute_idf(BlkInfo* bi, int n, int* defs, int nd, int* out);
 
 /* from ir_opt_mem2reg_rename.c */
-extern void rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca);
+extern void rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca,
+                        Arena* arena, IR_Value* undef);
 
 /* ---------------------------------------------------------------
  *  Find promotable allocas (only load/store users, no address-taken)
@@ -21,13 +22,85 @@ extern void rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca);
 static int
 alloca_ok(IR_Func* fn, IR_Value* a)
 {
-    for (IR_Block* b = fn->blocks; b; b = b->next)
-        for (IR_Instr* i = b->first; i; i = i->next)
+    IR_Type* elem = a->type ? a->type->inner : NULL;
+
+    for (IR_Block* b = fn->blocks; b; b = b->next) {
+        for (IR_Instr* i = b->first; i; i = i->next) {
+            int mem = i->opcode == IROP_LOAD || i->opcode == IROP_STORE;
+
             for (int o = 0; o < 3; o++)
-                if (i->operands[o] == a &&
-                    i->opcode != IROP_LOAD && i->opcode != IROP_STORE)
+                if (i->operands[o] == a && !mem)
                     return 0;
+
+            if (i->call_args)
+                for (int c = 0; c < i->n_call_args; c++)
+                    if (i->call_args[c] == a)
+                        return 0;
+
+            /* BR/COND_BR reuse in_blocks/n_incoming for successors and
+               leave in_vals NULL -- only phi nodes carry in_vals. */
+            if (i->in_vals)
+                for (int p = 0; p < i->n_incoming; p++)
+                    if (i->in_vals[p] == a)
+                        return 0;
+
+            /* Type-consistency: the frontend type-puns through an alloca
+               (e.g. `store i32 0, ptr %fp` into `alloca ptr`, or
+               `store ptr %gep, ptr %d` into `alloca i32`) and relies on the
+               load to reinterpret.  Promotion rewires the load to the stored
+               value, erasing that implicit cast, so refuse when the stored
+               value or loaded result type differs from the alloca element
+               type. */
+            if (elem && i->opcode == IROP_STORE && i->operands[1] == a)
+                if (i->operands[0] && i->operands[0]->type &&
+                    !ir_type_eq(i->operands[0]->type, elem))
+                    return 0;
+
+            if (elem && i->opcode == IROP_LOAD && i->operands[0] == a)
+                if (i->type && !ir_type_eq(i->type, elem))
+                    return 0;
+        }
+    }
     return 1;
+}
+
+/* ---------------------------------------------------------------
+ *  Remove a promoted alloca's dead loads/stores and the alloca
+ *  itself.  DCE keeps ALLOCA/STORE alive (id-numbering safety), so
+ *  mem2reg must unlink them here once loads have been rewired.
+ * --------------------------------------------------------------- */
+
+static void
+remove_dead(IR_Func* fn, IR_Value* alloca, IR_Value* undef)
+{
+    for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
+        IR_Instr** prev = &blk->first;
+
+        while (*prev) {
+            IR_Instr* i = *prev;
+            int dead =
+                (i->opcode == IROP_LOAD  && i->operands[0] == alloca) ||
+                (i->opcode == IROP_STORE && i->operands[1] == alloca) ||
+                (i->opcode == IROP_ALLOCA && i->result == alloca);
+
+            if (dead) {
+                /* A load in an UNREACHABLE block is never visited by the
+                   rename DFS (which walks only the dominator tree), so its
+                   result still dangles from a phi in a reachable block.
+                   Rewire any remaining users to undef before unlinking.
+                   For reachable loads this is a no-op: rename already
+                   rewired their users, so none still reference the result. */
+                if (i->opcode == IROP_LOAD && i->result)
+                    redirect_users(i->result, undef);
+
+                *prev = i->next;
+                if (blk->last == i)
+                    blk->last = (*prev) ? *prev : NULL;
+            } else {
+                prev = &i->next;
+            }
+        }
+    }
 }
 
 /* ---------------------------------------------------------------
@@ -50,6 +123,13 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca, Arena* arena)
     }
     if (!nd) return 0;
 
+    /* undef fills phi in_vals for paths that never define this alloca
+       (incl. unreachable preds), so no incoming dangles on the alloca
+       pointer after removal. */
+    IR_Value* undef = arena_alloc(arena, sizeof(IR_Value));
+    undef->kind = VAL_UNDEF;
+    undef->type = alloca->type ? alloca->type->inner : NULL;
+
     int idf[MAX_BLK], n_idf = compute_idf(bi, n, defs, nd, idf);
 
     /* insert phi nodes at IDF blocks.
@@ -70,7 +150,7 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca, Arena* arena)
         phi->in_vals = arena_alloc(arena, phi->n_incoming * sizeof(IR_Value*));
         phi->in_blocks = arena_alloc(arena, phi->n_incoming * sizeof(IR_Block*));
         for (int p = 0; p < phi->n_incoming; p++) {
-            phi->in_vals[p] = alloca;
+            phi->in_vals[p] = undef;
             phi->in_blocks[p] = bi[bi[idf[k]].preds[p]].blk;
         }
         phi->phi_alloca = alloca;
@@ -79,7 +159,8 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca, Arena* arena)
         if (!blk->last) blk->last = phi;
     }
 
-    rename_vars(fn, bi, n, alloca);
+    rename_vars(fn, bi, n, alloca, arena, undef);
+    remove_dead(fn, alloca, undef);
     return 1;
 }
 

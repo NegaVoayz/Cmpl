@@ -2,10 +2,58 @@
 
 #include "ir-opt.h"
 
+#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
-#define MAX_RENAME_STACK 64
+#define RENAME_INLINE_CAP 64
+
+/* ---------------------------------------------------------------
+ *  Growable value stack (SmallVector-style: inline 64, then heap).
+ *  Bounds are exact: pushes never silently drop past a fixed cap.
+ * --------------------------------------------------------------- */
+
+typedef struct {
+    IR_Value*  inline_buf[RENAME_INLINE_CAP];
+    IR_Value** data;   /* == inline_buf until it grows */
+    int        len;
+    int        cap;
+} RenameStack;
+
+static void
+stack_push(RenameStack* st, IR_Value* v)
+{
+    if (st->len < st->cap) {
+        st->data[st->len++] = v;
+        return;
+    }
+
+    int new_cap = st->cap * 2;
+    IR_Value** nd;
+
+    if (st->data == st->inline_buf) {
+        nd = malloc(new_cap * sizeof(IR_Value*));
+        if (nd)
+            for (int i = 0; i < st->len; i++) nd[i] = st->data[i];
+    } else {
+        nd = realloc(st->data, new_cap * sizeof(IR_Value*));
+    }
+
+    if (!nd) {
+        fprintf(stderr, "mem2reg: out of memory growing rename stack\n");
+        exit(1);
+    }
+
+    st->data = nd;
+    st->cap = new_cap;
+    st->data[st->len++] = v;
+}
+
+static void
+stack_free(RenameStack* st)
+{
+    if (st->data != st->inline_buf)
+        free(st->data);
+}
 
 /* ---------------------------------------------------------------
  *  Build dominator-tree children from idom array
@@ -29,12 +77,11 @@ build_domtree(BlkInfo* bi, int n)
  * --------------------------------------------------------------- */
 
 static void
-rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca,
-           IR_Value** stack, int* top)
+rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca, RenameStack* st)
 {
     IR_Block* blk = bi[bi_idx].blk;
-    int saved_top = *top;
-    IR_Value* cur = (*top >= 0) ? stack[*top] : NULL;
+    int saved_len = st->len;
+    IR_Value* cur = st->data[st->len - 1];
 
     /* Push phi results for THIS alloca as reaching definitions.
        When multiple allocas are promoted, each has its own phi nodes;
@@ -43,24 +90,21 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca,
         if (inst->opcode != IROP_PHI) break;
         if (inst->phi_alloca == alloca) {
             cur = inst->result;
-            if (*top < MAX_RENAME_STACK - 1) stack[++(*top)] = cur;
+            stack_push(st, cur);
         }
     }
 
-    /* Walk instructions: track stores, replace loads */
+    /* Walk instructions: track stores, rewire loads to the reaching def. */
     for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
         if (inst->opcode == IROP_PHI) continue;
 
         if (inst->opcode == IROP_STORE && inst->operands[1] == alloca) {
             cur = inst->operands[0];
-            if (*top < MAX_RENAME_STACK - 1) stack[++(*top)] = cur;
+            stack_push(st, cur);
         }
 
         if (inst->opcode == IROP_LOAD && inst->operands[0] == alloca) {
-            if (cur) {
-                inst->result->body = cur->body;
-                inst->result->id = cur->id;
-            }
+            redirect_users(inst->result, cur);
         }
     }
 
@@ -86,22 +130,35 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca,
 
     /* Recurse into dominator-tree children */
     for (int c = 0; c < bi[bi_idx].n_children; c++)
-        rename_dfs(bi[bi_idx].children[c], bi, n, alloca, stack, top);
+        rename_dfs(bi[bi_idx].children[c], bi, n, alloca, st);
 
     /* Restore stack to entry state */
-    *top = saved_top;
+    st->len = saved_len;
 }
 
 /* ---------------------------------------------------------------
- *  Public entry: rename all allocas in a function
+ *  Public entry: rename one alloca in a function
  * --------------------------------------------------------------- */
 
 void
-rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca)
+rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca,
+            Arena* arena, IR_Value* undef)
 {
-    IR_Value* stack[MAX_RENAME_STACK];
-    int       top = -1;
+    RenameStack st;
+
+    st.data = st.inline_buf;
+    st.cap = RENAME_INLINE_CAP;
+    st.len = 0;
+
+    /* Fresh use lists so redirect_users() sees any prior alloca's rewiring. */
+    build_use_lists(fn, arena);
+
+    /* undef is the entry reaching-definition: uninitialized reads become
+       undef rather than NULL (which would forbid promotion). */
+    stack_push(&st, undef);
 
     build_domtree(bi, n);
-    rename_dfs(0, bi, n, alloca, stack, &top);
+    rename_dfs(0, bi, n, alloca, &st);
+
+    stack_free(&st);
 }
