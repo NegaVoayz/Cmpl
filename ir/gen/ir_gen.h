@@ -163,11 +163,16 @@ typedef struct {
     int       uns;      /* unsigned type? */
     int       is_float; /* float-valued result (mixed float arith) */
     double    f;        /* float result */
-    int       is_ptr;   /* address constant (&g, &arr[0], &g + 0): the
-                           global's address.  VAL_GLOBAL dumps the bare
-                           name, so only offset-0 is representable; a
-                           nonzero offset is rejected at eval time. */
+    int       is_ptr;   /* address constant (&g, &garr[1], &s.b, &g + k):
+                           the global's address plus a byte offset.
+                           ptr_off 0 dumps the bare @name; a nonzero
+                           offset dumps getelementptr (i8, ptr @name,
+                           i64 off).  ptr_elem is the pointee's byte
+                           size, used to scale pointer + integer
+                           arithmetic (p + 2 skips 2 pointees). */
     String    ptr_name; /* global name for is_ptr */
+    long long ptr_off;  /* byte offset within the global (GEP) */
+    int       ptr_elem; /* pointee byte size; 0 when unknown/non-object */
 } ICEVal;
 
 /* evaluate a constant expression with C integer-constant-expression

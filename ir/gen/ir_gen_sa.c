@@ -49,6 +49,109 @@ ice_convert(ICEVal* v, int bits)
 }
 
 /* ------------------------------------------------------------------
+ *  Address-of in a constant expression: &g, &arr[i], &s.f, &arr[i].f,
+ *  and nested member/index chains rooted at a file-scope global.  The
+ *  result is is_ptr with ptr_name + ptr_off (byte offset) + ptr_elem
+ *  (pointee byte size, used to scale later pointer arithmetic).
+ *  Pointer-deref chains (p->f, p[i], *p) are rejected: they need the
+ *  pointer's runtime value.
+ * ------------------------------------------------------------------ */
+
+static int
+ice_addr_of(Arena* a, AST_Node* e, ICEVal* out, const char** why,
+            HashMap* globals)
+{
+    switch (e->type) {
+    case AST_IDENT:
+    {   Type* t = globals ? (Type*)hashmap_get(globals,
+                                               e->body.ident.name) : NULL;
+        if (!t) { if (why) *why = "unknown identifier in address constant";
+                  return -1; }
+        out->is_ptr = 1;
+        out->ptr_name = e->body.ident.name;
+        out->ptr_off = 0;
+        out->bits = 64;
+        out->uns = 0;
+        { IR_Type* it = ir_type_from_ast(a, t);
+          out->ptr_elem = it ? ir_type_size(it) : 0; }
+        return 0;
+    }
+
+    case AST_INDEX:
+    {   /* the array operand must be an ARRAY, not a pointer (p[i]
+         * depends on p's runtime value) */
+        IR_Type* at = ice_expr_type(a, e->body.subscript.array, globals);
+        if (!at || at->kind != IR_ARRAY) {
+            if (why) *why = "address constant through a pointer is not "
+                            "supported";
+            return -1;
+        }
+        ICEVal iv;
+        if (ice_eval(a, e->body.subscript.index, &iv, why, globals) ||
+            iv.is_float || iv.is_ptr) {
+            if (why) *why = "non-constant index in address constant";
+            return -1;
+        }
+        if (ice_addr_of(a, e->body.subscript.array, out, why, globals))
+            return -1;
+        int esz = ir_type_size(at->inner);
+        if (esz <= 0) {
+            if (why) *why = "incomplete element in address constant";
+            return -1;
+        }
+        out->ptr_off += iv.v * (long long)esz;
+        out->ptr_elem = esz;
+        return 0;
+    }
+
+    case AST_MEMBER:
+    {   if (e->body.member.op == TOK_ARROW) {
+            if (why) *why = "address constant through a pointer is not "
+                            "supported";
+            return -1;
+        }
+        IR_Type* rec = ice_expr_type(a, e->body.member.record, globals);
+        if (!rec || (rec->kind != IR_STRUCT && rec->kind != IR_UNION)) {
+            if (why) *why = "member of non-struct in address constant";
+            return -1;
+        }
+        if (ice_addr_of(a, e->body.member.record, out, why, globals))
+            return -1;
+        Type* ast = ir_struct_ast_lookup(rec);
+        int fidx = ast ? ir_struct_field_index(ast,
+                                               e->body.member.member) : -1;
+        if (fidx < 0) {
+            if (why) *why = "no such field in address constant";
+            return -1;
+        }
+        int foff;
+        if (ir_has_bitfields(rec)) {
+            IR_FieldInfo* fi = ir_field_info(rec, fidx);
+            if (!fi || fi->width != 0) {
+                if (why) *why = "address of a bit-field is not a constant";
+                return -1;
+            }
+            foff = fi->byte_off;
+        } else {
+            foff = ir_struct_field_offset(rec, fidx);
+        }
+        if (foff < 0) {
+            if (why) *why = "cannot place field in address constant";
+            return -1;
+        }
+        out->ptr_off += foff;
+        { IR_Type* ft = ice_expr_type(a, e, globals);
+          out->ptr_elem = ft ? ir_type_size(ft) : 0; }
+        return 0;
+    }
+
+    default:
+        if (why) *why = "unsupported address constant in static assertion";
+        return -1;
+    }
+}
+
+/* ------------------------------------------------------------------
  *  Recursive evaluator.  Returns 0 on success; -1 on a non-constant
  *  or invalid condition, with *why (if non-NULL) set to a reason.
  * ------------------------------------------------------------------ */
@@ -61,6 +164,8 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
 
     out->is_float = 0;   /* every non-float path leaves this at 0 */
     out->is_ptr = 0;
+    out->ptr_off = 0;
+    out->ptr_elem = 0;
 
     switch (e->type) {
     case AST_INT_LIT:
@@ -103,36 +208,12 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
     case AST_UNARY:
     { ICEVal op;
 
-      /* address constant: &ident and &arr[0] (offset 0) — valid
-       * constant expressions in file-scope initializers (gcc parity).
-       * A nonzero element index would need a GEP-style constant, which
-       * VAL_GLOBAL cannot represent — reject it loudly. */
-      if (e->body.unary.op == TOK_AMP) {
-          AST_Node* o = e->body.unary.operand;
-          if (o && o->type == AST_IDENT) {
-              out->is_ptr = 1;
-              out->ptr_name = o->body.ident.name;
-              out->v = 0;
-              out->bits = 64;
-              out->uns = 0;
-              return 0;
-          }
-          if (o && o->type == AST_INDEX &&
-              o->body.subscript.array &&
-              o->body.subscript.array->type == AST_IDENT &&
-              o->body.subscript.index &&
-              o->body.subscript.index->type == AST_INT_LIT &&
-              o->body.subscript.index->body.literal.int_val == 0) {
-              out->is_ptr = 1;
-              out->ptr_name = o->body.subscript.array->body.ident.name;
-              out->v = 0;
-              out->bits = 64;
-              out->uns = 0;
-              return 0;
-          }
-          if (why) *why = "unsupported address constant in static assertion";
-          return -1;
-      }
+      /* address constant: &g, &garr[i], &s.f, &arr[i].f and nested
+       * member/index chains rooted at a file-scope global (gcc parity).
+       * A nonzero element/field offset is carried as a byte offset and
+       * dumped as getelementptr (i8, ptr @name, i64 off). */
+      if (e->body.unary.op == TOK_AMP)
+          return ice_addr_of(a, e->body.unary.operand, out, why, globals);
 
       if (ice_eval(a, e->body.unary.operand, &op, why, globals)) return -1;
 
@@ -179,21 +260,20 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
       if (ice_eval(a, e->body.binary.left, &l, why, globals)) return -1;
       if (ice_eval(a, e->body.binary.right, &r, why, globals)) return -1;
 
-      /* address-constant arithmetic: &g + 0 / &g - 0 / 0 + &g keep the
-       * pointer (offset 0).  A nonzero element offset is not
-       * representable in VAL_GLOBAL — reject loudly rather than emit a
-       * wrong address. */
+      /* address-constant arithmetic: &g + k / k + &g / &g - k add k
+       * pointees to the byte offset (gcc parity: &g + 2 on an int is
+       * 8 bytes).  ptr - ptr and other pointer ops stay rejected. */
       if (l.is_ptr || r.is_ptr) {
           ICEVal* p = l.is_ptr ? &l : &r;
           ICEVal* k = l.is_ptr ? &r : &l;
-          if (k->is_float || k->is_ptr) {
-              if (why) *why = "address constant arithmetic is not supported";
+          int ok_op = (op == TOK_PLUS) ||
+                      (op == TOK_MINUS && l.is_ptr);
+          if (k->is_float || k->is_ptr || p->ptr_elem <= 0 || !ok_op) {
+              if (why) *why = "invalid address constant arithmetic";
               return -1;
           }
-          if (k->v != 0 || (op != TOK_PLUS && op != TOK_MINUS)) {
-              if (why) *why = "address constant with nonzero offset is not supported";
-              return -1;
-          }
+          long long delta = k->v * (long long)p->ptr_elem;
+          p->ptr_off += (op == TOK_PLUS) ? delta : -delta;
           *out = *p;
           return 0;
       }

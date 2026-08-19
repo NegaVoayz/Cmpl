@@ -33,13 +33,24 @@ gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
         return NULL;
     }
 
-    /* an address constant: &g, &arr[0], &g + 0 in a file-scope init.
-     * offset-0 only (ice_eval rejects nonzero offsets) */
+    /* an address constant: &g, &garr[1], &s.b, &g + k in a file-scope
+     * init.  offset 0 is the bare @name (VAL_GLOBAL); a nonzero offset
+     * dumps as getelementptr (i8, ptr @name, i64 off).  Only a pointer
+     * target can hold an address — an integer target ((long)&g) is not
+     * constant in our model (gcc accepts it via a relocation), so it
+     * fails loudly instead of emitting mismatched IR. */
     if (val.is_ptr) {
+        if (target_type->kind != IR_PTR) {
+            if (err) *err = 1;
+            fprintf(stderr, "cmpl: error: initializer element is not "
+                    "constant (line %d)\n", init->loc.line);
+            return NULL;
+        }
         IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-        v->kind = VAL_GLOBAL;
+        v->kind = (val.ptr_off != 0) ? VAL_GLOBAL_GEP : VAL_GLOBAL;
         v->name = val.ptr_name;
         v->type = target_type;
+        v->body.int_val = val.ptr_off;
         return v;
     }
 

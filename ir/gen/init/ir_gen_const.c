@@ -156,7 +156,17 @@ gen_const_unary(Arena* a, AST_Node* init, IR_Type* target_type,
         init->body.unary.operand->type == AST_IDENT) {
         /* &global / &function in a constant initializer: the global's
          * address (ptr @g), like the IDENT path for arrays.  Previously
-         * this fell through and silently initialized the pointer to 0. */
+         * this fell through and silently initialized the pointer to 0.
+         * Only a pointer target can hold an address — an integer target
+         * ((long)&g) fails loudly (gcc would need a relocation). */
+        if (!target_type || target_type->kind != IR_PTR) {
+            if (err) *err = 1;
+            fprintf(stderr, "cmpl: error: initializer element is not "
+                    "constant (line %d)\n", init->loc.line);
+            { IR_Value* z = arena_alloc(a, sizeof(IR_Value));
+              z->type = target_type; z->kind = VAL_CONST_INT;
+              z->body.int_val = 0; return z; }
+        }
         IR_Value* v = arena_alloc(a, sizeof(IR_Value));
         v->type = target_type;
         v->kind = VAL_GLOBAL;
