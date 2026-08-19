@@ -48,7 +48,7 @@ gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
         }
         IR_Value* v = arena_alloc(a, sizeof(IR_Value));
         v->kind = (val.ptr_off != 0) ? VAL_GLOBAL_GEP : VAL_GLOBAL;
-        v->name = val.ptr_name;
+        v->name = ir_const_ir_name(globals, val.ptr_name);
         v->type = target_type;
         v->body.int_val = val.ptr_off;
         return v;

@@ -12,7 +12,7 @@ extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
 
 static AST_Node*
 parse_struct_var_list(LR1_Parser* p, Token* stok, Type* stype,
-                      CudaLinkage linkage)
+                      CudaLinkage linkage, CudaAddrSpace addr_space)
 {
     AST_Node* var_head = NULL;
     AST_Node** var_tail = &var_head;
@@ -35,6 +35,13 @@ parse_struct_var_list(LR1_Parser* p, Token* stok, Type* stype,
         vd->body.var_decl.var_type = full;
         vd->body.var_decl.name = dname;
         vd->body.var_decl.init = NULL;
+        /* storage class must survive on struct-typed declarators too:
+         * without this, `static struct S s;` lost its linkage (defaulted
+         * to LINK_HOST) so a function-scope static struct became a plain
+         * local and a file-scope one emitted as EXTERNAL.  Mirrors
+         * ll_decl.c's plain-var path. */
+        vd->body.var_decl.linkage = linkage;
+        vd->body.var_decl.addr_space = addr_space;
 
         if (p->tok->kind == TOK_EQ) {
             p->tok = p->tok->next;
@@ -105,7 +112,8 @@ parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
     if (def_node)
         stype->params = def_node->body.struct_def.fields;
 
-    AST_Node* vars = parse_struct_var_list(p, stok, stype, linkage);
+    AST_Node* vars = parse_struct_var_list(p, stok, stype, linkage,
+                                           addr_space);
     if (vars) return vars;
     return def_node;
 }

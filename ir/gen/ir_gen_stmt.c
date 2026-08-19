@@ -141,6 +141,21 @@ static IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
         gv->body.init_val = init;
     }
 
+    /* register the static as an address-constant root for LATER statics
+     * in this function (`static int* p = arr + 1;`): the ICE evaluator
+     * reads the TYPE from mod->global_types, and ir_const_ir_name spots
+     * the entry by the mangled name stored in the clone's `name` field
+     * (source identifiers cannot contain '.').  File-scope inits all ran
+     * before function gen (emit_global precedes gen_module_functions),
+     * so these entries can never shadow a later file-scope init. */
+    if (mod->global_types) {
+        Type* clone = arena_alloc(b->arena, sizeof(Type));
+        memcpy(clone, n->body.var_decl.var_type, sizeof(Type));
+        clone->name = gv->name;
+        hashmap_put((HashMap*)mod->global_types,
+                    n->body.var_decl.name, clone);
+    }
+
     gv->next = mod->globals;
     mod->globals = gv;
     sym_add(ctx, n->body.var_decl.name, gv);

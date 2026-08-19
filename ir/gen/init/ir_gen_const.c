@@ -84,6 +84,20 @@ gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv)
     return v;
 }
 
+/* the IR global name for an address-constant root: file-scope globals
+ * use the source name; a function-scope static was registered in the
+ * type table (gen_static_local) with its MANGLED name in the Type's
+ * `name` field — source identifiers cannot contain '.', so a dot marks
+ * a static entry. */
+String
+ir_const_ir_name(HashMap* globals, String src)
+{
+    Type* t = globals ? (Type*)hashmap_get(globals, src) : NULL;
+    if (t && t->name.data && memchr(t->name.data, '.', t->name.length))
+        return t->name;
+    return src;
+}
+
 /* an enum constant reference, or (for pointer targets) an array decay /
  * function name -> VAL_GLOBAL.  A bare non-enum scalar identifier is not
  * a constant initializer (gcc: "initializer element is not constant");
@@ -118,7 +132,7 @@ gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
         IR_Value* v = arena_alloc(a, sizeof(IR_Value));
         v->type = target_type;
         v->kind = VAL_GLOBAL;
-        v->name = init->body.ident.name;
+        v->name = ir_const_ir_name(globals, init->body.ident.name);
         return v;
     }
 
@@ -171,7 +185,8 @@ gen_const_unary(Arena* a, AST_Node* init, IR_Type* target_type,
         IR_Value* v = arena_alloc(a, sizeof(IR_Value));
         v->type = target_type;
         v->kind = VAL_GLOBAL;
-        v->name = init->body.unary.operand->body.ident.name;
+        v->name = ir_const_ir_name(globals,
+            init->body.unary.operand->body.ident.name);
         return v;
     }
     { IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals,

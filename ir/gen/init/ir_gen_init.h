@@ -94,4 +94,11 @@ IR_Value* gen_const_generic(Arena* a, AST_Node* init, IR_Type* target_type,
                             TypedefEntry* enum_vals, HashMap* globals,
                             int* err);
 
+/* the IR global name for an address-constant root: file-scope globals
+ * use the source name; a function-scope static was registered in the
+ * type table with its MANGLED name in the Type's name field (source
+ * identifiers cannot contain '.', so a dot marks a static).  Used by
+ * gen_const_ident, gen_const_unary (&g) and gen_const_ice_eval. */
+String ir_const_ir_name(HashMap* globals, String src);
+
 #endif /* IR_GEN_INIT_H */
