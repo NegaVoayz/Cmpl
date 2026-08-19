@@ -166,7 +166,8 @@ gen_const_unary(Arena* a, AST_Node* init, IR_Type* target_type,
     { IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals,
                                        globals, err);
       if (v) return v;
-      fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
+      /* gen_const_ice_eval reported the error and set *err; the
+       * compile fails, this zero is only an unwind placeholder. */
       { IR_Value* z = arena_alloc(a, sizeof(IR_Value));
         z->kind = VAL_CONST_INT; z->type = target_type;
         z->body.int_val = 0; return z; } }
@@ -261,7 +262,9 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
     {   IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals,
                                          globals, err);
         if (v) return v;
-        fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
+        /* gen_const_ice_eval already printed "initializer element is
+         * not constant" and set *err — the compile fails; return a
+         * zero placeholder so the walk can unwind safely. */
         { IR_Value* z = arena_alloc(a, sizeof(IR_Value));
           z->kind = VAL_CONST_INT; z->type = target_type;
           z->body.int_val = 0; return z; }
