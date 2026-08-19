@@ -43,7 +43,7 @@ infer_array_size_from_brace(LR1_Parser* p, Type* full)
         while (scan && scan->kind == TYPE_PTR)
             scan = scan->inner;
         if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0 &&
-            !scan->size_name.data) {
+            !scan->size_name.data && !scan->arr_expr) {
             scan->arr_size = elem_count;
             scan->size_inferred = 1;
         }
@@ -62,7 +62,7 @@ infer_array_size_from_string(LR1_Parser* p, Type* full)
         scan = scan->inner;
 
     if (scan && scan->kind == TYPE_ARRAY && scan->arr_size == 0 &&
-        !scan->size_name.data && scan->inner) {
+        !scan->size_name.data && !scan->arr_expr && scan->inner) {
         int inner_is_char = (scan->inner->kind == TYPE_CHAR);
         /* a wide literal may size any int-typed element array (wchar_t
          * is a typedef, so TYPE_NAMED is the common case) */

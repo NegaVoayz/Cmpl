@@ -64,20 +64,33 @@ collect_enum_def(AST_Node* def, EnumCtx* ctx)
     EnumEntry* entries = ctx->entries;
     int* n_entries = ctx->n_entries;
     int  val = 0;
+    /* an enumerator whose value cannot be folded to a literal (e.g.
+     * sizeof-based) is NOT registered, and its implicit successors stay
+     * unregistered too: their uses remain AST_IDENT and are resolved at
+     * IR gen from enum_vals (which evaluates the same expr with ICE
+     * semantics).  Registering a wrong silent value here would poison
+     * every later use. */
+    int chain_known = 1;
 
     for (AST_Node* en = def->body.enum_def.enumerators;
          en && en->type == AST_ENUMERATOR; en = en->next) {
 
         AST_Node* value = en->body.enumerator.value;
+        int known;
+
         if (value) {
             /* resolve refs to earlier enumerators, then fold the
              * expression so binary/unary/cast values become a literal */
             ast_walk(value, replace_cb, NULL, entries);
             opt_fold(value);
             try_fold_cast(value);
-            if (is_int_literal_kind(value->type))
+            known = is_int_literal_kind(value->type);
+            if (known)
                 val = (int)value->body.literal.int_val;
+        } else {
+            known = chain_known;   /* implicit: previous value + 1 */
         }
+        chain_known = known;
 
         int skip = 0;
         for (int i = 0; i < *n_entries; i++) {
@@ -89,7 +102,7 @@ collect_enum_def(AST_Node* def, EnumCtx* ctx)
             }
         }
 
-        if (!skip && *n_entries < MAX_ENUM) {
+        if (!skip && known && *n_entries < MAX_ENUM) {
             entries[*n_entries].name  = en->body.enumerator.name;
             entries[*n_entries].value = val;
             (*n_entries)++;

@@ -20,19 +20,10 @@
 #include "ast_walk.h"
 #include "ir_gen.h"
 
-/* one evaluated integer constant: value + type width/signedness.  The
- * width matters because C ICEs are computed in the operand's type: int
- * arithmetic wraps at 32 bits (0x7fffffff + 1 == -2147483648), while
- * long/sizeof expressions stay 64-bit.  Signed values are stored
- * sign-extended to 64 bits, so widening is a no-op and unsigned
- * reinterprets are a mask. */
-typedef struct {
-    long long v;        /* value (sign-extended to 64 for signed) */
-    int       bits;     /* 1, 8, 16, 32, or 64 */
-    int       uns;      /* unsigned type? */
-    int       is_float; /* float literal (valid only as cast operand) */
-    double    f;        /* float literal value */
-} ICEVal;
+/* ICEVal + ice_eval are declared in ir_gen.h: the _Static_assert
+ * evaluator is also the constant-expression evaluator for const-init
+ * values, enum values and array bounds (ir_gen_const_ice.c,
+ * ir_gen_module.c, ir_gen_resolve.c). */
 
 /* truncate v to (bits, uns): mask, then sign-extend when signed */
 static void
@@ -62,7 +53,7 @@ ice_convert(ICEVal* v, int bits)
  *  or invalid condition, with *why (if non-NULL) set to a reason.
  * ------------------------------------------------------------------ */
 
-static int
+int
 ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
 {
     if (!e) { if (why) *why = "empty condition"; return -1; }
@@ -154,9 +145,38 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
 
       if (ice_eval(a, e->body.binary.left, &l, why)) return -1;
       if (ice_eval(a, e->body.binary.right, &r, why)) return -1;
+
+      /* C usual arithmetic conversions: a float operand makes the op
+       * float; the int operand converts to the float type (computed in
+       * double, converted once by the caller — used for const-init
+       * values like `double g = 2 * 1.5;`).  Comparisons with a float
+       * operand are still rejected: an ICE must be integer. */
       if (l.is_float || r.is_float) {
-          if (why) *why = "non-integer operand in static assertion";
-          return -1;
+          double lf = l.is_float ? l.f : (double)l.v;
+          double rf = r.is_float ? r.f : (double)r.v;
+          double res;
+
+          switch (op) {
+          case TOK_PLUS:  res = lf + rf; break;
+          case TOK_MINUS: res = lf - rf; break;
+          case TOK_STAR:  res = lf * rf; break;
+          case TOK_SLASH:
+              if (rf == 0.0) {
+                  if (why) *why = "division by zero in constant expression";
+                  return -1;
+              }
+              res = lf / rf;
+              break;
+          default:
+              if (why) *why = "non-integer operand in constant expression";
+              return -1;
+          }
+          out->is_float = 1;
+          out->f = res;
+          out->v = 0;
+          out->bits = 64;
+          out->uns = 0;
+          return 0;
       }
 
       switch (op) {
@@ -387,7 +407,7 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
  *  false or non-constant condition (gcc parity).
  * ------------------------------------------------------------------ */
 
-typedef struct { IR_Module* mod; Arena* a; } SACtx;
+typedef struct { IR_Module* mod; Arena* a; TypedefEntry* enum_vals; } SACtx;
 
 static int
 sa_check_cb(AST_Node* n, void* ctx)
@@ -397,6 +417,10 @@ sa_check_cb(AST_Node* n, void* ctx)
     SACtx* c = (SACtx*)ctx;
     const char* why = NULL;
     ICEVal val;
+
+    /* enumerators whose value opt_enum could not fold (sizeof-based)
+     * stay AST_IDENT; resolve them against enum_vals first */
+    resolve_enum_idents(n->body.static_assert.expr, c->enum_vals);
 
     if (ice_eval(c->a, n->body.static_assert.expr, &val, &why) != 0 ||
         val.is_float) {
@@ -417,9 +441,10 @@ sa_check_cb(AST_Node* n, void* ctx)
 }
 
 void
-ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root)
+ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root,
+                        TypedefEntry* enum_vals)
 {
-    SACtx c = { mod, a };
+    SACtx c = { mod, a, enum_vals };
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
         ast_walk(decl, sa_check_cb, NULL, &c);

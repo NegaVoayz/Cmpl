@@ -122,10 +122,24 @@ gen_const_unary(Arena* a, AST_Node* init, IR_Type* target_type,
             inner->body.int_val = ~inner->body.int_val;
         return inner;
     }
-    fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
-    { IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-      v->kind = VAL_CONST_INT; v->type = target_type;
-      v->body.int_val = 0; return v; }
+    if (init->body.unary.op == TOK_AMP &&
+        init->body.unary.operand &&
+        init->body.unary.operand->type == AST_IDENT) {
+        /* &global / &function in a constant initializer: the global's
+         * address (ptr @g), like the IDENT path for arrays.  Previously
+         * this fell through and silently initialized the pointer to 0. */
+        IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+        v->type = target_type;
+        v->kind = VAL_GLOBAL;
+        v->name = init->body.unary.operand->body.ident.name;
+        return v;
+    }
+    { IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals);
+      if (v) return v;
+      fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
+      { IR_Value* z = arena_alloc(a, sizeof(IR_Value));
+        z->kind = VAL_CONST_INT; z->type = target_type;
+        z->body.int_val = 0; return z; } }
 }
 
 /* scalar-initialized union whose LARGEST member is an aggregate: place the
@@ -205,9 +219,15 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
         return gen_const_generic(a, init, target_type, enum_vals);
 
     default:
+        /* sizeof, _Alignof, ternary, arithmetic over constants, mixed
+         * float/int: evaluate with ICE semantics (ir_gen_const_ice.c)
+         * before falling back to the silent-zero error path. */
+    {   IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals);
+        if (v) return v;
         fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
-        { IR_Value* v = arena_alloc(a, sizeof(IR_Value));
-          v->kind = VAL_CONST_INT; v->type = target_type;
-          v->body.int_val = 0; return v; }
+        { IR_Value* z = arena_alloc(a, sizeof(IR_Value));
+          z->kind = VAL_CONST_INT; z->type = target_type;
+          z->body.int_val = 0; return z; }
+    }
     }
 }

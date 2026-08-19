@@ -38,23 +38,32 @@ Fixes TYPE_STRUCT/TYPE_UNION nodes that have a tag name but no params:
 - Attaches the definition's fields to `t->params`
 - Only handles function params, NOT struct fields (same VAR_DECL vs PARAM_DECL issue)
 
-### `resolve_array_sizes(Type* t, TypedefEntry* enum_vals)`
+### `resolve_array_sizes(Arena* a, Type* t, TypedefEntry* enum_vals)`
 
-Resolves enum constant names used as array dimensions and rejects
+Resolves constant expressions used as array dimensions and rejects
 variable-length arrays loudly:
-- If `t->kind == TYPE_ARRAY && t->arr_size == -1` (parser marker for a
-  non-constant `[expr]` bound like `[n+1]` or `[sizeof(int)]`), prints
-  `ir: array bound is not a constant expression (VLA not supported)` and
-  returns 1.
+- If `t->kind == TYPE_ARRAY && t->arr_size == -1` (defensive marker),
+  prints `ir: array bound is not a constant expression (VLA not
+  supported)` and returns 1.
 - If `t->kind == TYPE_ARRAY && t->arr_size == 0 && t->size_name.data`,
   looks up the name in the enum values table; on success sets
   `t->arr_size` to the integer value, on failure (a runtime-variable
   bound like `[n]`) prints the same VLA error and returns 1.
+- If `t->kind == TYPE_ARRAY && t->arr_size == 0 && t->arr_expr` (the
+  parser kept the AST for a `[sizeof(int)*2]`-style bound it cannot
+  fold), resolves enum idents against the enum values table and
+  evaluates the expression with the shared ICE evaluator
+  (`ice_eval`, ir_gen_sa.c — the same semantics as `_Static_assert`).
+  A constant result sets `t->arr_size`; anything else (runtime-variable
+  bound, non-positive value) prints an error and returns 1.
+- Recurses struct/union member arrays (fields are AST_VAR_DECL; each
+  struct Type node's fields are visited once — the visited guard keeps
+  self-/mutually-referential structs finite).  Function params
+  (AST_PARAM_DECL) are skipped: they decay to pointers before this
+  pass, so VLA params (`int a[n]` in a prototype) stay legal.
 - Returns 0 when every array bound resolved; 1 when any VLA bound was
   found (the caller sets `mod->had_error`, so the compile exits nonzero
   instead of silently emitting `alloca [0 x i32]`).
-- Function parameters decay to pointers before this pass, so VLA params
-  (`int a[n]` in a prototype) stay legal.
 
 ### Struct field typedef resolution (NEW)
 

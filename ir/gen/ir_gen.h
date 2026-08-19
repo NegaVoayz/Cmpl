@@ -128,7 +128,7 @@ IR_Value* gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
 void resolve_type_tree(Type* t, TypedefEntry* table);
 void resolve_expr_types(AST_Node* e, TypedefEntry* table);
 void resolve_ast_node(AST_Node* n, TypedefEntry* table);
-int  resolve_array_sizes(Type* t, TypedefEntry* enum_vals);
+int  resolve_array_sizes(Arena* a, Type* t, TypedefEntry* enum_vals);
 void resolve_struct_refs_type(Type* t, HashMap* struct_map);
 void resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map);
 int  resolve_sizeof_cast_type_cb(AST_Node* n, void* ctx);
@@ -137,7 +137,7 @@ int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 
 /* ---- module emission passes (ir_gen_module_emit.c) ---- */
 void resolve_struct_refs_all(Arena* a, AST_Node* root);
-int  resolve_array_sizes_pass(AST_Node* root, TypedefEntry* enum_vals);
+int  resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals);
 void upgrade_existing_global(Arena* a, AST_Node* decl, IR_Value* existing,
                              TypedefEntry* enum_vals);
 void emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
@@ -146,7 +146,40 @@ void gen_module_functions(AST_Node* root, IR_Module* mod, int is_device,
                           HashMap* sig_map);
 
 /* ---- C11 _Static_assert (ir_gen_sa.c) ---- */
-void ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root);
+void ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root,
+                             TypedefEntry* enum_vals);
+
+/* one evaluated integer constant: value + type width/signedness.  The
+ * width matters because C constant expressions are computed in the
+ * operand's type: int arithmetic wraps at 32 bits
+ * (0x7fffffff + 1 == -2147483648), while long/sizeof expressions stay
+ * 64-bit.  Signed values are stored sign-extended to 64 bits, so
+ * widening is a no-op and unsigned reinterprets are a mask. */
+typedef struct {
+    long long v;        /* value (sign-extended to 64 for signed) */
+    int       bits;     /* 1, 8, 16, 32, or 64 */
+    int       uns;      /* unsigned type? */
+    int       is_float; /* float-valued result (mixed float arith) */
+    double    f;        /* float result */
+} ICEVal;
+
+/* evaluate a constant expression with C integer-constant-expression
+ * semantics: literals, unary + - ~ !, binary arith/shift/cmp/logical,
+ * ternary, casts, sizeof, _Alignof, and mixed float + - * / (float
+ * result).  Returns 0 on success; -1 with *why set when the expression
+ * is not constant.  Shared by _Static_assert, const-init values, enum
+ * values and array bounds. */
+int ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why);
+
+/* replace AST_IDENT nodes that name an enum_vals entry with AST_INT_LIT
+ * (opt_enum cannot fold enumerators whose value expr is non-literal,
+ * e.g. sizeof-based, so const contexts resolve them here). */
+void resolve_enum_idents(AST_Node* e, TypedefEntry* enum_vals);
+
+/* const-init fallback (ir_gen_const_ice.c): evaluate `init` with ICE
+ * semantics and convert to target_type, or NULL if not constant. */
+IR_Value* gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
+                             TypedefEntry* enum_vals);
 
 /* ---- expression operators + coercion (ir/gen/expr/) ---- */
 IR_Value* coerce_to_i1(IR_Builder* b, IR_Value* v);

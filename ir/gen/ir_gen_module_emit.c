@@ -63,6 +63,15 @@ resolve_struct_refs_all(Arena* a, AST_Node* root)
             /* file-scope asserts: resolve sizeof/alignof/cast type refs
              * so sizeof(struct S) in a condition is not unsized */
             ast_walk(decl, resolve_sizeof_cast_type_cb, NULL, &struct_map);
+        } else if (decl->type == AST_VAR_DECL &&
+                   decl->body.var_decl.init) {
+            /* file-scope initializers: sizeof(struct S) / (struct S){...}
+             * cast type refs in the init expr — without this the struct
+             * IR type builds with no members and the constant is 0 */
+            ast_walk(decl->body.var_decl.init,
+                     resolve_sizeof_cast_type_cb, NULL, &struct_map);
+            ast_walk(decl->body.var_decl.init,
+                     resolve_compound_lit_type_cb, NULL, &struct_map);
         }
     }
 }
@@ -71,31 +80,47 @@ resolve_struct_refs_all(Arena* a, AST_Node* root)
  * `int arr[N]` as size_name (unresolved), and only top-level var decls
  * were walked — local arrays with enum sizes stayed [0 x N].
  * Returns 1 if a VLA bound was found (resolve_array_sizes printed it). */
+typedef struct { Arena* a; TypedefEntry* enum_vals; } LocalArrCtx;
+
 static int
 resolve_local_arr_cb(AST_Node* n, void* ctx)
 {
-    if (n->type == AST_VAR_DECL)
-        return resolve_array_sizes(n->body.var_decl.var_type,
-                                   (TypedefEntry*)ctx);
+    if (n->type == AST_VAR_DECL) {
+        LocalArrCtx* c = (LocalArrCtx*)ctx;
+        return resolve_array_sizes(c->a, n->body.var_decl.var_type,
+                                   c->enum_vals);
+    }
     return 0;
 }
 
 int
-resolve_array_sizes_pass(AST_Node* root, TypedefEntry* enum_vals)
+resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals)
 {
     int bad = 0;
+    LocalArrCtx lctx = { a, enum_vals };
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type == AST_VAR_DECL)
-            bad |= resolve_array_sizes(decl->body.var_decl.var_type, enum_vals);
-        else if (decl->type == AST_FUNC_DEF) {
-            bad |= resolve_array_sizes(decl->body.func_def.ret_type, enum_vals);
+            bad |= resolve_array_sizes(a, decl->body.var_decl.var_type,
+                                       enum_vals);
+        else if (decl->type == AST_STRUCT_DEF ||
+                 decl->type == AST_UNION_DEF) {
+            /* member array bounds (int a[sizeof(int)*2];) must resolve
+             * before the struct's IR type is laid out */
+            for (AST_Node* f = decl->body.struct_def.fields;
+                 f && f->type == AST_VAR_DECL; f = f->next)
+                bad |= resolve_array_sizes(a, f->body.var_decl.var_type,
+                                           enum_vals);
+        } else if (decl->type == AST_FUNC_DEF) {
+            bad |= resolve_array_sizes(a, decl->body.func_def.ret_type,
+                                       enum_vals);
             for (AST_Node* p = decl->body.func_def.params;
                  p && p->type == AST_PARAM_DECL; p = p->next)
-                bad |= resolve_array_sizes(p->body.param_decl.param_type, enum_vals);
+                bad |= resolve_array_sizes(a, p->body.param_decl.param_type,
+                                           enum_vals);
             if (decl->body.func_def.body)
                 bad |= (ast_walk(decl->body.func_def.body,
-                                 resolve_local_arr_cb, NULL, enum_vals) > 0);
+                                 resolve_local_arr_cb, NULL, &lctx) > 0);
         }
     }
     return bad;

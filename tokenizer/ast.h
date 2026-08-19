@@ -41,6 +41,8 @@ struct Type {
                                    return, not a pointer-layer (fnptr semantics) */
     unsigned  size_inferred: 1; /* arr_size came from initializer count (int a[] = {...}) */
     String    size_name;  /* unresolved size identifier (enum constant / macro) */
+    AST_Node* arr_expr;   /* unevaluated constant bound expr (int a[sizeof(int)*2]);
+                           * evaluated by resolve_array_sizes via the ICE evaluator */
 };
 
 /* full node definition */

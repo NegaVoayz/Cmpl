@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "ast.h"
+#include "ast_walk.h"
 #include "ir_gen.h"
 
 /* ---------------------------------------------------------------
@@ -137,6 +138,40 @@ void resolve_expr_types(AST_Node* e, TypedefEntry* table)
     }
 }
 
+/* Replace AST_IDENT nodes that name an enum_vals entry with an
+ * AST_INT_LIT.  opt_enum cannot fold enumerators whose value expression
+ * is non-literal (e.g. sizeof-based), so it leaves their uses as
+ * AST_IDENT; const contexts (array bounds, const-init, enum values)
+ * resolve them here before ICE evaluation. */
+typedef struct { TypedefEntry* enum_vals; } EnumIdentCtx;
+
+static int
+resolve_enum_ident_cb(AST_Node* n, void* ctx)
+{
+    if (!n || n->type != AST_IDENT) return 0;
+
+    TypedefEntry* enum_vals = ((EnumIdentCtx*)ctx)->enum_vals;
+    String* nm = &n->body.ident.name;
+
+    for (TypedefEntry* ev = enum_vals; ev; ev = ev->next) {
+        if (ev->name.length == nm->length &&
+            memcmp(ev->name.data, nm->data, nm->length) == 0) {
+            n->type = AST_INT_LIT;
+            n->body.literal.int_val = (int)(intptr_t)ev->aliased_type;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void
+resolve_enum_idents(AST_Node* e, TypedefEntry* enum_vals)
+{
+    EnumIdentCtx ctx = { enum_vals };
+
+    if (e && enum_vals) ast_walk(e, resolve_enum_ident_cb, NULL, &ctx);
+}
+
 /* Resolve enum-sized dimensions on local arrays: the parser stores
  * `int arr[N]` as size_name (unresolved), and only top-level var decls
  * were walked — local arrays with enum sizes stayed [0 x N].
@@ -146,12 +181,34 @@ void resolve_expr_types(AST_Node* e, TypedefEntry* table)
  * `[ident]` bound with size_name; both must reject the declaration
  * instead of silently emitting `alloca [0 x i32]` (OOB writes).
  * Returns 1 if a VLA bound was found. */
-int resolve_array_sizes(Type* t, TypedefEntry* enum_vals)
+/* one visited struct/union Type node whose fields were already recursed
+ * (self-/mutually-referential structs would otherwise cycle forever:
+ * `struct S* next` fields reach the same field list through resolve_struct
+ * refs — the visited guard keeps the walk finite) */
+typedef struct VNode { Type* t; struct VNode* next; } VNode;
+
+static int
+resolve_array_sizes_ex(Arena* a, Type* t, TypedefEntry* enum_vals,
+                       VNode* visited)
 {
     if (!t) return 0;
 
-    int bad = resolve_array_sizes(t->inner, enum_vals);
-    bad |= resolve_array_sizes(t->next, enum_vals);
+    int bad = resolve_array_sizes_ex(a, t->inner, enum_vals, visited);
+    bad |= resolve_array_sizes_ex(a, t->next, enum_vals, visited);
+
+    /* struct/union member arrays (fields are AST_VAR_DECL); function
+     * params (AST_PARAM_DECL) are skipped — they decay to pointers
+     * before this pass, so VLA params stay legal.  Each struct Type
+     * node's fields are recursed once. */
+    if (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) {
+        for (VNode* v = visited; v; v = v->next)
+            if (v->t == t) return bad;
+        VNode vn = { t, visited };
+        for (AST_Node* p = t->params; p; p = p->next)
+            if (p->type == AST_VAR_DECL)
+                bad |= resolve_array_sizes_ex(a, p->body.var_decl.var_type,
+                                              enum_vals, &vn);
+    }
 
     if (t->kind != TYPE_ARRAY) return bad;
 
@@ -170,6 +227,30 @@ int resolve_array_sizes(Type* t, TypedefEntry* enum_vals)
                     (int)t->size_name.length, t->size_name.data);
             bad = 1;
         }
+    } else if (t->arr_size == 0 && t->arr_expr) {
+        /* `[sizeof(int)*2]`-style constant bound: the parser kept the
+         * AST expr (it only folds a single literal-binary); evaluate it
+         * here with ICE semantics so valid constant bounds compile and
+         * genuine VLAs still fail loudly. */
+        ICEVal val;
+        const char* why = NULL;
+
+        resolve_enum_idents(t->arr_expr, enum_vals);
+
+        if (ice_eval(a, t->arr_expr, &val, &why)) {
+            fprintf(stderr, "ir: array bound is not a constant expression (VLA not supported)\n");
+            bad = 1;
+        } else if (val.is_float || val.v <= 0) {
+            fprintf(stderr, "ir: array bound must be a positive integer constant\n");
+            bad = 1;
+        } else {
+            t->arr_size = (int)val.v;
+        }
     }
     return bad;
+}
+
+int resolve_array_sizes(Arena* a, Type* t, TypedefEntry* enum_vals)
+{
+    return resolve_array_sizes_ex(a, t, enum_vals, NULL);
 }

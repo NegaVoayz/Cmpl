@@ -61,7 +61,9 @@ update_opaque_typedefs(AST_Node* root, TypedefEntry* typedefs)
     }
 }
 
-/* register one enumerator list into enum_vals (prepended, head = last). */
+/* register one enumerator list into enum_vals (prepended, head = last).
+ * A value expr that is not a literal (opt_enum folded what it could —
+ * sizeof/_Alignof/ternary survive) is evaluated with ICE semantics. */
 static void
 register_enum_def(Arena* a, AST_Node* def, TypedefEntry** enum_vals)
 {
@@ -70,8 +72,20 @@ register_enum_def(Arena* a, AST_Node* def, TypedefEntry** enum_vals)
          en && en->type == AST_ENUMERATOR; en = en->next) {
         if (en->body.enumerator.value &&
             (en->body.enumerator.value->type == AST_INT_LIT ||
-             en->body.enumerator.value->type == AST_LONG_LIT))
+             en->body.enumerator.value->type == AST_LONG_LIT)) {
             val = (int)en->body.enumerator.value->body.literal.int_val;
+        } else if (en->body.enumerator.value) {
+            ICEVal iev;
+            const char* why = NULL;
+
+            resolve_enum_idents(en->body.enumerator.value, *enum_vals);
+            if (!ice_eval(a, en->body.enumerator.value, &iev, &why) &&
+                !iev.is_float)
+                val = (int)iev.v;
+            /* non-constant value expr: keep the previous value (the
+             * compile will fail later if the enumerator is actually
+             * used in a constant context) */
+        }
         TypedefEntry* ev = arena_alloc(a, sizeof(TypedefEntry));
         ev->name = en->body.enumerator.name;
         ev->aliased_type = (Type*)(intptr_t)val;
@@ -175,7 +189,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
      * `[expr]` bound with arr_size == -1 and an unresolvable `[ident]`
      * bound with size_name; both fail the compile loudly here instead of
      * silently emitting `alloca [0 x i32]` (OOB writes at runtime). */
-    if (resolve_array_sizes_pass(root, enum_vals))
+    if (resolve_array_sizes_pass(a, root, enum_vals))
         mod->had_error = 1;
 
     /* enable struct type dedup cache — typedefs are now resolved, so
@@ -185,7 +199,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     /* C11 _Static_assert: evaluate every condition (file + block scope);
      * a false or non-constant one sets mod->had_error so the compile
      * fails with a nonzero exit (gcc parity) */
-    ir_check_static_asserts(a, mod, root);
+    ir_check_static_asserts(a, mod, root, enum_vals);
 
     HashMap sig_map;
     hashmap_init(&sig_map, a, 64);

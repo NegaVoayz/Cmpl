@@ -117,12 +117,14 @@ parse_array_suffix(LR1_Parser* p, Type** result, int* ptr_count,
                 else if (op == TOK_STAR)  arr->arr_size = l * r;
                 else if (op == TOK_SLASH) arr->arr_size = l / r;
             } else {
-                /* non-constant bound (VLA): mark it so the IR-gen resolve
-                 * pass rejects the declaration loudly instead of silently
-                 * emitting `alloca [0 x i32]` (OOB writes).  Function
-                 * params decay to pointers BEFORE resolve, so VLA params
-                 * (int a[n] in a prototype) stay legal. */
-                arr->arr_size = -1;
+                /* not a foldable constant: keep the AST expr so the
+                 * IR-gen resolve pass can evaluate constant expressions
+                 * (sizeof, ternary, enum arith); a genuinely
+                 * non-constant bound is rejected there loudly instead
+                 * of silently emitting `alloca [0 x i32]` (OOB writes).
+                 * Function params decay to pointers BEFORE resolve, so
+                 * VLA params (int a[n] in a prototype) stay legal. */
+                arr->arr_expr = expr;
             }
         }
     }
