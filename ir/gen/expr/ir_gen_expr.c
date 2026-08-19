@@ -27,6 +27,20 @@ gen_expr_ident(GenCtx* ctx, AST_Node* n)
             return fn_val;
         }
     }
+    /* enumerator constant: opt_enum only substituted AST-foldable values,
+     * so a non-literal-valued enum (sizeof-based, pointer arithmetic,
+     * ternary) is registered in mod->enum_vals at IR gen and its uses
+     * here stay AST_IDENT.  Const contexts resolve them via
+     * resolve_enum_idents; function-body expressions must look the value
+     * up in the same table (locals shadow enum names earlier). */
+    { TypedefEntry* ev = (TypedefEntry*)ctx->mod->enum_vals;
+      for (; ev; ev = ev->next) {
+          if (ev->name.length == n->body.ident.name.length &&
+              memcmp(ev->name.data, n->body.ident.name.data,
+                     ev->name.length) == 0)
+              return ir_const_int(ctx->b, t_i32,
+                                  (int)(intptr_t)ev->aliased_type);
+      } }
     IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
     v->kind = VAL_UNDEF; v->type = t_i32; return v;
 }
