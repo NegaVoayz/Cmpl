@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 Token*
 read_number(Lexer* lex)
@@ -195,10 +196,20 @@ read_char_or_string(Lexer* lex, char quote, int wide, int u8)
     }
 
     /* string literal */
-    char* buf = arena_alloc(lex->arena, 256);
+    char* buf = arena_alloc(lex->arena, 64);
     int   len = 0;
+    int   cap = 64;
 
     while (peek(lex) != '"' && peek(lex) != '\0' && peek(lex) != '\n') {
+        /* grow before appending (room for this char + the NUL): a long
+         * string used to write past the fixed 256-byte arena chunk */
+        if (len + 2 >= cap) {
+            int ncap = cap * 2;
+            char* nb = arena_alloc(lex->arena, ncap);
+            memcpy(nb, buf, len);
+            buf = nb;
+            cap = ncap;
+        }
         if (peek(lex) == '\\') {
             advance(lex);
             char ec = peek(lex);
