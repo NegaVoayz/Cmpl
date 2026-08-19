@@ -144,17 +144,17 @@ gen_expr_sizeof_expr(GenCtx* ctx, AST_Node* n)
     } else {
         /* Array-typed expressions report their FULL array size (C11
          * 6.5.3.4p2): string literals (len+1 elements; wide = 4-byte
-         * elements) and file-scope member/index expressions (the type
-         * table holds file-scope decls only — local-variable member /
-         * index chains still fall back to the pointer size). */
+         * elements) and member/index expressions — file-scope via the
+         * global type table, local-variable chains via the GenCtx
+         * symbol table (sizeof(l.arr), sizeof(m[0]), sizeof(rp[1])). */
         AST_Node* op = n->body.sizeof_expr.expr;
         if (op && op->type == AST_STRING_LIT) {
             sz = (int)(op->body.literal.str_val.length + 1) *
                  (op->body.literal.wide ? 4 : 1);
         } else {
             HashMap* globals = (HashMap*)ctx->mod->global_types;
-            IR_Type* ct = (op && globals)
-                ? ice_expr_type(ctx->b->arena, op, globals) : NULL;
+            IR_Type* ct = op
+                ? ice_expr_type_ctx(ctx->b->arena, op, globals, ctx) : NULL;
             if (ct && ct->kind == IR_ARRAY)
                 sz = ir_type_size(ct);
             else {

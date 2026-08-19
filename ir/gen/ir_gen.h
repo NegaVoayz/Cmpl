@@ -204,6 +204,12 @@ IR_Value* gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
  * (unknown ident, call, VLA-dependent bound, ...). */
 IR_Type* ice_expr_type(Arena* a, AST_Node* e, HashMap* globals);
 
+/* like ice_expr_type, but identifiers may also resolve to local
+ * variables through the GenCtx symbol table (runtime sizeof of local
+ * member/index chains).  Pass NULL ctx to get plain ice_expr_type. */
+IR_Type* ice_expr_type_ctx(Arena* a, AST_Node* e, HashMap* globals,
+                           GenCtx* ctx);
+
 /* collect file-scope variable declarations into a name -> Type* table
  * (for sizeof(garr)/&g in constant expressions).  Must run after
  * resolve_struct_refs_all so struct-typed globals are complete, and
