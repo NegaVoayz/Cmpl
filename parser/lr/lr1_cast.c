@@ -89,7 +89,15 @@ int is_cast_start(Token* tok)
                           after->kind == TOK_BANG ||
                           after->kind == TOK_TILDE ||
                           after->kind == TOK_SIZEOF ||
-                          after->kind == TOK_LBRACE))
+                          after->kind == TOK_LBRACE ||
+                          /* unary ops: (T)&x, (T)*p, (T)-x, (T)+x —
+                           * ambiguous with (a) & b / (a) * b / (a) - b
+                           * / (a) + b, resolved by the typedef gate in
+                           * try_parse_cast */
+                          after->kind == TOK_AMP ||
+                          after->kind == TOK_STAR ||
+                          after->kind == TOK_MINUS ||
+                          after->kind == TOK_PLUS))
                 return 1;
         }
     }

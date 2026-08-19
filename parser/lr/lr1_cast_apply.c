@@ -89,6 +89,20 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
         !parser_is_typedef(p, peek->body.ident))
         return 0;
 
+    /* (ident) followed by & * - + : the binary-op reading `(a) & b` /
+     * `(a) - b` (paren-expr then operator) is valid when `a` is NOT a
+     * type, while `(T) & x` / `(T) - x` is a cast of a unary operand
+     * when it IS (offsetof: (size_t)&((struct S*)0)->m).  Only the
+     * typedef registry can tell — gate these follow tokens on it. */
+    if (peek->kind == TOK_IDENT && peek->next &&
+        peek->next->kind == TOK_RPAREN && peek->next->next &&
+        (peek->next->next->kind == TOK_AMP ||
+         peek->next->next->kind == TOK_STAR ||
+         peek->next->next->kind == TOK_MINUS ||
+         peek->next->next->kind == TOK_PLUS) &&
+        !parser_is_typedef(p, peek->body.ident))
+        return 0;
+
     /* check if we're inside sizeof -- if so, (type) is a type name.
      * only when sizeof's OWN '(' is the pending token (state == S_SIZEOF):
      * a nested '(' after a shifted paren is a cast inside the sizeof
