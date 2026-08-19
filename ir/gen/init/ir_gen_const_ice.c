@@ -26,7 +26,12 @@ gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
     ICEVal val;
     const char* why = NULL;
 
-    if (ice_eval(a, init, &val, &why, globals)) return NULL;
+    if (ice_eval(a, init, &val, &why, globals)) {
+        if (err) *err = 1;
+        fprintf(stderr, "cmpl: error: initializer element is not constant "
+                "(line %d)\n", init->loc.line);
+        return NULL;
+    }
 
     /* an address constant: &g, &arr[0], &g + 0 in a file-scope init.
      * offset-0 only (ice_eval rejects nonzero offsets) */

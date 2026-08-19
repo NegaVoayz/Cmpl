@@ -142,6 +142,7 @@ upgrade_existing_global(Arena* a, AST_Node* decl, IR_Value* existing,
             existing->body.init_val = gen_const_init(a,
                 decl->body.var_decl.init, existing->type, enum_vals,
                 (HashMap*)mod->global_types, &err);
+            if (err) mod->had_error = 1;
         } else {
             IR_Value* init = arena_alloc(a, sizeof(IR_Value));
             init->kind = (existing->type->kind == IR_PTR) ?
@@ -194,6 +195,7 @@ emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
         gv->body.init_val = gen_const_init(a, decl->body.var_decl.init,
                                            gv->type, enum_vals,
                                            (HashMap*)mod->global_types, &err);
+        if (err) mod->had_error = 1;
     } else if (decl->body.var_decl.linkage != LINK_EXTERN) {
         /* not extern: tentative definition or static → zero-initialize */
         IR_Value* init = arena_alloc(a, sizeof(IR_Value));

@@ -127,10 +127,12 @@ static IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
     gv->linkage = IR_LINK_INTERNAL;   /* static local: internal */
 
     if (n->body.var_decl.init) {
+        int err = 0;
         gv->body.init_val = gen_const_init(b->arena,
                                            n->body.var_decl.init, vt,
                                            (TypedefEntry*)mod->enum_vals,
-                                           (HashMap*)mod->global_types, NULL);
+                                           (HashMap*)mod->global_types, &err);
+        if (err) mod->had_error = 1;
     }
     if (!gv->body.init_val) {
         IR_Value* init = arena_alloc(b->arena, sizeof(IR_Value));

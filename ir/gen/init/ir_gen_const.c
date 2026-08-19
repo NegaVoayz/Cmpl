@@ -4,8 +4,10 @@
  * dispatches on the AST node kind, delegating lists to
  * gen_const_init_list (ir_gen_const_list.c) and the three heavier scalar
  * cases below.  `globals` is the file-scope var name -> Type* table
- * (for sizeof/& operands); `err` is an error latch threaded through the
- * recursion (consumed by emit_global in a later commit).
+ * (for sizeof/& operands); `err` is set to 1 when the initializer is
+ * genuinely non-constant (gcc: "initializer element is not constant"),
+ * so emit_global/upgrade_existing_global can fail the compile loudly
+ * instead of silently emitting 0.
  */
 
 #include "../ir_gen.h"
@@ -82,8 +84,10 @@ gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv)
     return v;
 }
 
-/* an enum constant reference; unresolved identifiers return 0 (the
- * error channel that rejects them loudly lands in a later commit). */
+/* an enum constant reference, or (for pointer targets) an array decay /
+ * function name -> VAL_GLOBAL.  A bare non-enum scalar identifier is not
+ * a constant initializer (gcc: "initializer element is not constant");
+ * with the globals table we can tell arrays apart from scalars. */
 static IR_Value*
 gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
                 TypedefEntry* enum_vals, HashMap* globals, int* err)
@@ -97,11 +101,31 @@ gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
         }
     }
 
+    /* an identifier initializing a pointer is the address of a global
+     * (array decay `int* p = garr;` or a function name) — VAL_GLOBAL.
+     * A scalar global is NOT a constant address (gcc rejects
+     * `int* p = g;`), so only arrays pass through here. */
+    if (target_type && target_type->kind == IR_PTR) {
+        if (globals) {
+            Type* t = (Type*)hashmap_get(globals, init->body.ident.name);
+            if (t && t->kind != TYPE_ARRAY) {
+                if (err) *err = 1;
+                fprintf(stderr, "cmpl: error: initializer element is not "
+                        "constant (line %d)\n", init->loc.line);
+            }
+        }
+        IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+        v->type = target_type;
+        v->kind = VAL_GLOBAL;
+        v->name = init->body.ident.name;
+        return v;
+    }
+
+    if (err) *err = 1;
+    fprintf(stderr, "cmpl: error: initializer element is not constant "
+            "(line %d)\n", init->loc.line);
     { IR_Value* v = arena_alloc(a, sizeof(IR_Value)); v->type = target_type;
-      v->kind = (target_type && target_type->kind == IR_PTR) ? VAL_GLOBAL
-                : VAL_CONST_INT;
-      if (v->kind == VAL_GLOBAL) { v->name = init->body.ident.name; return v; }
-      v->body.int_val = 0; return v; }
+      v->kind = VAL_CONST_INT; v->body.int_val = 0; return v; }
 }
 
 /* unary -x / ~x on a constant (usually already folded by opt_fold). */
