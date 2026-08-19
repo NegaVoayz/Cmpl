@@ -12,38 +12,84 @@
 #include "ast.h"
 #include "ir_gen.h"
 
-void resolve_struct_refs_type(Type* t, HashMap* struct_map)
+/* seen set: params pointers of struct/union field lists already walked,
+ * so definitions and freshly attached references recurse their member
+ * types exactly once (self/mutual references terminate). */
+#define MAX_SEEN 256
+typedef struct { AST_Node* p[MAX_SEEN]; int n; } SeenSet;
+
+static int
+seen_has(SeenSet* s, AST_Node* p)
+{
+    for (int i = 0; i < s->n; i++)
+        if (s->p[i] == p) return 1;
+    return 0;
+}
+
+static void
+seen_add(SeenSet* s, AST_Node* p)
+{
+    if (s->n < MAX_SEEN) s->p[s->n++] = p;
+}
+
+/* worker: same as resolve_struct_refs_type but carries the seen set so
+ * member recursion stays bounded. */
+static void
+resolve_struct_refs_type_ex(Type* t, HashMap* struct_map, SeenSet* seen)
 {
     if (!t) return;
-    if ((t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) &&
-        t->name.data && !t->params) {
-        StructDefEntry* se = hashmap_get(struct_map, t->name);
-        if (se) {
-            t->params = se->fields;
-            if (se->is_union) t->kind = TYPE_UNION;
-            /* resolve nested struct members (struct field of struct type).
-             * guarded by the !t->params test above so each struct's fields
-             * resolve exactly once — self/mutual recursion terminates. */
-            for (AST_Node* f = t->params; f && f->type == AST_VAR_DECL; f = f->next)
-                resolve_struct_refs_type(f->body.var_decl.var_type, struct_map);
+
+    if (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) {
+        if (t->name.data) {
+            /* a reference (name but no fields) gets the definition's
+             * field list attached; a definition already has them */
+            if (!t->params) {
+                StructDefEntry* se = hashmap_get(struct_map, t->name);
+                if (se) {
+                    t->params = se->fields;
+                    if (se->is_union) t->kind = TYPE_UNION;
+                }
+            }
+            /* walk the field list once per definition, whether the node
+             * is the definition or a reference that shares its fields:
+             * nested struct refs (struct field of struct type) resolve
+             * here.  Already-walked lists (cycles) are skipped. */
+            if (t->params && !seen_has(seen, t->params)) {
+                seen_add(seen, t->params);
+                for (AST_Node* f = t->params;
+                     f && f->type == AST_VAR_DECL; f = f->next)
+                    resolve_struct_refs_type_ex(f->body.var_decl.var_type,
+                                               struct_map, seen);
+            }
+        } else {
+            /* anonymous struct/union members also need resolution: a named
+             * struct referenced only inside an anonymous struct (e.g.
+             * struct { struct IN in; } or a union's anonymous largest
+             * member) would otherwise keep params==NULL, so its %struct.IN
+             * definition never gets emitted.  anonymous structs have no
+             * tag to recurse through, so this is the only path to their
+             * member types (no cycle risk: they cannot be self-referenced
+             * by name). */
+            for (AST_Node* f = t->params;
+                 f && f->type == AST_VAR_DECL; f = f->next)
+                resolve_struct_refs_type_ex(f->body.var_decl.var_type,
+                                            struct_map, seen);
         }
-    } else if ((t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) &&
-               !t->name.data) {
-        /* anonymous struct/union members also need resolution: a named
-         * struct referenced only inside an anonymous struct (e.g.
-         * struct { struct IN in; } or a union's anonymous largest member)
-         * would otherwise keep params==NULL, so its %struct.IN definition
-         * never gets emitted.  anonymous structs have no tag to recurse
-         * through, so this is the only path to their member types. */
-        for (AST_Node* f = t->params; f && f->type == AST_VAR_DECL; f = f->next)
-            resolve_struct_refs_type(f->body.var_decl.var_type, struct_map);
     }
-    resolve_struct_refs_type(t->inner, struct_map);
-    resolve_struct_refs_type(t->next, struct_map);
+    resolve_struct_refs_type_ex(t->inner, struct_map, seen);
+    resolve_struct_refs_type_ex(t->next, struct_map, seen);
     if (t->kind == TYPE_FUNC)
         for (AST_Node* p = t->params;
              p && p->type == AST_PARAM_DECL; p = p->next)
-            resolve_struct_refs_type(p->body.param_decl.param_type, struct_map);
+            resolve_struct_refs_type_ex(p->body.param_decl.param_type,
+                                        struct_map, seen);
+}
+
+void resolve_struct_refs_type(Type* t, HashMap* struct_map)
+{
+    SeenSet seen;
+    seen.n = 0;
+    resolve_struct_refs_type_ex(t, struct_map, &seen);
 }
 
 /* resolve `struct X` refs (TYPE_STRUCT with name but no params) inside

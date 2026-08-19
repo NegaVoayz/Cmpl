@@ -44,6 +44,23 @@ resolve_struct_refs_all(Arena* a, AST_Node* root)
             resolve_struct_refs_type(decl->body.typedef_decl.aliased_type, &struct_map);
     }
 
+    /* a file-scope struct DEFINITION's own fields are only reached when a
+     * reference to it is resolved (resolve_struct_refs_type recurses the
+     * field list only while attaching fields).  A var typed by the inline
+     * definition (struct Outer {...} o;) skips that path, so a struct-
+     * typed member's reference (struct Inner in;) would keep params==NULL
+     * and its IR type would build with no members — breaking sizeof,
+     * nested member access and address constants.  Resolve the definition's
+     * field types here; references inside them recurse through the attach
+     * path (bounded: an already-attached reference never re-recurses). */
+    for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
+        if (decl->type != AST_STRUCT_DEF && decl->type != AST_UNION_DEF)
+            continue;
+        for (AST_Node* f = decl->body.struct_def.fields;
+             f && f->type == AST_VAR_DECL; f = f->next)
+            resolve_struct_refs_type(f->body.var_decl.var_type, &struct_map);
+    }
+
     /* register standalone local struct/union defs first so refs resolve */
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type == AST_FUNC_DEF && decl->body.func_def.body) {
