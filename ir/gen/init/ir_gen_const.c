@@ -108,7 +108,8 @@ gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
     if (target_type && target_type->kind == IR_PTR) {
         if (globals) {
             Type* t = (Type*)hashmap_get(globals, init->body.ident.name);
-            if (t && t->kind != TYPE_ARRAY) {
+            while (t && t->kind == TYPE_NAMED && t->inner) t = t->inner;
+            if (t && t->kind != TYPE_ARRAY && t->kind != TYPE_FUNC) {
                 if (err) *err = 1;
                 fprintf(stderr, "cmpl: error: initializer element is not "
                         "constant (line %d)\n", init->loc.line);
