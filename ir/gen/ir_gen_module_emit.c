@@ -80,7 +80,8 @@ resolve_struct_refs_all(Arena* a, AST_Node* root)
  * `int arr[N]` as size_name (unresolved), and only top-level var decls
  * were walked — local arrays with enum sizes stayed [0 x N].
  * Returns 1 if a VLA bound was found (resolve_array_sizes printed it). */
-typedef struct { Arena* a; TypedefEntry* enum_vals; } LocalArrCtx;
+typedef struct { Arena* a; TypedefEntry* enum_vals; HashMap* globals; }
+    LocalArrCtx;
 
 static int
 resolve_local_arr_cb(AST_Node* n, void* ctx)
@@ -88,21 +89,22 @@ resolve_local_arr_cb(AST_Node* n, void* ctx)
     if (n->type == AST_VAR_DECL) {
         LocalArrCtx* c = (LocalArrCtx*)ctx;
         return resolve_array_sizes(c->a, n->body.var_decl.var_type,
-                                   c->enum_vals);
+                                   c->enum_vals, c->globals);
     }
     return 0;
 }
 
 int
-resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals)
+resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals,
+                         HashMap* globals)
 {
     int bad = 0;
-    LocalArrCtx lctx = { a, enum_vals };
+    LocalArrCtx lctx = { a, enum_vals, globals };
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         if (decl->type == AST_VAR_DECL)
             bad |= resolve_array_sizes(a, decl->body.var_decl.var_type,
-                                       enum_vals);
+                                       enum_vals, globals);
         else if (decl->type == AST_STRUCT_DEF ||
                  decl->type == AST_UNION_DEF) {
             /* member array bounds (int a[sizeof(int)*2];) must resolve
@@ -110,14 +112,14 @@ resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals)
             for (AST_Node* f = decl->body.struct_def.fields;
                  f && f->type == AST_VAR_DECL; f = f->next)
                 bad |= resolve_array_sizes(a, f->body.var_decl.var_type,
-                                           enum_vals);
+                                           enum_vals, globals);
         } else if (decl->type == AST_FUNC_DEF) {
             bad |= resolve_array_sizes(a, decl->body.func_def.ret_type,
-                                       enum_vals);
+                                       enum_vals, globals);
             for (AST_Node* p = decl->body.func_def.params;
                  p && p->type == AST_PARAM_DECL; p = p->next)
                 bad |= resolve_array_sizes(a, p->body.param_decl.param_type,
-                                           enum_vals);
+                                           enum_vals, globals);
             if (decl->body.func_def.body)
                 bad |= (ast_walk(decl->body.func_def.body,
                                  resolve_local_arr_cb, NULL, &lctx) > 0);
@@ -130,15 +132,17 @@ resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals)
  * or is a tentative definition (LINK_HOST, no extern keyword). */
 void
 upgrade_existing_global(Arena* a, AST_Node* decl, IR_Value* existing,
-                        TypedefEntry* enum_vals)
+                        TypedefEntry* enum_vals, IR_Module* mod)
 {
     if (!existing->body.init_val &&
         (decl->body.var_decl.init ||
          decl->body.var_decl.linkage == LINK_HOST)) {
-        if (decl->body.var_decl.init)
+        if (decl->body.var_decl.init) {
+            int err = 0;
             existing->body.init_val = gen_const_init(a,
-                decl->body.var_decl.init, existing->type, enum_vals);
-        else {
+                decl->body.var_decl.init, existing->type, enum_vals,
+                (HashMap*)mod->global_types, &err);
+        } else {
             IR_Value* init = arena_alloc(a, sizeof(IR_Value));
             init->kind = (existing->type->kind == IR_PTR) ?
                 VAL_CONST_NULL : VAL_CONST_INT;
@@ -186,8 +190,10 @@ emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
                   ? IR_LINK_INTERNAL : IR_LINK_EXTERNAL;
 
     if (decl->body.var_decl.init) {
+        int err = 0;
         gv->body.init_val = gen_const_init(a, decl->body.var_decl.init,
-                                           gv->type, enum_vals);
+                                           gv->type, enum_vals,
+                                           (HashMap*)mod->global_types, &err);
     } else if (decl->body.var_decl.linkage != LINK_EXTERN) {
         /* not extern: tentative definition or static → zero-initialize */
         IR_Value* init = arena_alloc(a, sizeof(IR_Value));

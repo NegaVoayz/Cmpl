@@ -16,7 +16,8 @@
  * and returns the next cursor. */
 static AST_Node*
 gen_const_union_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
-                     TypedefEntry* enum_vals, AST_Node* e, int* union_done)
+                     TypedefEntry* enum_vals, AST_Node* e, int* union_done,
+                     HashMap* globals, int* err)
 {
     AST_Node* s0 = (e->type == AST_DESIGNATOR)
         ? e->body.designator.steps : NULL;
@@ -47,7 +48,7 @@ gen_const_union_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
             synth.body.init_list.elems = val;
             synth.body.init_list.last_elem = last;
             gen_const_union_store(a, elems, target_type, member_ty,
-                                  NULL, &synth, enum_vals);
+                                  NULL, &synth, enum_vals, globals, err);
             last->next = saved;
             val->next = old_vn;
             *union_done = 1;
@@ -62,7 +63,8 @@ gen_const_union_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
         *union_done = 1;
     }
     gen_const_union_store(a, elems, target_type, member_ty,
-                          s0 ? s0->next : NULL, val, enum_vals);
+                          s0 ? s0->next : NULL, val, enum_vals,
+                          globals, err);
     return e->next;
 }
 
@@ -72,7 +74,8 @@ gen_const_union_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
 static AST_Node*
 gen_const_desig_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
                      TypedefEntry* enum_vals, AST_Node* e, int slots,
-                     int* pos, ContLevel* cont, int* depth)
+                     int* pos, ContLevel* cont, int* depth,
+                     HashMap* globals, int* err)
 {
     AST_Node* s0 = e->body.designator.steps;
     int top_idx = -1;
@@ -121,7 +124,7 @@ gen_const_desig_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
             synth.body.init_list.elems = dval;
             synth.body.init_list.last_elem = last;
             IR_Value* fv = gen_const_desig(a, ct,
-                s0 ? s0->next : NULL, &synth, enum_vals);
+                s0 ? s0->next : NULL, &synth, enum_vals, globals, err);
             if (ir_has_bitfields(target_type))
                 gen_const_field_store(a, elems, target_type, top_idx, fv);
             else
@@ -131,7 +134,7 @@ gen_const_desig_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
             e = saved;
         } else {
             IR_Value* fv = gen_const_desig(a, ct,
-                s0 ? s0->next : NULL, dval, enum_vals);
+                s0 ? s0->next : NULL, dval, enum_vals, globals, err);
             if (ir_has_bitfields(target_type))
                 gen_const_field_store(a, elems, target_type, top_idx, fv);
             else
@@ -154,7 +157,7 @@ gen_const_desig_elem(Arena* a, IR_Value** elems, IR_Type* target_type,
 
 IR_Value*
 gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
-                    TypedefEntry* enum_vals)
+                    TypedefEntry* enum_vals, HashMap* globals, int* err)
 {
     int slots = 0;
     if (target_type->kind == IR_UNION)
@@ -184,21 +187,24 @@ gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
     while (e) {
         if (target_type->kind == IR_UNION)
             e = gen_const_union_elem(a, elems, target_type, enum_vals, e,
-                                     &union_done);
+                                     &union_done, globals, err);
         else if (e->type == AST_DESIGNATOR)
             e = gen_const_desig_elem(a, elems, target_type, enum_vals, e,
-                                     desig_max, &pos, cont, &depth);
+                                     desig_max, &pos, cont, &depth,
+                                     globals, err);
         else if (depth >= 2)
-            e = gen_const_cont_elem(a, elems, enum_vals, e, cont, &depth);
+            e = gen_const_cont_elem(a, elems, enum_vals, e, cont, &depth,
+                                    globals, err);
         else {
             /* a string literal directly inside a char array's brace list
              * fills the WHOLE array (C11 6.7.9p14) */
             if (e->type == AST_STRING_LIT && target_type->kind == IR_ARRAY &&
                 target_type->size > 0 && target_type->inner &&
                 target_type->inner->kind == IR_I8)
-                return gen_const_init(a, e, target_type, enum_vals);
+                return gen_const_init(a, e, target_type, enum_vals,
+                                      globals, err);
             e = gen_const_elided_elem(a, elems, target_type, enum_vals, e,
-                                      pos_max, &pos);
+                                      pos_max, &pos, globals, err);
         }
     }
 

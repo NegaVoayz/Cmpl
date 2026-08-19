@@ -3,7 +3,9 @@
  * gen_const_init is the public entry point (declared in ir_gen.h); it
  * dispatches on the AST node kind, delegating lists to
  * gen_const_init_list (ir_gen_const_list.c) and the three heavier scalar
- * cases below.
+ * cases below.  `globals` is the file-scope var name -> Type* table
+ * (for sizeof/& operands); `err` is an error latch threaded through the
+ * recursion (consumed by emit_global in a later commit).
  */
 
 #include "../ir_gen.h"
@@ -80,10 +82,11 @@ gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv)
     return v;
 }
 
-/* an enum constant reference; unresolved identifiers warn and return 0. */
+/* an enum constant reference; unresolved identifiers return 0 (the
+ * error channel that rejects them loudly lands in a later commit). */
 static IR_Value*
 gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
-                TypedefEntry* enum_vals)
+                TypedefEntry* enum_vals, HashMap* globals, int* err)
 {
     for (TypedefEntry* ev = enum_vals; ev; ev = ev->next) {
         if (ev->name.length == init->body.ident.name.length &&
@@ -104,11 +107,12 @@ gen_const_ident(Arena* a, AST_Node* init, IR_Type* target_type,
 /* unary -x / ~x on a constant (usually already folded by opt_fold). */
 static IR_Value*
 gen_const_unary(Arena* a, AST_Node* init, IR_Type* target_type,
-                TypedefEntry* enum_vals)
+                TypedefEntry* enum_vals, HashMap* globals, int* err)
 {
     if (init->body.unary.op == TOK_MINUS) {
         IR_Value* inner = gen_const_init(a, init->body.unary.operand,
-                                          target_type, enum_vals);
+                                          target_type, enum_vals,
+                                          globals, err);
         if (inner && inner->kind == VAL_CONST_INT)
             inner->body.int_val = -inner->body.int_val;
         else if (inner && inner->kind == VAL_CONST_FLOAT)
@@ -117,7 +121,8 @@ gen_const_unary(Arena* a, AST_Node* init, IR_Type* target_type,
     }
     if (init->body.unary.op == TOK_TILDE) {
         IR_Value* inner = gen_const_init(a, init->body.unary.operand,
-                                          target_type, enum_vals);
+                                          target_type, enum_vals,
+                                          globals, err);
         if (inner && inner->kind == VAL_CONST_INT)
             inner->body.int_val = ~inner->body.int_val;
         return inner;
@@ -134,7 +139,8 @@ gen_const_unary(Arena* a, AST_Node* init, IR_Type* target_type,
         v->name = init->body.unary.operand->body.ident.name;
         return v;
     }
-    { IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals);
+    { IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals,
+                                       globals, err);
       if (v) return v;
       fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
       { IR_Value* z = arena_alloc(a, sizeof(IR_Value));
@@ -172,13 +178,14 @@ gen_const_union_aggregate(Arena* a, IR_Type* agg, IR_Value* mv)
 
 IR_Value*
 gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
-               TypedefEntry* enum_vals)
+               TypedefEntry* enum_vals, HashMap* globals, int* err)
 {
     if (!init || !target_type) return NULL;
 
     switch (init->type) {
     case AST_INIT_LIST:
-        return gen_const_init_list(a, init, target_type, enum_vals);
+        return gen_const_init_list(a, init, target_type, enum_vals,
+                                   globals, err);
 
     case AST_INT_LIT:
     case AST_LONG_LIT:
@@ -201,28 +208,34 @@ gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
         return gen_const_string(a, init, target_type);
 
     case AST_IDENT:
-        return gen_const_ident(a, init, target_type, enum_vals);
+        return gen_const_ident(a, init, target_type, enum_vals,
+                               globals, err);
 
     case AST_CAST:
         /* apply the cast type first, then convert to the member type
          * (mirrors gen_cast): {(int)2.5} in a double member is 2.0 */
     {   IR_Type* cty = ir_type_from_ast(a, init->body.cast.type_expr);
         IR_Value* inner = gen_const_init(a, init->body.cast.cast_expr,
-                                         cty ? cty : target_type, enum_vals);
-        return gen_const_convert(a, inner, target_type);
+                                         cty ? cty : target_type, enum_vals,
+                                         globals, err);
+        return inner ? gen_const_convert(a, inner, target_type) : NULL;
     }
 
     case AST_UNARY:
-        return gen_const_unary(a, init, target_type, enum_vals);
+        return gen_const_unary(a, init, target_type, enum_vals,
+                               globals, err);
 
     case AST_GENERIC:
-        return gen_const_generic(a, init, target_type, enum_vals);
+        return gen_const_generic(a, init, target_type, enum_vals,
+                                 globals, err);
 
     default:
         /* sizeof, _Alignof, ternary, arithmetic over constants, mixed
          * float/int: evaluate with ICE semantics (ir_gen_const_ice.c)
-         * before falling back to the silent-zero error path. */
-    {   IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals);
+         * before the error path.  A non-constant expression (garr[0],
+         * s.a, ...) fails the compile loudly instead of emitting 0. */
+    {   IR_Value* v = gen_const_ice_eval(a, init, target_type, enum_vals,
+                                         globals, err);
         if (v) return v;
         fprintf(stderr, "gen_const: unhandled init type %d\n", init->type);
         { IR_Value* z = arena_alloc(a, sizeof(IR_Value));

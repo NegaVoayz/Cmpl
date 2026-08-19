@@ -128,7 +128,9 @@ static IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
 
     if (n->body.var_decl.init) {
         gv->body.init_val = gen_const_init(b->arena,
-                                           n->body.var_decl.init, vt, NULL);
+                                           n->body.var_decl.init, vt,
+                                           (TypedefEntry*)mod->enum_vals,
+                                           (HashMap*)mod->global_types, NULL);
     }
     if (!gv->body.init_val) {
         IR_Value* init = arena_alloc(b->arena, sizeof(IR_Value));

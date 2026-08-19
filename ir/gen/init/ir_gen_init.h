@@ -46,10 +46,12 @@ IR_Value* gen_const_zero(Arena* a, IR_Type* ty);
 IR_Type*  gen_const_child_type(IR_Type* ty, int idx);
 IR_Value* gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv);
 IR_Value* gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
-                          AST_Node* val, TypedefEntry* enum_vals);
+                          AST_Node* val, TypedefEntry* enum_vals,
+                          HashMap* globals, int* err);
 void      gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
                                 IR_Type* member_ty, AST_Node* steps,
-                                AST_Node* val, TypedefEntry* enum_vals);
+                                AST_Node* val, TypedefEntry* enum_vals,
+                                HashMap* globals, int* err);
 IR_Value* gen_const_union_aggregate(Arena* a, IR_Type* agg, IR_Value* mv);
 IR_Value* gen_const_union_scalar_from_agg(Arena* a, IR_Value* mv,
                                           IR_Type* member_ty, IR_Type* largest);
@@ -74,18 +76,22 @@ void     gen_const_cont_set(Arena* a, IR_Value* root, ContLevel* cont,
 /* ---- const init-list driver + element cases ---- */
 
 IR_Value* gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
-                              TypedefEntry* enum_vals);
+                              TypedefEntry* enum_vals, HashMap* globals,
+                              int* err);
 /* continuation + positional/elided element cases (ir_gen_const_elem.c) */
 AST_Node* gen_const_cont_elem(Arena* a, IR_Value** elems,
                               TypedefEntry* enum_vals, AST_Node* e,
-                              ContLevel* cont, int* depth);
+                              ContLevel* cont, int* depth, HashMap* globals,
+                              int* err);
 AST_Node* gen_const_elided_elem(Arena* a, IR_Value** elems,
                                 IR_Type* target_type, TypedefEntry* enum_vals,
-                                AST_Node* e, int slots, int* pos);
+                                AST_Node* e, int slots, int* pos,
+                                HashMap* globals, int* err);
 
 /* _Generic in a const init (ir_gen_const_generic.c): safety net behind
  * the ast-opt fold; selects the arm of a constant controlling expr. */
 IR_Value* gen_const_generic(Arena* a, AST_Node* init, IR_Type* target_type,
-                            TypedefEntry* enum_vals);
+                            TypedefEntry* enum_vals, HashMap* globals,
+                            int* err);
 
 #endif /* IR_GEN_INIT_H */

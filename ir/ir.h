@@ -234,6 +234,12 @@ struct IR_Module {
     int          had_error;      /* semantic error during IR gen: the
                                     module must be discarded and the
                                     compile must fail (gcc parity) */
+    void*        enum_vals;      /* file-scope enum table (TypedefEntry*)
+                                    for const inits inside function bodies
+                                    (static locals); set by ir_gen_module_ex */
+    void*        global_types;   /* file-scope var name -> Type* table
+                                    (HashMap*) for sizeof/& in constant
+                                    expressions; set by ir_gen_module_ex */
 };
 
 /* ---------------------------------------------------------------

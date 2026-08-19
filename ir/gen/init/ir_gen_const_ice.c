@@ -5,8 +5,8 @@
  * _Alignof, ternary selections, arithmetic over constants, mixed
  * float/int) is evaluated here with the same C integer-constant-
  * expression semantics as _Static_assert (ir_gen_sa.c).  Before this
- * file existed those expressions fell into the silent default fallback
- * of gen_const_init and emitted 0 (wrong code).
+ * file existed those expressions fell into the silent default
+ * fallback of gen_const_init and emitted 0 (wrong code).
  */
 
 #include "../ir_gen.h"
@@ -16,7 +16,7 @@
 
 IR_Value*
 gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
-                   TypedefEntry* enum_vals)
+                   TypedefEntry* enum_vals, HashMap* globals, int* err)
 {
     if (!init || !target_type) return NULL;
 
@@ -25,7 +25,7 @@ gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
     ICEVal val;
     const char* why = NULL;
 
-    if (ice_eval(a, init, &val, &why)) return NULL;
+    if (ice_eval(a, init, &val, &why, globals)) return NULL;
 
     if (val.is_float) {
         if (target_type->kind == IR_F32 || target_type->kind == IR_F64)

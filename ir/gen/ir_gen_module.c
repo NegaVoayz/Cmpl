@@ -65,7 +65,8 @@ update_opaque_typedefs(AST_Node* root, TypedefEntry* typedefs)
  * A value expr that is not a literal (opt_enum folded what it could —
  * sizeof/_Alignof/ternary survive) is evaluated with ICE semantics. */
 static void
-register_enum_def(Arena* a, AST_Node* def, TypedefEntry** enum_vals)
+register_enum_def(Arena* a, AST_Node* def, TypedefEntry** enum_vals,
+                  HashMap* globals)
 {
     int val = 0;
     for (AST_Node* en = def->body.enum_def.enumerators;
@@ -79,7 +80,8 @@ register_enum_def(Arena* a, AST_Node* def, TypedefEntry** enum_vals)
             const char* why = NULL;
 
             resolve_enum_idents(en->body.enumerator.value, *enum_vals);
-            if (!ice_eval(a, en->body.enumerator.value, &iev, &why) &&
+            if (!ice_eval(a, en->body.enumerator.value, &iev, &why,
+                          globals) &&
                 !iev.is_float)
                 val = (int)iev.v;
             /* non-constant value expr: keep the previous value (the
@@ -97,6 +99,7 @@ register_enum_def(Arena* a, AST_Node* def, TypedefEntry** enum_vals)
 typedef struct {
     Arena*        a;
     TypedefEntry** enum_vals;
+    HashMap*      globals;
 } EnumValCtx;
 
 /* walker: register every enum definition found — top-level or nested in
@@ -107,16 +110,16 @@ collect_enum_cb(AST_Node* n, void* ctx)
 {
     if (n->type == AST_ENUM_DEF) {
         EnumValCtx* c = (EnumValCtx*)ctx;
-        register_enum_def(c->a, n, c->enum_vals);
+        register_enum_def(c->a, n, c->enum_vals, c->globals);
     }
     return 0;
 }
 
 static TypedefEntry*
-collect_enum_vals(Arena* a, AST_Node* root)
+collect_enum_vals(Arena* a, AST_Node* root, HashMap* globals)
 {
     TypedefEntry* enum_vals = NULL;
-    EnumValCtx ctx = { a, &enum_vals };
+    EnumValCtx ctx = { a, &enum_vals, globals };
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
         ast_walk(decl, collect_enum_cb, NULL, &ctx);
@@ -178,18 +181,29 @@ ir_gen_module_ex(AST_Node* root, int is_device)
 
     TypedefEntry* typedefs = collect_typedefs(a, root);
     update_opaque_typedefs(root, typedefs);
-    TypedefEntry* enum_vals = collect_enum_vals(a, root);
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
         resolve_ast_node(decl, typedefs);
 
     resolve_struct_refs_all(a, root);
 
+    /* file-scope var name -> Type* table for sizeof(garr)/&g inside
+     * constant expressions (array bounds, static asserts, const-inits).
+     * Built after struct refs resolve and before resolve_array_sizes_pass
+     * (which evaluates bounds containing sizeof of globals). */
+    HashMap gtypes;
+    hashmap_init(&gtypes, a, 64);
+    collect_global_types(a, root, &gtypes);
+    mod->global_types = &gtypes;
+
+    TypedefEntry* enum_vals = collect_enum_vals(a, root, &gtypes);
+    mod->enum_vals = enum_vals;
+
     /* VLA bounds are unsupported: resolve_array_sizes marks a non-constant
      * `[expr]` bound with arr_size == -1 and an unresolvable `[ident]`
      * bound with size_name; both fail the compile loudly here instead of
      * silently emitting `alloca [0 x i32]` (OOB writes at runtime). */
-    if (resolve_array_sizes_pass(a, root, enum_vals))
+    if (resolve_array_sizes_pass(a, root, enum_vals, &gtypes))
         mod->had_error = 1;
 
     /* enable struct type dedup cache — typedefs are now resolved, so
@@ -199,7 +213,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
     /* C11 _Static_assert: evaluate every condition (file + block scope);
      * a false or non-constant one sets mod->had_error so the compile
      * fails with a nonzero exit (gcc parity) */
-    ir_check_static_asserts(a, mod, root, enum_vals);
+    ir_check_static_asserts(a, mod, root, enum_vals, &gtypes);
 
     HashMap sig_map;
     hashmap_init(&sig_map, a, 64);
@@ -214,7 +228,7 @@ ir_gen_module_ex(AST_Node* root, int is_device)
             IR_Value* existing = hashmap_get(&global_map,
                                              decl->body.var_decl.name);
             if (existing) {
-                upgrade_existing_global(a, decl, existing, enum_vals);
+                upgrade_existing_global(a, decl, existing, enum_vals, mod);
                 continue;
             }
             emit_global(a, decl, mod, &global_map, enum_vals);

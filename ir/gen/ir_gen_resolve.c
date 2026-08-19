@@ -189,12 +189,13 @@ typedef struct VNode { Type* t; struct VNode* next; } VNode;
 
 static int
 resolve_array_sizes_ex(Arena* a, Type* t, TypedefEntry* enum_vals,
-                       VNode* visited)
+                       HashMap* globals, VNode* visited)
 {
     if (!t) return 0;
 
-    int bad = resolve_array_sizes_ex(a, t->inner, enum_vals, visited);
-    bad |= resolve_array_sizes_ex(a, t->next, enum_vals, visited);
+    int bad = resolve_array_sizes_ex(a, t->inner, enum_vals, globals,
+                                     visited);
+    bad |= resolve_array_sizes_ex(a, t->next, enum_vals, globals, visited);
 
     /* struct/union member arrays (fields are AST_VAR_DECL); function
      * params (AST_PARAM_DECL) are skipped — they decay to pointers
@@ -207,7 +208,7 @@ resolve_array_sizes_ex(Arena* a, Type* t, TypedefEntry* enum_vals,
         for (AST_Node* p = t->params; p; p = p->next)
             if (p->type == AST_VAR_DECL)
                 bad |= resolve_array_sizes_ex(a, p->body.var_decl.var_type,
-                                              enum_vals, &vn);
+                                              enum_vals, globals, &vn);
     }
 
     if (t->kind != TYPE_ARRAY) return bad;
@@ -237,7 +238,7 @@ resolve_array_sizes_ex(Arena* a, Type* t, TypedefEntry* enum_vals,
 
         resolve_enum_idents(t->arr_expr, enum_vals);
 
-        if (ice_eval(a, t->arr_expr, &val, &why)) {
+        if (ice_eval(a, t->arr_expr, &val, &why, globals)) {
             fprintf(stderr, "ir: array bound is not a constant expression (VLA not supported)\n");
             bad = 1;
         } else if (val.is_float || val.v <= 0) {
@@ -250,7 +251,8 @@ resolve_array_sizes_ex(Arena* a, Type* t, TypedefEntry* enum_vals,
     return bad;
 }
 
-int resolve_array_sizes(Arena* a, Type* t, TypedefEntry* enum_vals)
+int resolve_array_sizes(Arena* a, Type* t, TypedefEntry* enum_vals,
+                         HashMap* globals)
 {
-    return resolve_array_sizes_ex(a, t, enum_vals, NULL);
+    return resolve_array_sizes_ex(a, t, enum_vals, globals, NULL);
 }

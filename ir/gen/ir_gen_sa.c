@@ -54,7 +54,8 @@ ice_convert(ICEVal* v, int bits)
  * ------------------------------------------------------------------ */
 
 int
-ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
+ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
+         HashMap* globals)
 {
     if (!e) { if (why) *why = "empty condition"; return -1; }
 
@@ -101,7 +102,7 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
     case AST_UNARY:
     { ICEVal op;
 
-      if (ice_eval(a, e->body.unary.operand, &op, why)) return -1;
+      if (ice_eval(a, e->body.unary.operand, &op, why, globals)) return -1;
 
       if (op.is_float) {
           if (e->body.unary.op == TOK_MINUS) { op.f = -op.f; *out = op; return 0; }
@@ -132,8 +133,8 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
       /* && / || : every operand of an ICE must be constant (no
        * side effects to skip with short-circuiting) */
       if (op == TOK_AMPAMP || op == TOK_PIPEPIPE) {
-          if (ice_eval(a, e->body.binary.left, &l, why)) return -1;
-          if (ice_eval(a, e->body.binary.right, &r, why)) return -1;
+          if (ice_eval(a, e->body.binary.left, &l, why, globals)) return -1;
+          if (ice_eval(a, e->body.binary.right, &r, why, globals)) return -1;
           if (l.is_float || r.is_float) {
               if (why) *why = "non-integer operand in static assertion";
               return -1;
@@ -143,8 +144,8 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
           return 0;
       }
 
-      if (ice_eval(a, e->body.binary.left, &l, why)) return -1;
-      if (ice_eval(a, e->body.binary.right, &r, why)) return -1;
+      if (ice_eval(a, e->body.binary.left, &l, why, globals)) return -1;
+      if (ice_eval(a, e->body.binary.right, &r, why, globals)) return -1;
 
       /* C usual arithmetic conversions: a float operand makes the op
        * float; the int operand converts to the float type (computed in
@@ -296,20 +297,20 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
     case AST_TERNARY:
     { ICEVal c;
 
-      if (ice_eval(a, e->body.ternary.cond, &c, why)) return -1;
+      if (ice_eval(a, e->body.ternary.cond, &c, why, globals)) return -1;
       if (c.is_float) {
           if (why) *why = "non-integer condition in static assertion";
           return -1;
       }
       return ice_eval(a, c.v ? e->body.ternary.then_expr
-                             : e->body.ternary.else_expr, out, why);
+                             : e->body.ternary.else_expr, out, why, globals);
     }
 
     case AST_CAST:
     { IR_Type* t = ir_type_from_ast(a, e->body.cast.type_expr);
       ICEVal op;
 
-      if (ice_eval(a, e->body.cast.cast_expr, &op, why)) return -1;
+      if (ice_eval(a, e->body.cast.cast_expr, &op, why, globals)) return -1;
 
       if (!t) { if (why) *why = "cast target type is unknown"; return -1; }
       if (op.is_float) {
@@ -360,37 +361,24 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
     case AST_SIZEOF_EXPR:
     case AST_ALIGNOF_EXPR:
     { AST_Node* op = e->body.sizeof_expr.expr;
-      int sz, al;
+      IR_Type* t;
 
+      /* C11 6.5.3.4p2: the operand is never evaluated — only its type
+       * matters.  ice_expr_type infers the type of any typed expression
+       * (globals via the file-scope table, literals, casts, binary
+       * arithmetic, index, member); opt_fold has already folded
+       * sizeof(5+3) to sizeof(8), so single-literal operands never
+       * regress. */
       if (!op) { if (why) *why = "empty sizeof operand"; return -1; }
-      if (op->type == AST_IDENT) {
-          if (why) *why = "sizeof variable is not an integer constant expression";
-          return -1;
-      }
-
-      switch (op->type) {
-      case AST_INT_LIT: case AST_LONG_LIT: case AST_CHAR_LIT:
-          sz = 4; al = 4; break;                     /* int */
-      case AST_FLOAT_LIT: sz = 4; al = 4; break;
-      case AST_DOUBLE_LIT: sz = 8; al = 8; break;
-      case AST_STRING_LIT:
-          /* char array w/ NUL; a wide (wchar_t) string has 4-byte
-           * elements, so sizeof is (len+1)*4 */
-          if (op->body.literal.wide) {
-              sz = (op->body.literal.str_val.length + 1) * 4;
-              al = 4;
-          } else {
-              sz = op->body.literal.str_val.length + 1;
-              al = 1;
-          }
-          break;
-      default:
+      t = ice_expr_type(a, op, globals);
+      if (!t || t->kind == IR_VOID) {
           if (why) *why = "sizeof operand is not constant in static assertion";
           return -1;
       }
-      out->v = (e->type == AST_SIZEOF_EXPR) ? sz : al;
+      out->v = (e->type == AST_SIZEOF_EXPR) ? ir_type_size(t)
+                                            : ir_type_align(t);
       out->bits = 64;
-      out->uns = 1;
+      out->uns = 1;       /* size_t */
       out->is_float = 0;
       return 0;
     }
@@ -407,7 +395,8 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why)
  *  false or non-constant condition (gcc parity).
  * ------------------------------------------------------------------ */
 
-typedef struct { IR_Module* mod; Arena* a; TypedefEntry* enum_vals; } SACtx;
+typedef struct { IR_Module* mod; Arena* a; TypedefEntry* enum_vals;
+                 HashMap* globals; } SACtx;
 
 static int
 sa_check_cb(AST_Node* n, void* ctx)
@@ -422,7 +411,8 @@ sa_check_cb(AST_Node* n, void* ctx)
      * stay AST_IDENT; resolve them against enum_vals first */
     resolve_enum_idents(n->body.static_assert.expr, c->enum_vals);
 
-    if (ice_eval(c->a, n->body.static_assert.expr, &val, &why) != 0 ||
+    if (ice_eval(c->a, n->body.static_assert.expr, &val, &why,
+                 c->globals) != 0 ||
         val.is_float) {
         fprintf(stderr, "cmpl: error: static assertion at line %d col %d: %s\n",
                 n->loc.line, n->loc.col,
@@ -442,9 +432,9 @@ sa_check_cb(AST_Node* n, void* ctx)
 
 void
 ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root,
-                        TypedefEntry* enum_vals)
+                        TypedefEntry* enum_vals, HashMap* globals)
 {
-    SACtx c = { mod, a, enum_vals };
+    SACtx c = { mod, a, enum_vals, globals };
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
         ast_walk(decl, sa_check_cb, NULL, &c);

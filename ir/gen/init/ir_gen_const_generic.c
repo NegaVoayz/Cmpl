@@ -12,7 +12,7 @@
 
 IR_Value*
 gen_const_generic(Arena* a, AST_Node* init, IR_Type* target_type,
-                  TypedefEntry* enum_vals)
+                  TypedefEntry* enum_vals, HashMap* globals, int* err)
 {
     AST_Node* ctrl = init->body.generic.controlling;
     IR_Type* ctype = NULL;
@@ -66,5 +66,5 @@ gen_const_generic(Arena* a, AST_Node* init, IR_Type* target_type,
         return v;
     }
     return gen_const_init(a, match->body.generic_assoc.expr,
-                          target_type, enum_vals);
+                          target_type, enum_vals, globals, err);
 }

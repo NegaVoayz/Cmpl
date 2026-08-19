@@ -122,13 +122,14 @@ void      gen_string_array_init(GenCtx* ctx, IR_Value* dst, AST_Node* e, IR_Type
 
 /* ---- constant initializer lowering (ir_gen_const.c) ---- */
 IR_Value* gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
-                         TypedefEntry* enum_vals);
+                         TypedefEntry* enum_vals, HashMap* globals, int* err);
 
 /* ---- type/struct resolution (ir_gen_resolve*.c) ---- */
 void resolve_type_tree(Type* t, TypedefEntry* table);
 void resolve_expr_types(AST_Node* e, TypedefEntry* table);
 void resolve_ast_node(AST_Node* n, TypedefEntry* table);
-int  resolve_array_sizes(Arena* a, Type* t, TypedefEntry* enum_vals);
+int  resolve_array_sizes(Arena* a, Type* t, TypedefEntry* enum_vals,
+                         HashMap* globals);
 void resolve_struct_refs_type(Type* t, HashMap* struct_map);
 void resolve_struct_refs_stmt(AST_Node* n, HashMap* struct_map);
 int  resolve_sizeof_cast_type_cb(AST_Node* n, void* ctx);
@@ -137,9 +138,10 @@ int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 
 /* ---- module emission passes (ir_gen_module_emit.c) ---- */
 void resolve_struct_refs_all(Arena* a, AST_Node* root);
-int  resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals);
+int  resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals,
+                              HashMap* globals);
 void upgrade_existing_global(Arena* a, AST_Node* decl, IR_Value* existing,
-                             TypedefEntry* enum_vals);
+                             TypedefEntry* enum_vals, IR_Module* mod);
 void emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
                  TypedefEntry* enum_vals);
 void gen_module_functions(AST_Node* root, IR_Module* mod, int is_device,
@@ -147,7 +149,7 @@ void gen_module_functions(AST_Node* root, IR_Module* mod, int is_device,
 
 /* ---- C11 _Static_assert (ir_gen_sa.c) ---- */
 void ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root,
-                             TypedefEntry* enum_vals);
+                             TypedefEntry* enum_vals, HashMap* globals);
 
 /* one evaluated integer constant: value + type width/signedness.  The
  * width matters because C constant expressions are computed in the
@@ -168,8 +170,10 @@ typedef struct {
  * ternary, casts, sizeof, _Alignof, and mixed float + - * / (float
  * result).  Returns 0 on success; -1 with *why set when the expression
  * is not constant.  Shared by _Static_assert, const-init values, enum
- * values and array bounds. */
-int ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why);
+ * values and array bounds.  `globals` is the file-scope var name ->
+ * Type* table used to type sizeof/& operands (NULL when unavailable). */
+int ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
+             HashMap* globals);
 
 /* replace AST_IDENT nodes that name an enum_vals entry with AST_INT_LIT
  * (opt_enum cannot fold enumerators whose value expr is non-literal,
@@ -179,7 +183,23 @@ void resolve_enum_idents(AST_Node* e, TypedefEntry* enum_vals);
 /* const-init fallback (ir_gen_const_ice.c): evaluate `init` with ICE
  * semantics and convert to target_type, or NULL if not constant. */
 IR_Value* gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
-                             TypedefEntry* enum_vals);
+                             TypedefEntry* enum_vals, HashMap* globals,
+                             int* err);
+
+/* ---- constant-expression type inference (ir_gen_ice_type.c) ---- */
+
+/* infer the IR type of an expression for sizeof/_Alignof (C11 6.5.3.4p2:
+ * the operand is never evaluated).  Uses `globals` (file-scope var name
+ * -> Type*) to type identifiers; NULL when the type cannot be inferred
+ * (unknown ident, call, VLA-dependent bound, ...). */
+IR_Type* ice_expr_type(Arena* a, AST_Node* e, HashMap* globals);
+
+/* collect file-scope variable declarations into a name -> Type* table
+ * (for sizeof(garr)/&g in constant expressions).  Must run after
+ * resolve_struct_refs_all so struct-typed globals are complete, and
+ * before resolve_array_sizes_pass (which evaluates bounds containing
+ * sizeof of globals). */
+void collect_global_types(Arena* a, AST_Node* root, HashMap* gmap);
 
 /* ---- expression operators + coercion (ir/gen/expr/) ---- */
 IR_Value* coerce_to_i1(IR_Builder* b, IR_Value* v);

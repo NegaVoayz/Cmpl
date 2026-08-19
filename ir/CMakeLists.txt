@@ -2,7 +2,7 @@ add_library(ir
     ir_gen_cuda.c
     builder/ir_builder.c builder/ir_builder_block.c builder/ir_builder_const.c builder/ir_builder_cast.c builder/ir_builder_ops.c builder/ir_builder_mem.c
     type/ir_type.c type/ir_type_ast.c type/ir_type_struct.c type/ir_type_layout.c type/ir_type_bf.c type/ir_type_bfq.c
-    gen/ir_gen.c gen/ir_gen_module.c gen/ir_gen_module_emit.c gen/ir_gen_func.c gen/ir_gen_resolve.c gen/ir_gen_resolve_ast.c gen/ir_gen_resolve_struct.c gen/ir_gen_sa.c gen/init/ir_gen_const.c gen/init/ir_gen_init.c gen/ir_gen_stmt.c gen/ir_gen_stmt_ctrl.c gen/ir_gen_stmt_jump.c
+    gen/ir_gen.c gen/ir_gen_module.c gen/ir_gen_module_emit.c gen/ir_gen_func.c gen/ir_gen_resolve.c gen/ir_gen_resolve_ast.c gen/ir_gen_resolve_struct.c gen/ir_gen_sa.c gen/ir_gen_ice_type.c gen/init/ir_gen_const.c gen/init/ir_gen_init.c gen/ir_gen_stmt.c gen/ir_gen_stmt_ctrl.c gen/ir_gen_stmt_jump.c
     gen/expr/ir_gen_expr.c
     gen/expr/ir_gen_logical.c
     gen/expr/ir_gen_binary.c

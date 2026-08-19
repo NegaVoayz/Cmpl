@@ -62,7 +62,8 @@ gen_const_child_type(IR_Type* ty, int idx)
  * desig_walk_slot in ir_gen_init_desig.c. */
 IR_Value*
 gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
-                AST_Node* val, TypedefEntry* enum_vals)
+                AST_Node* val, TypedefEntry* enum_vals,
+                HashMap* globals, int* err)
 {
     if (!steps) {
         if (val && val->type != AST_INIT_LIST && ty &&
@@ -74,9 +75,9 @@ gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
             synth.type = AST_INIT_LIST;
             synth.body.init_list.elems = val;
             synth.body.init_list.last_elem = val;
-            return gen_const_init(a, &synth, ty, enum_vals);
+            return gen_const_init(a, &synth, ty, enum_vals, globals, err);
         }
-        return gen_const_init(a, val, ty, enum_vals);
+        return gen_const_init(a, val, ty, enum_vals, globals, err);
     }
 
     AST_Node* s = steps;
@@ -95,7 +96,8 @@ gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
         IR_Value** elems = arena_alloc(a, n * sizeof(IR_Value*));
         for (int j = 0; j < n; j++) elems[j] = NULL;
         IR_Value* fv = gen_const_desig(a, gen_const_child_type(ty, fi),
-                                       s->next, val, enum_vals);
+                                       s->next, val, enum_vals,
+                                       globals, err);
         if (ir_has_bitfields(ty))
             gen_const_field_store(a, elems, ty, fi, fv);
         else
@@ -123,7 +125,8 @@ gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
     int n = ty->size;
     IR_Value** elems = arena_alloc(a, n * sizeof(IR_Value*));
     for (int j = 0; j < n; j++) elems[j] = NULL;
-    elems[ii] = gen_const_desig(a, ty->inner, s->next, val, enum_vals);
+    elems[ii] = gen_const_desig(a, ty->inner, s->next, val, enum_vals,
+                                globals, err);
     for (int j = 0; j < n; j++)
         if (!elems[j]) elems[j] = gen_const_zero(a, ty->inner);
     return ir_const_aggregate(a, ty, elems, n);
@@ -139,13 +142,15 @@ gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
 void
 gen_const_union_store(Arena* a, IR_Value** elems, IR_Type* target,
                       IR_Type* member_ty, AST_Node* steps, AST_Node* val,
-                      TypedefEntry* enum_vals)
+                      TypedefEntry* enum_vals, HashMap* globals, int* err)
 {
     IR_Type* largest = ir_union_largest_member(target);
     if (largest && member_ty && ir_type_eq(largest, member_ty)) {
-        elems[0] = gen_const_desig(a, largest, steps, val, enum_vals);
+        elems[0] = gen_const_desig(a, largest, steps, val, enum_vals,
+                                   globals, err);
     } else if (largest && member_ty) {
-        IR_Value* mv = gen_const_desig(a, member_ty, steps, val, enum_vals);
+        IR_Value* mv = gen_const_desig(a, member_ty, steps, val, enum_vals,
+                                       globals, err);
         if (largest->kind == IR_ARRAY || largest->kind == IR_STRUCT)
             elems[0] = gen_const_union_aggregate(a, largest, mv);
         else {
