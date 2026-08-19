@@ -33,6 +33,15 @@ gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
         return NULL;
     }
 
+    /* a NULL/constant-base address ((struct S*)0)->m has no named root:
+     * it is a plain integer byte address.  A pointer target gets
+     * inttoptr (or null at offset 0); an integer target gets the raw
+     * offset — gcc folds both.  A NAMED address stays a getelementptr
+     * on @name below. */
+    if (val.is_ptr && val.ptr_name.length == 0)
+        return gen_const_scalar(a, target_type, val.ptr_off,
+                                (double)val.ptr_off);
+
     /* an address constant: &g, &garr[1], &s.b, &g + k in a file-scope
      * init.  offset 0 is the bare @name (VAL_GLOBAL); a nonzero offset
      * dumps as getelementptr (i8, ptr @name, i64 off).  Only a pointer

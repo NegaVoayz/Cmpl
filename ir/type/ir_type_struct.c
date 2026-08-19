@@ -8,7 +8,7 @@
  * Used by AST_MEMBER handler to find field indices by name.
  * Kept as a separate table (not a field in IR_Type) to avoid
  * bootstrapping issues when the compiler compiles itself. */
-#define MAX_AST_MAP 256
+#define MAX_AST_MAP 4096
 static IR_Type* ast_map_keys[MAX_AST_MAP];
 static Type*    ast_map_vals[MAX_AST_MAP];
 static int      n_ast_map = 0;

@@ -20,6 +20,15 @@
 #include "ast_walk.h"
 #include "ir_gen.h"
 
+/* ptr_name sentinel for an address constant with NO named root: the
+ * offsetof idiom &((struct S*)C)->m has a known byte address (base +
+ * member offset) but no object name.  Such an address may convert to an
+ * integer (the offsetof value) and to a pointer (inttoptr); it can never
+ * dump as getelementptr @name. */
+static const char ice_no_base_data[] = "";
+
+static const String ICE_NO_BASE = { ice_no_base_data, 0 };
+
 /* ICEVal + ice_eval are declared in ir_gen.h: the _Static_assert
  * evaluator is also the constant-expression evaluator for const-init
  * values, enum values and array bounds (ir_gen_const_ice.c,
@@ -105,19 +114,68 @@ ice_addr_of(Arena* a, AST_Node* e, ICEVal* out, const char** why,
     }
 
     case AST_MEMBER:
-    {   if (e->body.member.op == TOK_ARROW) {
-            if (why) *why = "address constant through a pointer is not "
-                            "supported";
-            return -1;
+    {   IR_Type* rec;
+        String base_name;
+        long long base_off;
+        Type* arrow_ast = NULL;
+
+        if (e->body.member.op == TOK_ARROW) {
+            /* offsetof idiom: &((struct S*)C)->m with a CONSTANT base C
+             * (usually 0).  The address is base + member offset — a
+             * constant even though the base is not a named object; the
+             * result carries an EMPTY ptr_name (no named root).  The
+             * record must be a pointer-targeted cast chain whose
+             * innermost operand is an integer constant; p->m with a
+             * runtime pointer stays rejected. */
+            AST_Node* rn = e->body.member.record;
+
+            if (rn->type != AST_CAST) {
+                if (why) *why = "address constant through a pointer is not "
+                                "supported";
+                return -1;
+            }
+            IR_Type* rt = ir_type_from_ast(a, rn->body.cast.type_expr);
+
+            if (!rt || rt->kind != IR_PTR) {
+                if (why) *why = "address constant through a pointer is not "
+                                "supported";
+                return -1;
+            }
+            AST_Node* bn = rn;
+            while (bn->type == AST_CAST)
+                bn = bn->body.cast.cast_expr;
+            ICEVal bv;
+
+            if (ice_eval(a, bn, &bv, why, globals) ||
+                bv.is_float || bv.is_ptr) {
+                if (why) *why = "address constant through a pointer is not "
+                                "supported";
+                return -1;
+            }
+            rec = rt->inner;
+            base_name = ICE_NO_BASE;
+            base_off = bv.v;
+            /* the struct AST type for field lookup: the cast's type_expr
+             * is in hand, so no ir_struct_ast_lookup needed — the ast_map
+             * is bounded and cache-off churn during enum-value evaluation
+             * can fill it, silently dropping later registrations */
+            arrow_ast = rn->body.cast.type_expr;
+            while (arrow_ast && (arrow_ast->kind == TYPE_PTR ||
+                                 arrow_ast->kind == TYPE_NAMED))
+                arrow_ast = arrow_ast->inner;
+        } else {
+            rec = ice_expr_type(a, e->body.member.record, globals);
+            if (!rec || (rec->kind != IR_STRUCT && rec->kind != IR_UNION)) {
+                if (why) *why = "member of non-struct in address constant";
+                return -1;
+            }
+            if (ice_addr_of(a, e->body.member.record, out, why, globals))
+                return -1;
+            base_name = out->ptr_name;
+            base_off = out->ptr_off;
         }
-        IR_Type* rec = ice_expr_type(a, e->body.member.record, globals);
-        if (!rec || (rec->kind != IR_STRUCT && rec->kind != IR_UNION)) {
-            if (why) *why = "member of non-struct in address constant";
-            return -1;
-        }
-        if (ice_addr_of(a, e->body.member.record, out, why, globals))
-            return -1;
-        Type* ast = ir_struct_ast_lookup(rec);
+
+        Type* ast = arrow_ast ? arrow_ast : ir_struct_ast_lookup(rec);
         int fidx = ast ? ir_struct_field_index(ast,
                                                e->body.member.member) : -1;
         if (fidx < 0) {
@@ -139,7 +197,9 @@ ice_addr_of(Arena* a, AST_Node* e, ICEVal* out, const char** why,
             if (why) *why = "cannot place field in address constant";
             return -1;
         }
-        out->ptr_off += foff;
+        out->is_ptr = 1;
+        out->ptr_name = base_name;
+        out->ptr_off = base_off + foff;
         { IR_Type* ft = ice_expr_type(a, e, globals);
           out->ptr_elem = ft ? ir_type_size(ft) : 0; }
         return 0;
@@ -586,12 +646,20 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
           return 0;
       }
 
-      /* an address constant cannot become an integer constant: (long)&g
-       * is a relocation in gcc and is not representable here — reject
-       * loudly (documented gap). */
+      /* an address constant of a NAMED object cannot become an integer
+       * constant: (long)&g is a relocation in gcc and is not
+       * representable here — reject loudly (documented gap).  A
+       * NULL/constant-base address (empty ptr_name) has a known byte
+       * value: converting it to an integer is the offsetof idiom and
+       * gcc folds it ((size_t)&((struct S*)0)->m == member offset). */
       if (op.is_ptr) {
-          if (why) *why = "cast of an address constant to an integer";
-          return -1;
+          if (op.ptr_name.length != 0) {
+              if (why) *why = "cast of an address constant to an integer";
+              return -1;
+          }
+          op.v = op.ptr_off;
+          op.is_ptr = 0;
+          op.ptr_off = 0;
       }
 
       if (op.is_float) {
