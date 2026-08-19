@@ -43,9 +43,17 @@ gen_addr_of(GenCtx* ctx, AST_Node* n)
         }
     }
 
-    /* &arr[i] → return GEP pointer, don't load */
+    /* &arr[i] → return GEP pointer, don't load.  The array operand must
+     * go through gen_store_ptr (no decay): a multi-dimensional array
+     * decays to a row pointer, and the subscript must then step whole
+     * ROWS, not elements (gen_expr(mat) + GEP 0,1 would read
+     * &mat[0][1] instead of &mat[1]).  Mirrors gen_store_index_ptr. */
     if (opnd->type == AST_INDEX) {
-        IR_Value* arr = gen_expr(ctx, opnd->body.subscript.array);
+        IR_Value* arr = gen_store_ptr(ctx, opnd->body.subscript.array);
+        if (arr && arr->type && arr->type->kind == IR_PTR &&
+            arr->type->inner && arr->type->inner->kind == IR_PTR)
+            arr = ir_build_load(b, arr);
+        if (!arr) arr = gen_expr(ctx, opnd->body.subscript.array);
         IR_Value* idx = gen_expr(ctx, opnd->body.subscript.index);
         return ir_build_elem_ptr(b, arr, idx);
     }
