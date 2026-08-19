@@ -2,6 +2,7 @@
  * TODO(refactor): 207 lines > 200 limit — split further when expr/ has room. */
 
 #include "../ir_gen.h"
+#include "ir_gen_expr.h"
 
 #include <stdlib.h>
 
@@ -43,19 +44,23 @@ gen_addr_of(GenCtx* ctx, AST_Node* n)
         }
     }
 
-    /* &arr[i] → return GEP pointer, don't load.  The array operand must
-     * go through gen_store_ptr (no decay): a multi-dimensional array
-     * decays to a row pointer, and the subscript must then step whole
-     * ROWS, not elements (gen_expr(mat) + GEP 0,1 would read
-     * &mat[0][1] instead of &mat[1]).  Mirrors gen_store_index_ptr. */
+    /* &arr[i] → return GEP pointer, don't load.  gen_index_base keeps
+     * the array operand un-decayed (a multi-dimensional array must step
+     * whole ROWS, not elements — gen_expr(mat) + GEP 0,1 would read
+     * &mat[0][1] instead of &mat[1]) and loads pointer-variable bases
+     * (&gp2[1] must address the pointee, not @gp2's own storage). */
     if (opnd->type == AST_INDEX) {
-        IR_Value* arr = gen_store_ptr(ctx, opnd->body.subscript.array);
-        if (arr && arr->type && arr->type->kind == IR_PTR &&
-            arr->type->inner && arr->type->inner->kind == IR_PTR)
-            arr = ir_build_load(b, arr);
-        if (!arr) arr = gen_expr(ctx, opnd->body.subscript.array);
+        int is_ptr_val = 0;
+        IR_Value* arr = gen_index_base(ctx, opnd->body.subscript.array,
+                                       &is_ptr_val);
+        if (!arr) {
+            IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
+            v->kind = VAL_UNDEF; v->type = t_i32; return v;
+        }
         IR_Value* idx = gen_expr(ctx, opnd->body.subscript.index);
-        return ir_build_elem_ptr(b, arr, idx);
+        return is_ptr_val
+            ? ir_build_gep(b, arr, idx, NULL)
+            : ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
     }
 
     /* &ptr->field → return GEP pointer, don't load */

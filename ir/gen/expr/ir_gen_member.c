@@ -137,17 +137,22 @@ gen_index_expr(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
 
-    /* Get the base address via gen_store_ptr, which does NOT decay a
-     * multi-dimensional array to &arr[0].  Using gen_expr here would
-     * decay `table` to &table[0], making the first index step ELEMENTS
-     * instead of ROWS (so table[i][j] reads table[0][i][j]). */
-    IR_Value* arr = gen_store_ptr(ctx, n->body.subscript.array);
-    if (arr && arr->type && arr->type->kind == IR_PTR &&
-        arr->type->inner && arr->type->inner->kind == IR_PTR)
-        arr = ir_build_load(b, arr);
-    if (!arr) arr = gen_expr(ctx, n->body.subscript.array);
+    /* Get the base address via gen_index_base, which does NOT decay a
+     * multi-dimensional array to &arr[0] (that would make the first
+     * index step ELEMENTS instead of ROWS) and LOADS global/local
+     * pointer-variable bases so `gp[1]` addresses the pointee, not the
+     * pointer variable's own storage. */
+    int is_ptr_val = 0;
+    IR_Value* arr = gen_index_base(ctx, n->body.subscript.array,
+                                   &is_ptr_val);
+    if (!arr) {
+        IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
+        v->kind = VAL_UNDEF; v->type = t_i32; return v;
+    }
     IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
-    IR_Value* gep = ir_build_elem_ptr(b, arr, idx);
+    IR_Value* gep = is_ptr_val
+        ? ir_build_gep(b, arr, idx, NULL)
+        : ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
     return ir_build_load(b, gep);
 }
 

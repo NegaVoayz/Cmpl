@@ -158,24 +158,23 @@ gen_store_compound_ptr(GenCtx* ctx, AST_Node* n)
 }
 
 /* arr[i] address: GEP into the array base.  Handles nested indices by
- * recursing (so arr[i][j] builds a pointer chain, not a load). */
+ * recursing (so arr[i][j] builds a pointer chain, not a load).
+ * gen_index_base loads pointer-variable bases (global `int* g`,
+ * local/member pointers) and selects the GEP form from the subscript
+ * operand's C type: pointer-typed → single-index (pointee step),
+ * array-typed → two-index (element step). */
 static IR_Value*
 gen_store_index_ptr(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
-    IR_Value* arr = gen_store_ptr(ctx, n->body.subscript.array);
-    /* if arr is a pointer-to-pointer (e.g. char** from a struct member),
-     * we need to LOAD the pointer value first to get the actual base
-     * address for the GEP. Otherwise we'd GEP on the address of the
-     * pointer field itself, scaling by pointer size instead of byte size.
-     * This fixes b->data[b->len] generating *(b + len*8) instead of
-     * *(b->data + len) — the former overwrites b->len with '\0'. */
-    if (arr && arr->type && arr->type->kind == IR_PTR &&
-        arr->type->inner && arr->type->inner->kind == IR_PTR)
-        arr = ir_build_load(b, arr);
-    if (!arr) arr = gen_expr(ctx, n->body.subscript.array);
+    int is_ptr_val = 0;
+    IR_Value* arr = gen_index_base(ctx, n->body.subscript.array,
+                                   &is_ptr_val);
+    if (!arr) return NULL;
     IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
-    return ir_build_elem_ptr(b, arr, idx);
+    return is_ptr_val
+        ? ir_build_gep(b, arr, idx, NULL)
+        : ir_build_gep(b, arr, ir_const_int(b, t_i32, 0), idx);
 }
 
 IR_Value*

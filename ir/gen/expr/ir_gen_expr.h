@@ -56,4 +56,11 @@ IR_Value* bf_byte_addr(GenCtx* ctx, AST_Node* n);
  * generate ONLY that arm. */
 IR_Value* gen_expr_generic(GenCtx* ctx, AST_Node* n);
 
+/* subscript base (ir_gen_index.c): return the base VALUE for base[idx],
+ * loading pointer-variable bases, and set *is_ptr_val to 1 for a
+ * single-index GEP (pointer value) or 0 for the two-index (0, idx)
+ * form on an array address.  Shared by gen_index_expr,
+ * gen_store_index_ptr and gen_addr_of. */
+IR_Value* gen_index_base(GenCtx* ctx, AST_Node* operand, int* is_ptr_val);
+
 #endif /* IR_GEN_EXPR_H */
