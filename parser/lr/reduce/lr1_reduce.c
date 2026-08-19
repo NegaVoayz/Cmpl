@@ -97,7 +97,17 @@ LR_Action reduce_primary_paren_close(LR1_Parser* p)
      * BUT defer when the '(' being closed is the operand of a prefix
      * unary operator (sizeof, -, +, !, ~, *): (T)sizeof(x) must wrap the
      * sizeof result, not the inner x.  In that case the unary reduction
-     * below will land in HS_UNARY and apply the cast there. */
+     * below will land in HS_UNARY and apply the cast there.
+     * Also defer when a postfix operator follows the ')' and the cast
+     * was set strictly OUTSIDE this paren level: postfix binds tighter
+     * than cast, so (T)(x)[i] / (T)(x).f / (T)(x)(a) wrap the whole
+     * postfix chain, not the group.  A cast set inside the group
+     * ((T)x)[1] still wraps at its own close.
+     * The wrap applies only when this group is the cast's operand
+     * container: the group holding the cast (depth == cast_paren_depth)
+     * or the group opened directly after it (depth == cast_paren_depth
+     * + 1).  A deeper group is part of the operand's internals --
+     * (T)f((x), y) must wrap the call, not the argument. */
     int paren_is_unary_operand = 0;
     if (p->sp >= 2) {
         int below = p->stack[p->sp - 2].state;
@@ -105,8 +115,17 @@ LR_Action reduce_primary_paren_close(LR1_Parser* p)
                                   below == S_PREFIX_INC || below == S_PREFIX_DEC);
     }
 
+    int postfix_follows = (p->pending_cast &&
+                           p->cast_paren_depth < p->paren_depth &&
+                           p->tok->next &&
+                           is_postfix_token(p->tok->next->kind));
+
+    int group_is_cast_operand = (p->pending_cast &&
+                                 p->cast_paren_depth <= p->paren_depth &&
+                                 p->paren_depth <= p->cast_paren_depth + 1);
+
     if (p->pending_cast && inner && !paren_is_unary_operand &&
-        p->paren_depth >= p->cast_paren_depth) {
+        !postfix_follows && group_is_cast_operand) {
         inner = apply_pending_casts(p, inner);
     }
 
