@@ -118,20 +118,20 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
         return 1;
     }
 
-    /* mark pending cast so lr1_parse_expr wraps the result.  Adjacent casts
-     * (T1)(T2)... all parse at the same paren/stack depth (try_parse_cast
-     * consumes (T) without shifting), so cast_paren_depth/cast_sp are
-     * chain-wide; only the type and loc differ per level.  Prepend each
-     * cast to the pending chain: head = innermost, so apply_pending_casts
-     * wraps in the correct order with no depth cap. */
+    /* mark pending cast so lr1_parse_expr wraps the result.  Prepend each
+     * cast to the pending chain: head = innermost, so wrapping walks the
+     * chain in the correct order with no depth cap.  Each cast records
+     * the paren/stack depth where it was parsed; nested casts such as
+     * (T1)((T2)x) sit at different depths and are applied separately by
+     * apply_pending_casts_where — a chain-wide depth would conflate the
+     * inner cast (which wraps its own operand) with the outer one (which
+     * wraps the whole inner expression). */
     p->pending_cast = 1;
-    if (p->cast_count == 0) {
-        p->cast_paren_depth = p->paren_depth;
-        p->cast_sp = p->sp;
-    }
     PendingCast* pc = arena_alloc(p->arena, sizeof(PendingCast));
     pc->type = ct;
     pc->loc = peek->loc;
+    pc->pd = p->paren_depth;
+    pc->sp = p->sp;
     pc->next = p->cast_chain;
     p->cast_chain = pc;
     p->cast_count++;
@@ -143,18 +143,45 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
 AST_Node*
 apply_pending_casts(LR1_Parser* p, AST_Node* operand)
 {
-    for (PendingCast* pc = p->cast_chain; pc; pc = pc->next) {
-        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
-                                      pc->loc.line, pc->loc.col);
+    return apply_pending_casts_where(p, operand, -1, -1);
+}
 
-        cast->body.cast.type_expr = pc->type;
-        cast->body.cast.cast_expr = operand;
-        operand = cast;
+/* Wrap `operand` in the pending-cast chain PREFIX whose recorded depths
+ * satisfy pc->pd >= min_pd AND pc->sp >= min_sp, innermost-first.  Both
+ * depths are non-increasing along the chain (head = innermost = parsed
+ * last, at the deepest level), so the qualifying casts form a clean
+ * prefix.  Casts below either bound stay pending — their enclosing
+ * group is not yet closed, or they belong to an outer expression and
+ * wrap it later.  Pass -1 for a bound to ignore it (recorded depths
+ * are never negative). */
+AST_Node*
+apply_pending_casts_where(LR1_Parser* p, AST_Node* operand, int min_pd, int min_sp)
+{
+    PendingCast* pc = p->cast_chain;
+    int n = 0;
+
+    while (pc && pc->pd >= min_pd && pc->sp >= min_sp) {
+        n++;
+        pc = pc->next;
     }
-    p->pending_cast = 0;
-    p->cast_count = 0;
-    p->cast_chain = NULL;
-    return operand;
+
+    AST_Node* result = operand;
+    PendingCast* apply = p->cast_chain;
+
+    for (int i = 0; i < n; i++) {
+        AST_Node* cast = ast_node_new(p->arena, AST_CAST,
+                                      apply->loc.line, apply->loc.col);
+
+        cast->body.cast.type_expr = apply->type;
+        cast->body.cast.cast_expr = result;
+        result = cast;
+        apply = apply->next;
+    }
+
+    p->cast_chain = apply;
+    p->cast_count -= n;
+    p->pending_cast = (p->cast_chain != NULL);
+    return result;
 }
 
 /* Handle stop_at_comma: when set, treat comma as a terminator (enum values,
@@ -169,9 +196,11 @@ lr1_stop_at_comma(LR1_Parser* p, TokenKind next)
 
     AST_Node* result = p->stack[p->sp].node;
 
-    if (p->pending_cast && result && p->paren_depth <= p->cast_paren_depth) {
-        return apply_pending_casts(p, result);
-    }
+    /* casts set at-or-inside the current depth belong to this expression
+     * and wrap it at the comma; a cast set outside (pd < paren_depth)
+     * belongs to an enclosing expression and stays pending. */
+    if (p->pending_cast && result)
+        return apply_pending_casts_where(p, result, p->paren_depth, -1);
     return result;
 }
 
@@ -187,24 +216,30 @@ apply_pending_cast_at_reduce(LR1_Parser* p)
 {
     int defer_for_postfix = (p->pending_cast &&
                              is_postfix_token(p->tok->kind));
-    int in_nested_parens = (p->pending_cast &&
-                            p->paren_depth > p->cast_paren_depth);
     int st = p->stack[p->sp].state;
-    int apply_at_unary_rhs = (st == S_UNARY_RHS &&
-                              p->sp >= 1 && p->sp - 1 <= p->cast_sp);
+    /* casts set INSIDE the unary operand (parsed after its prefix op was
+     * pushed, so recorded sp >= the op's frame) latch onto the operand now:
+     * -(int)x -> -((int)x); (int)-x has sp < the op's frame, defers to the
+     * HS_UNARY reduce below and wraps the unary result instead. */
+    int at_unary_rhs = (st == S_UNARY_RHS && p->sp >= 1);
     /* latch the cast onto the primary/postfix operand immediately following
      * (T) when a binary op is about to take it as LHS; otherwise the stranded
      * cast wraps the binary RHS instead (e.g. (int)3u < 5 -> 3u < (int)5). */
     int apply_at_primary_binop = ((st == HS_PRIMARY || st == HS_POSTFIX) &&
                                   is_binary_op(p->tok->kind));
 
-    if (p->pending_cast && !defer_for_postfix && !in_nested_parens &&
-        (is_cast_level(st) || apply_at_unary_rhs || apply_at_primary_binop)) {
+    if (p->pending_cast && !defer_for_postfix &&
+        (is_cast_level(st) || at_unary_rhs || apply_at_primary_binop)) {
         AST_Node* inner = p->stack[p->sp].node;
 
-        if (inner)
-            p->stack[p->sp].node = apply_pending_casts(p, inner);
-        else {
+        if (inner) {
+            int min_sp = at_unary_rhs ? (p->sp - 1) : -1;
+
+            /* casts inside an unclosed deeper group (pd > paren_depth)
+             * belong to that group's operand and are left pending */
+            p->stack[p->sp].node =
+                apply_pending_casts_where(p, inner, p->paren_depth, min_sp);
+        } else {
             p->pending_cast = 0;
             p->cast_count = 0;
             p->cast_chain = NULL;

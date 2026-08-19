@@ -54,7 +54,6 @@ LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a)
     p->pending_cast = 0;
     p->cast_count = 0;
     p->cast_chain = NULL;
-    p->cast_sp = 0;
     p->typedefs = NULL;
     p->arena = a;
     p->stack[0].state = S_ENTRY;
@@ -102,7 +101,6 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
     p->cast_count = 0;
     p->cast_chain = NULL;
     p->paren_depth = 0;
-    p->cast_sp = 0;
 
     while (1) {
         TokenKind next = p->tok->kind;

@@ -75,7 +75,6 @@ lr1_parse_generic(LR1_Parser* p)
     int save_ccount = p->cast_count;
     PendingCast* save_chain = p->cast_chain;
     int save_pdepth = p->paren_depth;
-    int save_csp = p->cast_sp;
 
     memcpy(saved, p->stack, sizeof(StackFrame) * (size_t)(save_sp + 1));
 
@@ -151,7 +150,6 @@ lr1_parse_generic(LR1_Parser* p)
     p->cast_count = save_ccount;
     p->cast_chain = save_chain;
     p->paren_depth = save_pdepth;
-    p->cast_sp = save_csp;
 
     /* the selection is a PRIMARY expression: pop the S_GENERIC keyword
      * frame (its token must not survive as a unary operator) and push

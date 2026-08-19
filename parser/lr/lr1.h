@@ -126,10 +126,16 @@ typedef LR_Action (*LR1_Func)(LR1_Parser* p);
  * operators in C (cast-expression nests arbitrarily: (T1)(T2)...x), so
  * the chain must be unbounded — an arena-linked list.  A fixed-size
  * array silently dropped casts beyond its depth (wrong code, no
- * diagnostic).  Head = innermost cast, tail = outermost. */
+ * diagnostic).  Head = innermost cast, tail = outermost.
+ * Each cast records its own paren/stack depth at parse time: nested
+ * casts (T1)((T2)x) sit at different depths, and the wrap decisions
+ * must apply the innermost qualifying casts while outer ones stay
+ * pending — a chain-wide depth would conflate them. */
 typedef struct PendingCast {
     Type*               type;
     SourceLoc           loc;
+    int                 pd;    /* paren_depth when this cast was parsed */
+    int                 sp;    /* stack depth when this cast was parsed */
     struct PendingCast* next;
 } PendingCast;
 
@@ -152,8 +158,6 @@ struct LR1_Parser {
     int        pending_cast;            /* cast prefix was detected; wrap result */
     PendingCast* cast_chain;            /* pending cast prefixes, head = innermost */
     int        cast_count;             /* number of pending casts in the chain */
-    int        cast_paren_depth;       /* paren depth when cast was set */
-    int        cast_sp;               /* stack depth when cast was set */
     int        paren_depth;            /* current ()/[] nesting depth */
     TypedefName* typedefs;             /* typedef names seen so far (casts) */
     Arena*     arena;                  /* arena for AST node allocations */
@@ -204,5 +208,7 @@ int       try_parse_cast(LR1_Parser* p, LR1_State state);
 AST_Node* lr1_stop_at_comma(LR1_Parser* p, TokenKind next);
 void      apply_pending_cast_at_reduce(LR1_Parser* p);
 AST_Node* apply_pending_casts(LR1_Parser* p, AST_Node* operand);
+AST_Node* apply_pending_casts_where(LR1_Parser* p, AST_Node* operand,
+                                    int min_pd, int min_sp);
 
 #endif /* LR1_H */

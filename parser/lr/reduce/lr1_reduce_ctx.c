@@ -81,12 +81,12 @@ LR_Action lr1_handle_comma(LR1_Parser* p)
 
             /* consume pending cast: (type)arg0, arg1 — the cast
              * belongs to the current expression, not the next one.
-             * Only when the cast was set INSIDE this call (at or after
-             * its '('): (int)f(x, y) must wrap the call result, not x.
-             * (int)(f)(x, y) defers the same way via the paren group. */
-            if (p->pending_cast && expr &&
-                p->cast_paren_depth >= p->paren_depth)
-                expr = apply_pending_casts(p, expr);
+             * Only casts set INSIDE this call (pd >= paren_depth, i.e.
+             * at or after its '('): (int)f(x, y) must wrap the call
+             * result, not x.  (int)(f)(x, y) defers the same way via
+             * the paren group. */
+            if (p->pending_cast && expr)
+                expr = apply_pending_casts_where(p, expr, p->paren_depth, -1);
 
             p->sp--;
             goto_push(p, expr, SYM_ARG_LIST);

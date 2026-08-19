@@ -89,24 +89,20 @@ LR_Action reduce_primary_ident(LR1_Parser* p)
 
 LR_Action reduce_primary_paren_close(LR1_Parser* p)
 {
+    int d = p->paren_depth;
     AST_Node* inner = p->stack[p->sp].node;
 
-    /* apply pending cast to the parenthesised expr if the cast was set
-     * at or inside this paren level. e.g. ((T)a) -> cast wraps a, and
-     * (T)(p-q) -> cast wraps (p-q).
-     * BUT defer when the '(' being closed is the operand of a prefix
-     * unary operator (sizeof, -, +, !, ~, *): (T)sizeof(x) must wrap the
-     * sizeof result, not the inner x.  In that case the unary reduction
-     * below will land in HS_UNARY and apply the cast there.
-     * Also defer when a postfix operator follows the ')' and the cast
-     * was set strictly OUTSIDE this paren level: postfix binds tighter
-     * than cast, so (T)(x)[i] / (T)(x).f / (T)(x)(a) wrap the whole
-     * postfix chain, not the group.  A cast set inside the group
-     * ((T)x)[1] still wraps at its own close.
-     * The wrap applies only when this group is the cast's operand
-     * container: the group holding the cast (depth == cast_paren_depth)
-     * or the group opened directly after it (depth == cast_paren_depth
-     * + 1).  A deeper group is part of the operand's internals --
+    /* The group being closed is a pending cast's operand container when
+     * the cast was recorded at/inside it (pd >= d) or in the group
+     * directly outside it (pd == d-1).  Defer the OUTER cast (pd == d-1)
+     * when this group is a prefix-unary operand or a postfix operator
+     * follows:
+     *   (T)sizeof(x)  ->  cast wraps the sizeof RESULT, not x
+     *   (T)(x)[i]     ->  postfix binds tighter; cast wraps (x)[i]
+     * Casts recorded INSIDE the group (pd >= d) always wrap here: a cast
+     * set inside a sizeof operand group belongs to the operand, not the
+     * result — (T)sizeof((U)x) -> (U)x inside, outer (T) wraps result.
+     * A deeper group is part of the operand's internals and never wraps:
      * (T)f((x), y) must wrap the call, not the argument. */
     int paren_is_unary_operand = 0;
     if (p->sp >= 2) {
@@ -115,19 +111,13 @@ LR_Action reduce_primary_paren_close(LR1_Parser* p)
                                   below == S_PREFIX_INC || below == S_PREFIX_DEC);
     }
 
-    int postfix_follows = (p->pending_cast &&
-                           p->cast_paren_depth < p->paren_depth &&
-                           p->tok->next &&
+    int postfix_follows = (p->pending_cast && p->tok->next &&
                            is_postfix_token(p->tok->next->kind));
 
-    int group_is_cast_operand = (p->pending_cast &&
-                                 p->cast_paren_depth <= p->paren_depth &&
-                                 p->paren_depth <= p->cast_paren_depth + 1);
+    int min_pd = (paren_is_unary_operand || postfix_follows) ? d : d - 1;
 
-    if (p->pending_cast && inner && !paren_is_unary_operand &&
-        !postfix_follows && group_is_cast_operand) {
-        inner = apply_pending_casts(p, inner);
-    }
+    if (p->pending_cast && inner)
+        inner = apply_pending_casts_where(p, inner, min_pd, -1);
 
     p->paren_depth--;
     p->sp -= 2;
@@ -145,14 +135,15 @@ LR_Action reduce_call_close(LR1_Parser* p)
     if (lparen_idx < 0) return LR_ERROR;
 
     /* consume pending cast on last argument: call((type)expr).
-     * Apply only if the cast was set INSIDE this call — i.e. at or
-     * after the call's '(' was shifted (cast_paren_depth >= paren_depth).
-     * If set OUTSIDE (e.g. (int)strlen(x)), defer — the cast wraps the
-     * entire call result, not the last argument. */
-    if (p->pending_cast && p->stack[p->sp].node &&
-        p->cast_paren_depth >= p->paren_depth) {
-        p->stack[p->sp].node = apply_pending_casts(p, p->stack[p->sp].node);
-    }
+     * Apply casts set at-or-inside this call (pd >= paren_depth, i.e.
+     * after its '(' was shifted); a cast set OUTSIDE (e.g.
+     * (int)strlen(x)) defers — it wraps the entire call result, not
+     * the last argument.  Casts that do not qualify stay pending for
+     * the outer wrap. */
+    if (p->pending_cast && p->stack[p->sp].node)
+        p->stack[p->sp].node =
+            apply_pending_casts_where(p, p->stack[p->sp].node,
+                                      p->paren_depth, -1);
 
     p->paren_depth--;
 
