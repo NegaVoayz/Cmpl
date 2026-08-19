@@ -55,6 +55,17 @@ init_singletons(void)
     singletons_inited = 1;
 }
 
+/* public: ensure the type singletons exist.  The ICE type inference and
+ * const-init paths use t_i8/t_i32/... without going through
+ * ir_type_from_ast (which used to be the only initializer), so a module
+ * with no other type conversion (e.g. a lone _Static_assert) must init
+ * them explicitly. */
+void
+ir_init_types(void)
+{
+    init_singletons();
+}
+
 /* ---------------------------------------------------------------
  *  Composite type interning cache
  *
