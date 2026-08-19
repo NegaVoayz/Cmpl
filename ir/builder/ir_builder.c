@@ -112,12 +112,20 @@ ir_build_load(IR_Builder* b, IR_Value* ptr)
     IR_Type* elem;
 
     if (ptr->type && ptr->type->kind == IR_PTR) {
-        /* PTR source: for alloca with inner, use inner type;
-           for opaque ptr (no inner, or VAL_GLOBAL), use generic ptr */
-        if (ptr->kind == VAL_GLOBAL || !ptr->type->inner)
-            elem = ir_ptr_type(b->arena, t_i8, 0);
-        else
+        /* PTR source: the loaded value's type is the pointee — for an
+         * alloca/local slot (type PTR(T)) that is ptr->type->inner,
+         * but for a VAL_GLOBAL the stored value's type IS ptr->type
+         * itself (a global `int* g` holds an i32*).  Loading a global
+         * pointer as PTR(i8) corrupted every deref/index through it:
+         * ir_build_load on the i8* then read/wrote single bytes
+         * (300 -> 44, 400 -> -112 — silent wrong code).  Only a truly
+         * opaque pointer (no inner) falls back to PTR(i8). */
+        if (ptr->kind == VAL_GLOBAL)
+            elem = ptr->type;
+        else if (ptr->type->inner)
             elem = ptr->type->inner;
+        else
+            elem = ir_ptr_type(b->arena, t_i8, 0);
     } else if (ptr->kind == VAL_GLOBAL) {
         /* global with non-ptr type (e.g. array): globals are always
          * pointers in LLVM; treat the type as the pointee */
