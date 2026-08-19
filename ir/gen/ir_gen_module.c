@@ -82,7 +82,7 @@ register_enum_def(Arena* a, AST_Node* def, TypedefEntry** enum_vals,
             resolve_enum_idents(en->body.enumerator.value, *enum_vals);
             if (!ice_eval(a, en->body.enumerator.value, &iev, &why,
                           globals) &&
-                !iev.is_float)
+                !iev.is_float && !iev.is_ptr)
                 val = (int)iev.v;
             /* non-constant value expr: keep the previous value (the
              * compile will fail later if the enumerator is actually

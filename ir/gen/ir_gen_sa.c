@@ -166,8 +166,83 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
     out->is_ptr = 0;
     out->ptr_off = 0;
     out->ptr_elem = 0;
+    out->v = 0;
 
     switch (e->type) {
+    case AST_IDENT:
+    {   /* array-to-pointer decay: a global array in a value context is
+         * the address of its first element (int* p = garr; garr + 1 is
+         * &garr[1]).  ptr_elem is the ELEMENT size, so mat + 1 on
+         * int mat[2][3] steps a whole row (12 bytes), matching gcc.
+         * Scalar globals are not constant expressions.  A typedef'd
+         * array (typedef int A4[4]; A4 garr) is TYPE_NAMED wrapping
+         * TYPE_ARRAY — unwrap before the kind test. */
+        Type* t = globals ? (Type*)hashmap_get(globals,
+                                               e->body.ident.name) : NULL;
+        if (!t) {
+            if (why) *why = "unknown identifier in constant expression";
+            return -1;
+        }
+        while (t->kind == TYPE_NAMED && t->inner) t = t->inner;
+        if (t->kind != TYPE_ARRAY) {
+            if (why) *why = "identifier is not a constant array";
+            return -1;
+        }
+        IR_Type* at = ir_type_from_ast(a, t);
+        if (!at || at->kind != IR_ARRAY || !at->inner) {
+            if (why) *why = "array element type is unknown";
+            return -1;
+        }
+        int esz = ir_type_size(at->inner);
+        if (esz <= 0) {
+            if (why) *why = "array element is incomplete";
+            return -1;
+        }
+        out->is_ptr = 1;
+        out->ptr_name = e->body.ident.name;
+        out->ptr_off = 0;
+        out->ptr_elem = esz;
+        out->bits = 64;
+        out->uns = 0;
+        return 0;
+    }
+
+    case AST_INDEX:
+    {   /* value-context array decay: mat[0] is an array lvalue (int[3])
+         * that decays to a pointer to its first element.  The array
+         * operand must itself be an address constant (bare ident decay
+         * or &-rooted chain) and the indexed element must be an ARRAY —
+         * a scalar element (garr[0]) is a load, not a constant. */
+        IR_Type* at = ice_expr_type(a, e->body.subscript.array, globals);
+        if (!at || at->kind != IR_ARRAY || !at->inner) {
+            if (why) *why = "subscript of a non-array is not constant";
+            return -1;
+        }
+        ICEVal iv;
+        if (ice_eval(a, e->body.subscript.index, &iv, why, globals) ||
+            iv.is_float || iv.is_ptr) {
+            if (why) *why = "non-constant index in constant expression";
+            return -1;
+        }
+        ICEVal base;
+        if (ice_eval(a, e->body.subscript.array, &base, why, globals) ||
+            !base.is_ptr || base.ptr_elem <= 0) {
+            if (why) *why = "array operand is not an address constant";
+            return -1;
+        }
+        if (at->inner->kind != IR_ARRAY) {
+            if (why) *why = "array element is not a constant array";
+            return -1;
+        }
+        out->is_ptr = 1;
+        out->ptr_name = base.ptr_name;
+        out->ptr_off = base.ptr_off + iv.v * (long long)base.ptr_elem;
+        out->ptr_elem = ir_type_size(at->inner->inner);
+        out->bits = 64;
+        out->uns = 0;
+        return 0;
+    }
+
     case AST_INT_LIT:
     case AST_LONG_LIT:
         out->v = e->body.literal.int_val;
@@ -444,6 +519,31 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
       if (ice_eval(a, e->body.cast.cast_expr, &op, why, globals)) return -1;
 
       if (!t) { if (why) *why = "cast target type is unknown"; return -1; }
+
+      /* pointer-target cast of an address constant: (char*)garr keeps
+       * the address and retypes the pointee, so (char*)garr + 4 is a
+       * 4-byte offset.  Casting a non-address to a pointer ((int*)5)
+       * is not an address constant (gcc rejects too). */
+      if (t->kind == IR_PTR) {
+          if (!op.is_ptr) {
+              if (why) *why = "cast of a non-address constant to pointer";
+              return -1;
+          }
+          IR_Type* pointee = t->inner;
+          op.ptr_elem = (pointee && pointee->kind != IR_VOID)
+                        ? ir_type_size(pointee) : 0;
+          *out = op;
+          return 0;
+      }
+
+      /* an address constant cannot become an integer constant: (long)&g
+       * is a relocation in gcc and is not representable here — reject
+       * loudly (documented gap). */
+      if (op.is_ptr) {
+          if (why) *why = "cast of an address constant to an integer";
+          return -1;
+      }
+
       if (op.is_float) {
           op.v = (long long)op.f;   /* C truncation toward zero */
           op.is_float = 0;          /* the cast result is an integer */
@@ -565,7 +665,7 @@ sa_eval_assert(SACtx* c, AST_Node* n)
 
     if (ice_eval(c->a, n->body.static_assert.expr, &val, &why,
                  &merged) != 0 ||
-        val.is_float) {
+        val.is_float || val.is_ptr) {
         fprintf(stderr, "cmpl: error: static assertion at line %d col %d: %s\n",
                 n->loc.line, n->loc.col,
                 why ? why : "condition is not an integer constant expression");
