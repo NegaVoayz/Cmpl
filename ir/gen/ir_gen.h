@@ -163,6 +163,11 @@ typedef struct {
     int       uns;      /* unsigned type? */
     int       is_float; /* float-valued result (mixed float arith) */
     double    f;        /* float result */
+    int       is_ptr;   /* address constant (&g, &arr[0], &g + 0): the
+                           global's address.  VAL_GLOBAL dumps the bare
+                           name, so only offset-0 is representable; a
+                           nonzero offset is rejected at eval time. */
+    String    ptr_name; /* global name for is_ptr */
 } ICEVal;
 
 /* evaluate a constant expression with C integer-constant-expression

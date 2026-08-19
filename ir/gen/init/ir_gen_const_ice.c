@@ -4,8 +4,9 @@
  * directly; every other constant initializer expression (sizeof,
  * _Alignof, ternary selections, arithmetic over constants, mixed
  * float/int) is evaluated here with the same C integer-constant-
- * expression semantics as _Static_assert (ir_gen_sa.c).  Before this
- * file existed those expressions fell into the silent default
+ * expression semantics as _Static_assert (ir_gen_sa.c).  Address
+ * constants (&g, &arr[0], &g + 0) become VAL_GLOBAL values.  Before
+ * this file existed those expressions fell into the silent default
  * fallback of gen_const_init and emitted 0 (wrong code).
  */
 
@@ -26,6 +27,16 @@ gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
     const char* why = NULL;
 
     if (ice_eval(a, init, &val, &why, globals)) return NULL;
+
+    /* an address constant: &g, &arr[0], &g + 0 in a file-scope init.
+     * offset-0 only (ice_eval rejects nonzero offsets) */
+    if (val.is_ptr) {
+        IR_Value* v = arena_alloc(a, sizeof(IR_Value));
+        v->kind = VAL_GLOBAL;
+        v->name = val.ptr_name;
+        v->type = target_type;
+        return v;
+    }
 
     if (val.is_float) {
         if (target_type->kind == IR_F32 || target_type->kind == IR_F64)

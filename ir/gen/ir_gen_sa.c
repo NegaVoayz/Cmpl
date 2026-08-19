@@ -60,6 +60,7 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
     if (!e) { if (why) *why = "empty condition"; return -1; }
 
     out->is_float = 0;   /* every non-float path leaves this at 0 */
+    out->is_ptr = 0;
 
     switch (e->type) {
     case AST_INT_LIT:
@@ -102,6 +103,37 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
     case AST_UNARY:
     { ICEVal op;
 
+      /* address constant: &ident and &arr[0] (offset 0) — valid
+       * constant expressions in file-scope initializers (gcc parity).
+       * A nonzero element index would need a GEP-style constant, which
+       * VAL_GLOBAL cannot represent — reject it loudly. */
+      if (e->body.unary.op == TOK_AMP) {
+          AST_Node* o = e->body.unary.operand;
+          if (o && o->type == AST_IDENT) {
+              out->is_ptr = 1;
+              out->ptr_name = o->body.ident.name;
+              out->v = 0;
+              out->bits = 64;
+              out->uns = 0;
+              return 0;
+          }
+          if (o && o->type == AST_INDEX &&
+              o->body.subscript.array &&
+              o->body.subscript.array->type == AST_IDENT &&
+              o->body.subscript.index &&
+              o->body.subscript.index->type == AST_INT_LIT &&
+              o->body.subscript.index->body.literal.int_val == 0) {
+              out->is_ptr = 1;
+              out->ptr_name = o->body.subscript.array->body.ident.name;
+              out->v = 0;
+              out->bits = 64;
+              out->uns = 0;
+              return 0;
+          }
+          if (why) *why = "unsupported address constant in static assertion";
+          return -1;
+      }
+
       if (ice_eval(a, e->body.unary.operand, &op, why, globals)) return -1;
 
       if (op.is_float) {
@@ -135,7 +167,7 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
       if (op == TOK_AMPAMP || op == TOK_PIPEPIPE) {
           if (ice_eval(a, e->body.binary.left, &l, why, globals)) return -1;
           if (ice_eval(a, e->body.binary.right, &r, why, globals)) return -1;
-          if (l.is_float || r.is_float) {
+          if (l.is_float || r.is_float || l.is_ptr || r.is_ptr) {
               if (why) *why = "non-integer operand in static assertion";
               return -1;
           }
@@ -146,6 +178,25 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
 
       if (ice_eval(a, e->body.binary.left, &l, why, globals)) return -1;
       if (ice_eval(a, e->body.binary.right, &r, why, globals)) return -1;
+
+      /* address-constant arithmetic: &g + 0 / &g - 0 / 0 + &g keep the
+       * pointer (offset 0).  A nonzero element offset is not
+       * representable in VAL_GLOBAL — reject loudly rather than emit a
+       * wrong address. */
+      if (l.is_ptr || r.is_ptr) {
+          ICEVal* p = l.is_ptr ? &l : &r;
+          ICEVal* k = l.is_ptr ? &r : &l;
+          if (k->is_float || k->is_ptr) {
+              if (why) *why = "address constant arithmetic is not supported";
+              return -1;
+          }
+          if (k->v != 0 || (op != TOK_PLUS && op != TOK_MINUS)) {
+              if (why) *why = "address constant with nonzero offset is not supported";
+              return -1;
+          }
+          *out = *p;
+          return 0;
+      }
 
       /* C usual arithmetic conversions: a float operand makes the op
        * float; the int operand converts to the float type (computed in
