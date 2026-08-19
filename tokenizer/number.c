@@ -110,6 +110,29 @@ read_number(Lexer* lex)
     return tok;
 }
 
+/* decode an octal (<= 3 digits) or hex (any digits) escape at the
+ * cursor (already past the escape letter); consumes the digits and
+ * returns the value masked to 8 bits (gcc warns on out-of-range) */
+static char
+read_escape_digits(Lexer* lex, int is_hex)
+{
+    int v = 0, nd = 0;
+    if (is_hex) {
+        while (isxdigit((unsigned char)peek(lex))) {
+            char d = *lex->cur;
+            v = (v * 16) + (d <= '9' ? d - '0'
+                                   : (d | 0x20) - 'a' + 10);
+            advance(lex);
+        }
+    } else {
+        while (peek(lex) >= '0' && peek(lex) <= '7' && nd < 3) {
+            v = v * 8 + (*lex->cur - '0');
+            advance(lex); nd++;
+        }
+    }
+    return (char)(v & 0xFF);
+}
+
 Token*
 read_char_or_string(Lexer* lex, char quote, int wide, int u8)
 {
@@ -130,24 +153,29 @@ read_char_or_string(Lexer* lex, char quote, int wide, int u8)
 
         if (peek(lex) == '\\') {
             advance(lex);
-            switch (peek(lex)) {
+            char ec = peek(lex);
+            switch (ec) {
             case 'n':  val = '\n'; advance(lex); break;
             case 't':  val = '\t'; advance(lex); break;
             case 'r':  val = '\r'; advance(lex); break;
+            case 'a':  val = '\a'; advance(lex); break;
+            case 'b':  val = '\b'; advance(lex); break;
+            case 'f':  val = '\f'; advance(lex); break;
+            case 'v':  val = '\v'; advance(lex); break;
+            case '?':  val = '?';  advance(lex); break;
             case '\\': val = '\\'; advance(lex); break;
             case '\'': val = '\''; advance(lex); break;
             case '"':  val = '"';  advance(lex); break;
-            case '0':  val = '\0'; advance(lex); break;
-            case 'x': {
+            case 'x':
                 advance(lex);
-                char hex[3] = {0}; int h = 0;
-                while (isxdigit((unsigned char)peek(lex)) && h < 2) {
-                    hex[h++] = *lex->cur; advance(lex);
-                }
-                val = (char)strtol(hex, NULL, 16);
+                val = read_escape_digits(lex, 1);
                 break;
-            }
-            default: val = peek(lex); advance(lex); break;
+            default:
+                if (ec >= '0' && ec <= '7') {
+                    val = read_escape_digits(lex, 0);
+                    break;
+                }
+                val = ec; advance(lex); break;
             }
         } else {
             val = peek(lex); advance(lex);
@@ -173,19 +201,38 @@ read_char_or_string(Lexer* lex, char quote, int wide, int u8)
     while (peek(lex) != '"' && peek(lex) != '\0' && peek(lex) != '\n') {
         if (peek(lex) == '\\') {
             advance(lex);
-            switch (peek(lex)) {
+            char ec = peek(lex);
+            switch (ec) {
             case 'n':  buf[len++] = '\n'; break;
             case 't':  buf[len++] = '\t'; break;
             case 'r':  buf[len++] = '\r'; break;
+            case 'a':  buf[len++] = '\a'; break;
+            case 'b':  buf[len++] = '\b'; break;
+            case 'f':  buf[len++] = '\f'; break;
+            case 'v':  buf[len++] = '\v'; break;
+            case '?':  buf[len++] = '?';  break;
             case '\\': buf[len++] = '\\'; break;
             case '"':  buf[len++] = '"';  break;
             case '\'': buf[len++] = '\''; break;
-            case '0':  buf[len++] = '\0'; break;
-            default:   buf[len++] = peek(lex); break;
+            case 'x':
+                /* hex escape: any number of digits, masked to 8 bits */
+                advance(lex);
+                buf[len++] = read_escape_digits(lex, 1);
+                goto escape_done;
+            default:
+                if (ec >= '0' && ec <= '7') {
+                    /* octal escape: up to 3 digits, value <= 255 */
+                    buf[len++] = read_escape_digits(lex, 0);
+                    goto escape_done;
+                }
+                buf[len++] = ec;   /* unknown escape: keep the char */
+                break;
             }
-        } else {
-            buf[len++] = peek(lex);
+            advance(lex);
+escape_done:
+            continue;
         }
+        buf[len++] = peek(lex);
         advance(lex);
     }
 
