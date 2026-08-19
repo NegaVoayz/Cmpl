@@ -78,6 +78,7 @@ typedef enum {
     VAL_PARAM,
     VAL_INSTR,
     VAL_GLOBAL,
+    VAL_GLOBAL_GEP, /* address of a global + byte offset (body.int_val) */
     VAL_UNDEF
 } IR_ValueKind;
 

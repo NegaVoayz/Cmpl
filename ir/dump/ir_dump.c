@@ -136,6 +136,16 @@ void dump_value(FILE* out, IR_Value* val)
         fprintf(out, "@%.*s", val->name.length, val->name.data);
         break;
 
+    case VAL_GLOBAL_GEP:
+        /* address constant with byte offset (&garr[1], &s.b, &g + 2):
+         * getelementptr (i8, ptr @name, i64 off).  i8 element type makes
+         * the index a pure byte offset — the size math already happened
+         * in the ICE evaluator — and clang lowers it to a @name+off
+         * relocation, matching gcc's address constant. */
+        fprintf(out, "getelementptr (i8, ptr @%.*s, i64 %lld)",
+                val->name.length, val->name.data, val->body.int_val);
+        break;
+
     case VAL_UNDEF:
         fprintf(out, "undef");
         break;

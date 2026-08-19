@@ -79,6 +79,28 @@ ir_type_size(IR_Type* t)
     }
 }
 
+/* byte offset of field `idx` (raw index, parallel to
+ * ir_struct_field_index) within a plain (non-bit-field) struct, using the
+ * same align+size walk as ir_type_size: the offset a gcc-compatible
+ * `&s.field` constant must carry.  Unions place every member at 0; -1
+ * when out of range or the type is not a struct/union. */
+int
+ir_struct_field_offset(IR_Type* t, int idx)
+{
+    if (!t) return -1;
+    if (t->kind == IR_UNION) return (idx >= 0) ? 0 : -1;
+    if (t->kind != IR_STRUCT) return -1;
+
+    int off = 0, i = 0;
+    for (IR_Type* f = t->members; f; f = f->next, i++) {
+        int al = ir_type_align(f);
+        off = (off + al - 1) / al * al;   /* align for THIS field */
+        if (i == idx) return off;
+        off += ir_type_size(f);
+    }
+    return -1;
+}
+
 /* the largest member of a union (by size) — the single slot the union is
  * emitted as (all members overlap at offset 0).  NULL for non-unions. */
 IR_Type*

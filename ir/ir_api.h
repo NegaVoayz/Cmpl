@@ -46,6 +46,7 @@ const char* ir_type_name(IR_Type* t);
 Type*       ir_struct_ast_lookup(IR_Type* t);
 int         ir_struct_field_index(Type* ast_struct, String field_name);
 int         ir_agg_count(IR_Type* t);
+int         ir_struct_field_offset(IR_Type* t, int idx);
 
 /* --- Bit-field struct queries (ir_type_bfq.c) --- */
 
