@@ -118,23 +118,41 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
     }
 
     if (p->tok->kind == TOK_ENUM) {
-        AST_Node* n = ll_parse_enum_def(p);
+        /* An `enum` token starts either a DEFINITION (`enum {..}`,
+         * `enum Tag {..}`, or the forward declaration `enum Tag;`) or
+         * a TAG REFERENCE used as a type in a declaration (`enum Tag
+         * x;`, `enum Tag *p;`, `enum Tag f(void);`).  Only the
+         * definition forms go to ll_parse_enum_def — a reference falls
+         * through to ll_parse_type_specs, which builds a TYPE_ENUM
+         * from the tag (ll_type.c) and parses the declarator.  Before
+         * this, `enum E x;` hit ll_parse_enum_def's `ll_expect(SEMI)`
+         * on `x` and failed to parse. */
+        Token* enxt = p->tok->next;
+        int enum_is_def =
+            (enxt && enxt->kind == TOK_LBRACE) ||
+            (enxt && enxt->kind == TOK_IDENT && enxt->next &&
+             (enxt->next->kind == TOK_LBRACE ||
+              enxt->next->kind == TOK_SEMI));
 
-        /* typedef enum {..} Name — register Name as a typedef so it
-         * resolves to the enum type during IR gen (otherwise the
-         * TYPE_NAMED → ptr heuristic fires). */
-        if (is_typedef && n && n->type == AST_ENUM_DEF && n->body.enum_def.name.data) {
-            parser_add_typedef(p, n->body.enum_def.name);
+        if (enum_is_def) {
+            AST_Node* n = ll_parse_enum_def(p);
 
-            AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
-                                        n->loc.line, n->loc.col);
-            Type* etype = type_new(p->arena, TYPE_ENUM);
-            etype->name = n->body.enum_def.name;
-            td->body.typedef_decl.aliased_type = etype;
-            td->body.typedef_decl.name = n->body.enum_def.name;
-            n->next = td;
+            /* typedef enum {..} Name — register Name as a typedef so it
+             * resolves to the enum type during IR gen (otherwise the
+             * TYPE_NAMED → ptr heuristic fires). */
+            if (is_typedef && n && n->type == AST_ENUM_DEF && n->body.enum_def.name.data) {
+                parser_add_typedef(p, n->body.enum_def.name);
+
+                AST_Node* td = ast_node_new(p->arena, AST_TYPEDEF,
+                                            n->loc.line, n->loc.col);
+                Type* etype = type_new(p->arena, TYPE_ENUM);
+                etype->name = n->body.enum_def.name;
+                td->body.typedef_decl.aliased_type = etype;
+                td->body.typedef_decl.name = n->body.enum_def.name;
+                n->next = td;
+            }
+            return n;
         }
-        return n;
     }
 
     Type* base = ll_parse_type_specs(p);
