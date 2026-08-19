@@ -39,6 +39,13 @@ _Static_assert(OTT2 == 36, "tail[2] offset");
 _Static_assert(ONZ == 20, "nonzero base");
 _Static_assert(OSZ == 20, "struct size");
 
+/* the offsetof macro from <stddef.h> folds through the same machinery */
+_Static_assert((int)offsetof(struct S, c) == 8, "macro c");
+_Static_assert((int)offsetof(struct T, tail[0]) == 28, "macro tail0");
+
+static int moffs[2] = { (int)offsetof(struct S, d[3]),
+                        (int)offsetof(struct T, tail[2]) };
+
 int main(void)
 {
     int l = OB + OD3;
@@ -46,7 +53,7 @@ int main(void)
     printf("%d %d %d %d %d %d\n", OB, OD3, OTX, OTIN, OTT2, ONZ);
     printf("%d %d %d %d %d %d\n", offs[0], offs[1], offs[2],
            offs[3], offs[4], offs[5]);
-    printf("%d %d %d %d\n", l, (int)sizeof(mark), OSZ,
-           (pm == (int*)4));
+    printf("%d %d %d %d %d\n", l, (int)sizeof(mark), OSZ,
+           (pm == (int*)4), moffs[1]);
     return 0;
 }
