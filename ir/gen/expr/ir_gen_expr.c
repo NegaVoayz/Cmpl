@@ -142,8 +142,26 @@ gen_expr_sizeof_expr(GenCtx* ctx, AST_Node* n)
             sz = sub ? ir_type_size(sub->type) : 4;
         }
     } else {
-        IR_Value* sub = gen_expr(ctx, n->body.sizeof_expr.expr);
-        sz = sub ? ir_type_size(sub->type) : 4;
+        /* Array-typed expressions report their FULL array size (C11
+         * 6.5.3.4p2): string literals (len+1 elements; wide = 4-byte
+         * elements) and file-scope member/index expressions (the type
+         * table holds file-scope decls only — local-variable member /
+         * index chains still fall back to the pointer size). */
+        AST_Node* op = n->body.sizeof_expr.expr;
+        if (op && op->type == AST_STRING_LIT) {
+            sz = (int)(op->body.literal.str_val.length + 1) *
+                 (op->body.literal.wide ? 4 : 1);
+        } else {
+            HashMap* globals = (HashMap*)ctx->mod->global_types;
+            IR_Type* ct = (op && globals)
+                ? ice_expr_type(ctx->b->arena, op, globals) : NULL;
+            if (ct && ct->kind == IR_ARRAY)
+                sz = ir_type_size(ct);
+            else {
+                IR_Value* sub = gen_expr(ctx, op);
+                sz = sub ? ir_type_size(sub->type) : 4;
+            }
+        }
     }
     return ir_const_int(ctx->b, t_i32, sz);
 }
