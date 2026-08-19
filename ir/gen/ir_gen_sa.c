@@ -335,6 +335,56 @@ ice_eval(Arena* a, AST_Node* e, ICEVal* out, const char** why,
       if (ice_eval(a, e->body.binary.left, &l, why, globals)) return -1;
       if (ice_eval(a, e->body.binary.right, &r, why, globals)) return -1;
 
+      /* address-constant difference / comparison: two address constants
+       * with the SAME base object are well-defined constants (gcc folds
+       * garr - garr to 0, &garr[2] - &garr[0] to 2, &garr[1] < &garr[3]
+       * to 1).  == / != also hold across different base objects (two
+       * distinct objects compare unequal).  Cross-object difference and
+       * relational comparison are rejected (unspecified/UB in C). */
+      if (l.is_ptr && r.is_ptr) {
+          int same = (l.ptr_name.length == r.ptr_name.length &&
+                      memcmp(l.ptr_name.data, r.ptr_name.data,
+                             l.ptr_name.length) == 0);
+          if (op == TOK_MINUS) {
+              if (!same || l.ptr_elem <= 0 || l.ptr_elem != r.ptr_elem) {
+                  if (why) *why = "pointer difference across different "
+                                  "objects";
+                  return -1;
+              }
+              out->is_ptr = 0;
+              out->v = (l.ptr_off - r.ptr_off) / (long long)l.ptr_elem;
+              ice_trunc(out, 64, 0);
+              return 0;
+          }
+          if (op == TOK_EQEQ || op == TOK_BANGEQ) {
+              int eq = same && (l.ptr_off == r.ptr_off);
+              out->is_ptr = 0;
+              out->v = (op == TOK_EQEQ) ? eq : !eq;
+              ice_trunc(out, 32, 0);
+              return 0;
+          }
+          if (op == TOK_LT || op == TOK_GT ||
+              op == TOK_LTEQ || op == TOK_GTEQ) {
+              if (!same) {
+                  if (why) *why = "relational comparison across different "
+                                  "objects";
+                  return -1;
+              }
+              long long a = l.ptr_off, b = r.ptr_off;
+              switch (op) {
+              case TOK_LT:   out->v = (a < b); break;
+              case TOK_GT:   out->v = (a > b); break;
+              case TOK_LTEQ: out->v = (a <= b); break;
+              default:       out->v = (a >= b); break;
+              }
+              out->is_ptr = 0;
+              ice_trunc(out, 32, 0);
+              return 0;
+          }
+          if (why) *why = "invalid address constant arithmetic";
+          return -1;
+      }
+
       /* address-constant arithmetic: &g + k / k + &g / &g - k add k
        * pointees to the byte offset (gcc parity: &g + 2 on an int is
        * 8 bytes).  ptr - ptr and other pointer ops stay rejected. */
