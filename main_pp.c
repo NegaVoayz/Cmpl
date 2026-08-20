@@ -100,6 +100,10 @@ token_kind_name(TokenKind kind)
         [TOK_INLINE]      = "TOK_INLINE",
         [TOK_RESTRICT]    = "TOK_RESTRICT",
         [TOK_NORETURN]    = "TOK_NORETURN",
+        [TOK_ALIGNAS]     = "TOK_ALIGNAS",
+        [TOK_ATOMIC]      = "TOK_ATOMIC",
+        [TOK_COMPLEX]     = "TOK_COMPLEX",
+        [TOK_IMAGINARY]   = "TOK_IMAGINARY",
     };
 
     return names[kind] ? names[kind] : "UNKNOWN";
