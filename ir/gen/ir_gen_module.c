@@ -140,6 +140,12 @@ collect_func_sigs(Arena* a, AST_Node* root, HashMap* sig_map)
         for (AST_Node* p = decl->body.func_def.params;
              p && p->type == AST_PARAM_DECL; p = p->next) {
             IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type);
+            /* C11 6.7.6.3p7: array parameters decay to a pointer to
+             * their element type (typedef'd arrays like va_list arrive
+             * here as IR_ARRAY and must decay, or the call passes the
+             * array by value instead of by address). */
+            if (pty && pty->kind == IR_ARRAY)
+                pty = ir_ptr_type(a, pty->inner, 0);
             /* unresolved typedef param → ptr fallback (same fixup as
              * ir_gen_function's param handling) */
             if (pty && pty->kind == IR_I32) {

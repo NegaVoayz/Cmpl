@@ -156,6 +156,14 @@ ast_to_func_type(Arena* a, Type* ast, int pointee)
 
     for (AST_Node* p = ast->params; p; p = p->next) {
         IR_Type* pt = ast_to_ir_type_ctx(a, p->body.param_decl.param_type, 0);
+        /* C11 6.7.6.3p7: array parameters decay to a pointer to their
+         * element type.  Literal `int a[4]` params already decayed at
+         * parse time (ll_declarator_params.c); typedef'd arrays like
+         * va_list arrive here as IR_ARRAY and must decay too, or the
+         * function type (and every call to it) passes the array by
+         * value instead of by address. */
+        if (pt && pt->kind == IR_ARRAY)
+            pt = ir_ptr_type(a, pt->inner, 0);
         *tail = clone_type_for_chain(a, pt);
         register_clone_ast(*tail, pt);
         tail = &(*tail)->next;

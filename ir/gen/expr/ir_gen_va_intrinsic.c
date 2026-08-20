@@ -48,12 +48,17 @@ gen_va_intrinsic(GenCtx* ctx, AST_Node* n)
     if (!a0 || (need2 && !a1))
         return NULL;
 
-    IR_Value* v0 = gen_store_ptr(ctx, a0);
+    /* va_list is an array type (C99 7.15): the operand's value after
+     * lvalue conversion is the DECAYED pointer to the first element
+     * (local array → GEP 0,0; va_list parameter → its pointer value).
+     * That pointer IS the address the va_* intrinsic operates on;
+     * gen_store_ptr would hand over the storage slot instead. */
+    IR_Value* v0 = gen_expr(ctx, a0);
     if (!v0)
         return NULL;
 
     if (need2) {
-        IR_Value* v1 = gen_store_ptr(ctx, a1);
+        IR_Value* v1 = gen_expr(ctx, a1);
         IR_Value* args[2] = { v0, v1 };
 
         if (!v1) return NULL;

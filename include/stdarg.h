@@ -15,7 +15,12 @@ typedef struct __va_list_tag {
     unsigned fp_offset;
     void* overflow_arg_area;
     void* reg_save_area;
-} va_list;
+} __va_list_tag;
+
+/* C99 7.15: va_list is an ARRAY type so it decays to a pointer when
+ * passed to another function (vprintf(fmt, ap) must hand over &ap, and
+ * va_list function parameters receive the caller's list by address). */
+typedef __va_list_tag va_list[1];
 
 #define va_start(ap, last) __builtin_va_start((ap), (last))
 #define va_arg(ap, type)   __builtin_va_arg((ap), type)

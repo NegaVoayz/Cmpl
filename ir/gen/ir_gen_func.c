@@ -32,6 +32,12 @@ gen_func_params(GenCtx* ctx, IR_Builder* b, IR_Func* func, AST_Node* fd,
         int i = 0;
         for (AST_Node* p = fd->body.func_def.params; p; p = p->next, i++) {
             IR_Type* pty = ir_type_from_ast(a, p->body.param_decl.param_type);
+            /* C11 6.7.6.3p7: array parameters decay to a pointer to
+             * their element type (typedef'd arrays like va_list arrive
+             * here as IR_ARRAY and must decay, or the definition takes
+             * the array by value and mismatches every call site). */
+            if (pty && pty->kind == IR_ARRAY)
+                pty = ir_ptr_type(a, pty->inner, 0);
             /* if resolved type is i32 but AST type is a named typedef
              * (e.g. unresolved typedef for function pointer or struct),
              * default to ptr — typedefs aren't resolved at parse time. */

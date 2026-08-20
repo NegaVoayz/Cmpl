@@ -61,7 +61,13 @@ gen_va_arg_expr(GenCtx* ctx, AST_Node* n)
         return NULL;
     }
 
-    IR_Value* ap = gen_store_ptr(ctx, n->body.va_arg.ap);
+    /* va_list is an array type (C99 7.15): the operand's value after
+     * lvalue conversion is the DECAYED pointer to the first element —
+     * a local array decays (GEP 0,0), a va_list parameter (itself a
+     * pointer) loads its value.  gen_expr produces exactly that; the
+     * raw storage address (gen_store_ptr) would be the array slot or
+     * the pointer variable's slot, not the va_list the ABI reads. */
+    IR_Value* ap = gen_expr(ctx, n->body.va_arg.ap);
 
     if (!ap) return NULL;
 
