@@ -104,6 +104,7 @@ token_kind_name(TokenKind kind)
         [TOK_ATOMIC]      = "TOK_ATOMIC",
         [TOK_COMPLEX]     = "TOK_COMPLEX",
         [TOK_IMAGINARY]   = "TOK_IMAGINARY",
+        [TOK_BUILTIN_VA_ARG] = "TOK_BUILTIN_VA_ARG",
     };
 
     return names[kind] ? names[kind] : "UNKNOWN";

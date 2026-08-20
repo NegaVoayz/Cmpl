@@ -103,6 +103,11 @@ typedef enum {
     TOK_COMPLEX,    // _Complex (real-floating variant)
     TOK_IMAGINARY,  // _Imaginary (real-floating variant)
 
+    // __builtin_va_arg(ap, type-name) — the type-name second argument
+    // is not an LR expression, so it gets a keyword + wholesale-parse
+    // special-case (appended at the END like the other C11 keywords).
+    TOK_BUILTIN_VA_ARG,
+
     NUM_TOKEN_KINDS
 } TokenKind;
 

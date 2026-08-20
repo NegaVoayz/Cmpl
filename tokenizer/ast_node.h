@@ -74,6 +74,10 @@ struct AST_Node {
         /* sizeof(type) */
         struct { Type* type_expr; } sizeof_type;
 
+        /* __builtin_va_arg(ap, type) — the va_list lvalue expr + the
+         * requested type-name (parsed wholesale by lr1_va_arg.c) */
+        struct { AST_Node* ap; Type* type_expr; } va_arg;
+
         /* block { ... } */
         struct { AST_Node* stmts; AST_Node* last_stmt; } block;
 

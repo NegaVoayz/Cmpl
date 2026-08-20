@@ -14,6 +14,8 @@ add_library(ir
     gen/expr/ir_gen_index.c
     gen/expr/ir_gen_member.c gen/expr/ir_gen_bf.c
     gen/expr/ir_gen_generic.c
+    gen/expr/ir_gen_va_arg.c
+    gen/expr/ir_gen_va_intrinsic.c
     gen/init/ir_gen_init_desig.c
     gen/init/ir_gen_const_desig.c
     gen/init/ir_gen_const_cont.c

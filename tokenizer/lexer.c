@@ -19,6 +19,7 @@ static const Keyword keywords[] = {
     {"_Imaginary",TOK_IMAGINARY},
     {"_Noreturn", TOK_NORETURN},
     {"__attribute__", TOK_ATTRIBUTE},
+    {"__builtin_va_arg", TOK_BUILTIN_VA_ARG},
     {"__constant__", TOK_KW_CONSTANT},
     {"__device__",   TOK_KW_DEVICE},
     {"__global__",   TOK_KW_GLOBAL},

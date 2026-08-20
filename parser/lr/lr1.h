@@ -52,6 +52,8 @@ typedef enum {
     S_TERNARY_RHS,      /* have cond ? then : else -- ready to reduce ternary */
     S_GENERIC,          /* shifted TOK__GENERIC -- the whole selection is
                            parsed wholesale at its '(' (lr1_generic.c) */
+    S_VA_ARG,           /* shifted TOK_BUILTIN_VA_ARG -- the whole call is
+                           parsed wholesale at its '(' (lr1_va_arg.c) */
 
     /* have-expr states (after reducing a subexpression) */
     HS_PRIMARY = 30,
@@ -203,6 +205,12 @@ int  parser_is_typedef(LR1_Parser* p, String name);
  * node as a primary on the (restored) LR stack.  Returns 1 on success,
  * 0 with p->error set on malformed input. */
 int lr1_parse_generic(LR1_Parser* p);
+
+/* __builtin_va_arg(ap, type-name) (defined in lr1_va_arg.c): p->tok at
+ * the '(' after TOK_BUILTIN_VA_ARG; parses the whole call, pushes the
+ * AST_VA_ARG node as a primary on the (restored) LR stack.  Returns 1 on
+ * success, 0 with p->error set on malformed input. */
+int lr1_parse_va_arg(LR1_Parser* p);
 
 int       try_parse_cast(LR1_Parser* p, LR1_State state);
 AST_Node* lr1_stop_at_comma(LR1_Parser* p, TokenKind next);

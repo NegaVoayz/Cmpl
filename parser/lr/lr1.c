@@ -115,10 +115,16 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
         if (try_parse_cast(p, state))
             continue;
 
-        /* _Generic(...) — the whole selection is parsed wholesale at
-         * its '(' so the type-name colons never reach the LR loop */
-        if (state == S_GENERIC && p->tok->kind == TOK_LPAREN) {
-            if (!lr1_parse_generic(p)) {
+        /* _Generic(...) and __builtin_va_arg(ap, type-name) — the
+         * type-name arguments (association colons / a type-name) are not
+         * LR expressions, so each whole construct is parsed wholesale at
+         * its '(' (lr1_generic.c / lr1_va_arg.c) */
+        if ((state == S_GENERIC || state == S_VA_ARG) &&
+            p->tok->kind == TOK_LPAREN) {
+            int ok = (state == S_GENERIC)
+                ? lr1_parse_generic(p) : lr1_parse_va_arg(p);
+
+            if (!ok) {
                 p->error = 1;
                 return NULL;
             }

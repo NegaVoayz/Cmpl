@@ -21,6 +21,37 @@ fnptr_callee_base(AST_Node* e)
     return NULL;
 }
 
+/* Recover an indirect call's callee signature from the pointer's
+ * PTR(FUNC) type (local loads keep the slot type; global loads come back
+ * opaque, so also consult the declaring symbol: globals store the element
+ * type, locals the alloca PTR(vt)).  Fixes calls through fnptr vars
+ * defaulting to an i32 return type. */
+static IR_Type*
+recover_indirect_sig(GenCtx* ctx, AST_Node* callee, IR_Value* fn_ptr,
+                     IR_Type* func_ty)
+{
+    IR_Type* ft = fn_ptr->type;
+
+    if (!(ft && ft->kind == IR_PTR && ft->inner &&
+          ft->inner->kind == IR_FUNC)) {
+        AST_Node* base = fnptr_callee_base(callee);
+        IR_Value* sym = base
+            ? sym_lookup(ctx, base->body.ident.name) : NULL;
+        if (!sym) sym = base
+            ? global_lookup(ctx->mod, base->body.ident.name) : NULL;
+        if (sym && sym->type) {
+            ft = sym->type;
+            if (ft->kind == IR_PTR && ft->inner &&
+                ft->inner->kind == IR_PTR)
+                ft = ft->inner;      /* local alloca: PTR(vt) */
+        }
+    }
+    if (ft && ft->kind == IR_PTR && ft->inner &&
+        ft->inner->kind == IR_FUNC)
+        return ft->inner;
+    return func_ty;
+}
+
 /* Coerce call arguments to the declared parameter types, then apply the
  * default argument promotion for variadic functions (char/short → int,
  * float → double, C11 6.5.2.2p6).  Mutates arg_buf in place. */
@@ -111,6 +142,16 @@ gen_call_expr(GenCtx* ctx, AST_Node* n)
         }
     } else
         fn_ptr = gen_expr(ctx, n->body.call.callee);
+
+    /* __builtin_va_start/va_end/va_copy — lowered to LLVM intrinsics
+     * before the generic arg-gen loop (which would load the va_list
+     * lvalue as a 24-byte value, not its address) */
+    {
+        IR_Value* v = gen_va_intrinsic(ctx, n);
+
+        if (v) return v;
+    }
+
     for (AST_Node* a = n->body.call.args; a; a = a->next) n_args++;
     if (n_args > 16) {
         dyn_buf = arena_alloc(b->arena, n_args * sizeof(IR_Value*));
@@ -125,32 +166,10 @@ gen_call_expr(GenCtx* ctx, AST_Node* n)
         func_ty = func_type_lookup(ctx->sig_map, cn);
         if (func_ty) ret_t = func_ty->inner;
     }
-    /* Indirect call: recover the callee signature from the pointer when
-     * its type is PTR(FUNC) (local loads keep the slot type; global
-     * loads come back opaque, so also consult the declaring symbol:
-     * globals store the element type, locals the alloca PTR(vt)).  Fixes
-     * calls through fnptr vars defaulting to an i32 return type. */
-    if (!func_ty && fn_ptr) {
-        IR_Type* ft = fn_ptr->type;
-
-        if (!(ft && ft->kind == IR_PTR && ft->inner &&
-              ft->inner->kind == IR_FUNC)) {
-            AST_Node* base = fnptr_callee_base(n->body.call.callee);
-            IR_Value* sym = base
-                ? sym_lookup(ctx, base->body.ident.name) : NULL;
-            if (!sym) sym = base
-                ? global_lookup(ctx->mod, base->body.ident.name) : NULL;
-            if (sym && sym->type) {
-                ft = sym->type;
-                if (ft->kind == IR_PTR && ft->inner &&
-                    ft->inner->kind == IR_PTR)
-                    ft = ft->inner;      /* local alloca: PTR(vt) */
-            }
-        }
-        if (ft && ft->kind == IR_PTR && ft->inner &&
-            ft->inner->kind == IR_FUNC)
-            func_ty = ft->inner;
-    }
+    /* Indirect call: recover the callee signature from the pointer. */
+    if (!func_ty && fn_ptr)
+        func_ty = recover_indirect_sig(ctx, n->body.call.callee,
+                                       fn_ptr, func_ty);
     if (func_ty && func_ty->inner) ret_t = func_ty->inner;
     if (!ret_t) ret_t = t_i32;
 

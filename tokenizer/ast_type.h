@@ -73,7 +73,12 @@ typedef enum {
     /* C11 _Generic selection (appended at the end — the dense LR(1)
      * action-table indices of every earlier kind stay stable) */
     AST_GENERIC,      /* _Generic(ctrl, type-name: expr, ..., default: expr) */
-    AST_GENERIC_ASSOC /* one association: type-name : expr (type NULL = default) */
+    AST_GENERIC_ASSOC, /* one association: type-name : expr (type NULL = default) */
+
+    /* __builtin_va_arg(ap, type-name) — the type-name argument is not an
+     * LR expression, so the whole call is parsed wholesale (appended at
+     * the end so the dense LR(1) action-table indices stay stable) */
+    AST_VA_ARG
 } AST_Type;
 
 #endif /* AST_TYPE_H */

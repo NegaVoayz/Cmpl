@@ -80,6 +80,13 @@ LR_Action shift_generic(LR1_Parser* p)
     return do_shift(p, S_GENERIC);
 }
 
+/* --- __builtin_va_arg keyword (the call is parsed wholesale at its '(') --- */
+
+LR_Action shift_va_arg(LR1_Parser* p)
+{
+    return do_shift(p, S_VA_ARG);
+}
+
 /* --- prefix increment/decrement --- */
 
 LR_Action shift_prefix_inc(LR1_Parser* p)

@@ -56,6 +56,16 @@ IR_Value* bf_byte_addr(GenCtx* ctx, AST_Node* n);
  * generate ONLY that arm. */
 IR_Value* gen_expr_generic(GenCtx* ctx, AST_Node* n);
 
+/* __builtin_va_arg(ap, type) (ir_gen_va_arg.c): inline x86-64 SysV
+ * lowering — read gp_offset/fp_offset, pick the register-save or
+ * overflow path, advance the offset, phi-merge the loaded value. */
+IR_Value* gen_va_arg_expr(GenCtx* ctx, AST_Node* n);
+
+/* __builtin_va_start/va_end/va_copy (ir_gen_va_intrinsic.c): forward to
+ * @llvm.va_start/@llvm.va_end/@llvm.va_copy; NULL when the callee is not
+ * a va intrinsic. */
+IR_Value* gen_va_intrinsic(GenCtx* ctx, AST_Node* n);
+
 /* subscript base (ir_gen_index.c): return the base VALUE for base[idx],
  * loading pointer-variable bases, and set *is_ptr_val to 1 for a
  * single-index GEP (pointer value) or 0 for the two-index (0, idx)

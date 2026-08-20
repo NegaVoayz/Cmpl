@@ -62,6 +62,9 @@ void resolve_expr_types(AST_Node* e, TypedefEntry* table)
         resolve_expr_types(e->body.cast.cast_expr, table); break;
     case AST_SIZEOF_TYPE:
         resolve_type_tree(e->body.sizeof_type.type_expr, table); break;
+    case AST_VA_ARG:
+        resolve_type_tree(e->body.va_arg.type_expr, table);
+        resolve_expr_types(e->body.va_arg.ap, table); break;
     case AST_SIZEOF_EXPR:
         /* If the operand is an identifier that is a typedef name
          * (e.g. sizeof(PPCtx) where PPCtx is a typedef), convert

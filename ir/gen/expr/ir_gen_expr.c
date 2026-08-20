@@ -240,6 +240,8 @@ gen_expr(GenCtx* ctx, AST_Node* n)
 
     case AST_GENERIC: return gen_expr_generic(ctx, n);
 
+    case AST_VA_ARG: return gen_va_arg_expr(ctx, n);
+
     default:
     { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
     }
