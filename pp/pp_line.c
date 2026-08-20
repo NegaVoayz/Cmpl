@@ -70,6 +70,44 @@ expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
             ds_init(&ds);
 
             while (p < end) {
+                /* string/char literal: copy verbatim — a literal is one
+                 * preprocessing token, so macros never expand inside it
+                 * (C99 6.10.3p10).  Backslash escapes keep the quote
+                 * from closing early. */
+                if (*p == '"' || *p == '\'') {
+                    char        q = *p;
+                    const char* lit = p;
+
+                    p++;
+                    while (p < end) {
+                        if (*p == '\\' && p + 1 < end) { p += 2; continue; }
+                        p++;
+                        if (p[-1] == q) break;
+                    }
+                    buf_append(&scratch, lit, (int)(p - lit));
+                    continue;
+                }
+
+                /* comments: copy verbatim so macro expansion cannot
+                 * inject comment delimiters (gcc does not expand here) */
+                if (*p == '/' && p + 1 < end && p[1] == '*') {
+                    const char* lit = p;
+
+                    p += 2;
+                    while (p + 1 < end && !(p[0] == '*' && p[1] == '/')) p++;
+                    if (p + 1 < end) p += 2;
+                    else if (p < end) p++;
+                    buf_append(&scratch, lit, (int)(p - lit));
+                    continue;
+                }
+                if (*p == '/' && p + 1 < end && p[1] == '/') {
+                    const char* lit = p;
+
+                    while (p < end) p++;
+                    buf_append(&scratch, lit, (int)(p - lit));
+                    continue;
+                }
+
                 if (isalpha((unsigned char)*p) || *p == '_') {
                     const char* id_start = p;
                     while (p < end && (isalnum((unsigned char)*p) || *p == '_'))

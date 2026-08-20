@@ -34,6 +34,23 @@ expand_func_body(Macro* macro, const char** arg_starts, const int* arg_lens,
     const char* be = bp + strlen(macro->body);
 
     while (bp < be) {
+        /* string/char literal in the replacement list: copy verbatim —
+         * a parameter name inside quotes is NOT substituted (only #x
+         * stringizes, C99 6.10.3.2). */
+        if (*bp == '"' || *bp == '\'') {
+            char        q = *bp;
+            const char* lit = bp;
+
+            bp++;
+            while (bp < be) {
+                if (*bp == '\\' && bp + 1 < be) { bp += 2; continue; }
+                bp++;
+                if (bp[-1] == q) break;
+            }
+            buf_append(out, lit, (int)(bp - lit));
+            continue;
+        }
+
         /* token paste: drop `##` and surrounding whitespace so the
          * adjacent tokens concatenate into one. */
         if (*bp == '#' && bp + 1 < be && bp[1] == '#') {
