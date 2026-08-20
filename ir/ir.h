@@ -211,6 +211,7 @@ struct IR_Func {
     IR_Type*     ret_type;
     IR_Value**   params;
     int          n_params;
+    unsigned     is_variadic : 1; /* definition has ... (C99 6.7.6.3) */
     IR_Block*    blocks;
     IR_Block*    last_block;
     IR_Linkage   linkage;

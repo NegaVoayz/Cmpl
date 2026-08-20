@@ -68,6 +68,8 @@ dump_func(FILE* out, IR_Func* func)
         fprintf(out, " ");
         dump_value(out, func->params[i]);
     }
+    if (func->is_variadic)
+        fprintf(out, "%s...", func->n_params > 0 ? ", " : "");
     fprintf(out, ")");
 
     if (!func->blocks) {
