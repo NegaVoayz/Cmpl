@@ -49,6 +49,10 @@ vn_match(VNEntry* e, IR_Instr* inst)
     if (e->type != inst->type) return 0;
     if (!same_val(e->ops[0], inst->operands[0])) return 0;
     if (!same_val(e->ops[1], inst->operands[1])) return 0;
+    /* operands[2] is set only for 3-operand forms (GEP second index);
+     * it must match when present on either side, or &a[0] == &a[4]. */
+    if ((e->ops[2] != NULL) != (inst->operands[2] != NULL)) return 0;
+    if (e->ops[2] && !same_val(e->ops[2], inst->operands[2])) return 0;
     if (inst->opcode == IROP_ICMP && e->cond != inst->cond) return 0;
     return 1;
 }
@@ -64,6 +68,7 @@ vn_add(VNEntry* table, int* n, IR_Instr* inst)
     table[*n].opcode = inst->opcode;
     table[*n].ops[0] = inst->operands[0];
     table[*n].ops[1] = inst->operands[1];
+    table[*n].ops[2] = inst->operands[2];
     table[*n].type   = inst->type;
     table[*n].cond   = inst->cond;
     table[*n].result = inst->result;
