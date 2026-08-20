@@ -132,23 +132,23 @@ int opt_enum(AST_Node* root)
     if (!root || root->type != AST_PROGRAM) return 0;
 
     /* Phase 1: collect enum constants from every enum definition.
-     * ast_walk visits top-level decls in order and descends into
-     * function bodies, so later enumerators can reference earlier
-     * ones regardless of scope. */
+     * ast_walk_single visits each top-level decl's subtree (function
+     * bodies included), so later enumerators can reference earlier
+     * ones regardless of scope; each def is registered exactly once. */
     EnumEntry entries[MAX_ENUM + 1];
     memset(entries, 0, sizeof(entries));
     int n_entries = 0;
     EnumCtx ctx = { entries, &n_entries };
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
-        ast_walk(decl, collect_enum_cb, NULL, &ctx);
+        ast_walk_single(decl, collect_enum_cb, NULL, &ctx);
 
     if (n_entries == 0) return 0;
 
     /* Phase 2: replace AST_IDENT in all decls */
     int changed = 0;
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
-        changed |= ast_walk(decl, replace_cb, NULL, entries);
+        changed |= ast_walk_single(decl, replace_cb, NULL, entries);
 
     return changed;
 }

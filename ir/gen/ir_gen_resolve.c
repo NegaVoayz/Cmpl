@@ -169,7 +169,7 @@ resolve_enum_idents(AST_Node* e, TypedefEntry* enum_vals)
 {
     EnumIdentCtx ctx = { enum_vals };
 
-    if (e && enum_vals) ast_walk(e, resolve_enum_ident_cb, NULL, &ctx);
+    if (e && enum_vals) ast_walk_single(e, resolve_enum_ident_cb, NULL, &ctx);
 }
 
 /* Resolve enum-sized dimensions on local arrays: the parser stores

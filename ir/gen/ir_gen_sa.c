@@ -859,6 +859,6 @@ ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root,
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next) {
         c.n_frames = 0;
-        ast_walk(decl, sa_check_cb, sa_block_post_cb, &c);
+        ast_walk_single(decl, sa_check_cb, sa_block_post_cb, &c);
     }
 }

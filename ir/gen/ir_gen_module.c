@@ -39,7 +39,7 @@ collect_typedefs(Arena* a, AST_Node* root)
     TypedefCtx ctx = { a, &typedefs };
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
-        ast_walk(decl, collect_typedef_cb, NULL, &ctx);
+        ast_walk_single(decl, collect_typedef_cb, NULL, &ctx);
     return typedefs;
 }
 
@@ -122,7 +122,7 @@ collect_enum_vals(Arena* a, AST_Node* root, HashMap* globals)
     EnumValCtx ctx = { a, &enum_vals, globals };
 
     for (AST_Node* decl = root->body.program.decls; decl; decl = decl->next)
-        ast_walk(decl, collect_enum_cb, NULL, &ctx);
+        ast_walk_single(decl, collect_enum_cb, NULL, &ctx);
     return enum_vals;
 }
 

@@ -143,10 +143,15 @@ static int walk_children(AST_Node* n, AST_Walker pre, AST_Walker post,
 }
 
 /* ---------------------------------------------------------------
- *  ast_walk -- depth-first traversal with pre/post callbacks
- * --------------------------------------------------------------- */
+ *  ast_walk_single -- depth-first traversal of one node + subtree
+ * ---------------------------------------------------------------
+ *  Does NOT recurse into 'n->next': callers iterating a decl list
+ *  pass each decl here so a per-declaration pass visits only that
+ *  declaration's subtree (ast_walk's next-recursion made such loops
+ *  O(N^2) and re-visited every later decl, re-printing diagnostics
+ *  and re-registering enums/typedefs once per earlier decl). */
 
-int ast_walk(AST_Node* n, AST_Walker pre, AST_Walker post, void* ctx)
+int ast_walk_single(AST_Node* n, AST_Walker pre, AST_Walker post, void* ctx)
 {
     int ch = 0;
 
@@ -157,6 +162,21 @@ int ast_walk(AST_Node* n, AST_Walker pre, AST_Walker post, void* ctx)
     ch |= walk_children(n, pre, post, ctx);
 
     if (post) ch |= post(n, ctx);
+
+    return ch;
+}
+
+/* ---------------------------------------------------------------
+ *  ast_walk -- depth-first traversal with pre/post callbacks
+ * --------------------------------------------------------------- */
+
+int ast_walk(AST_Node* n, AST_Walker pre, AST_Walker post, void* ctx)
+{
+    int ch = 0;
+
+    if (!n) return 0;
+
+    ch |= ast_walk_single(n, pre, post, ctx);
 
     if (n->next) ch |= ast_walk(n->next, pre, post, ctx);
 
