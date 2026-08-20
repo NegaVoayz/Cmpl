@@ -95,6 +95,14 @@ typedef enum {
     TOK_ALIGNOF,    // _Alignof (type) — sizeof-like unary operator
     TOK__GENERIC,   // _Generic (controlling-expr, type-name: expr, ...)
 
+    // C11 declaration-specifier keywords (also appended at the END so the
+    // dense LR(1) action-table indices stay stable — they are consumed by
+    // the LL type parser, never by the LR table).
+    TOK_ALIGNAS,    // _Alignas (type-name | constant-expression)
+    TOK_ATOMIC,     // _Atomic (type-name | type-qualifier)
+    TOK_COMPLEX,    // _Complex (real-floating variant)
+    TOK_IMAGINARY,  // _Imaginary (real-floating variant)
+
     NUM_TOKEN_KINDS
 } TokenKind;
 
