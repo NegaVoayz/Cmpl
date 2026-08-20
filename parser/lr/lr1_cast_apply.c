@@ -18,6 +18,9 @@ parse_sizeof_type(LR1_Parser* p, Token* peek)
     p->tok = peek;
     Type* ct = ll_parse_type_name(p);
 
+    if (!ct)
+        ct = type_new(p->arena, TYPE_INT);   /* degenerate: sizeof(_Atomic) */
+
     if (p->tok->kind == TOK_RPAREN)
         p->tok = p->tok->next;
 
@@ -124,8 +127,19 @@ try_parse_cast(LR1_Parser* p, LR1_State state)
         return 1;
     }
 
+    Token* lparen = p->tok;
+
     p->tok = peek;
     Type* ct = ll_parse_type_name(p);
+
+    if (!ct) {
+        /* bare _Atomic/_Complex with no following type-name is not a
+         * usable type: restore the '(' so the caller falls through to the
+         * action table (a clean syntax error) instead of crashing in IR
+         * gen on a NULL-type pending cast. */
+        p->tok = lparen;
+        return 0;
+    }
 
     if (p->tok->kind == TOK_RPAREN)
         p->tok = p->tok->next;

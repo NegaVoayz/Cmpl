@@ -11,7 +11,8 @@ static int is_type_keyword(TokenKind k)
     return k == TOK_INT    || k == TOK_CHAR   || k == TOK_VOID ||
            k == TOK_SHORT  || k == TOK_LONG   || k == TOK_FLOAT ||
            k == TOK_DOUBLE || k == TOK_SIGNED || k == TOK_UNSIGNED ||
-           k == TOK_BOOL   || k == TOK_STRUCT || k == TOK_UNION  || k == TOK_ENUM;
+           k == TOK_BOOL   || k == TOK_STRUCT || k == TOK_UNION  || k == TOK_ENUM ||
+           k == TOK_ATOMIC || k == TOK_COMPLEX || k == TOK_IMAGINARY;
 }
 
 /* Check if a token can start a type specifier inside a cast:
