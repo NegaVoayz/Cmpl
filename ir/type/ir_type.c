@@ -1,12 +1,12 @@
-/* ir_type.c -- IR type singletons, composite interning cache, and type
- * constructors.  AST->IR conversion lives in ir_type_ast.c; the IR->AST
- * struct map lives in ir_type_struct.c. */
+/* ir_type.c -- IR type singletons, composite interning cache (backed by
+ * base/hash.c), and type constructors.  AST->IR conversion lives in
+ * ir_type_ast.c; the IR->AST struct map lives in ir_type_struct.c. */
 
 #include "ir.h"
 #include "ir_type.h"
+#include "hash.h"
 
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------
@@ -69,61 +69,55 @@ ir_init_types(void)
 /* ---------------------------------------------------------------
  *  Composite type interning cache
  *
- *  Keyed by (kind, inner_ptr, extra) — open addressing, power-of-two.
- *  Makes ir_ptr_type / ir_array_type return the same IR_Type* for
- *  identical parameters, so ir_type_eq reduces to pointer comparison.
+ *  Keyed by (kind, inner_ptr, extra) so ir_ptr_type / ir_array_type
+ *  return the same IR_Type* for identical parameters, making
+ *  ir_type_eq reduce to pointer comparison.  Backed by base/hash.c's
+ *  open-addressing map (reused, not reimplemented): the key is a
+ *  packed blob of the three fields, and the map grows past the old
+ *  fixed 128 slots at 70 % load.  The map is per-module — reset drops
+ *  it between modules (CUDA has two arenas) — so each module's first
+ *  put re-inits it from that module's arena, which also owns the
+ *  persistent key blobs.
  * --------------------------------------------------------------- */
 
-#define TYPE_CACHE_SIZE 128
-#define TYPE_CACHE_MASK (TYPE_CACHE_SIZE - 1)
+#define TYPE_CACHE_KEY_BYTES \
+    (sizeof(IR_TypeKind) + sizeof(IR_Type*) + sizeof(int))
 
-typedef struct {
-    IR_TypeKind kind;
-    IR_Type*    inner;
-    int         extra;     /* addrspace for PTR, size for ARRAY, 0 for FUNC */
-    IR_Type*    cached;
-} TypeSlot;
+static HashMap type_cache;
 
-static TypeSlot type_slots[TYPE_CACHE_SIZE];
-
-static unsigned type_cache_hash(IR_TypeKind kind, IR_Type* inner, int extra)
+/* pack (kind, inner, extra) into blob; returns the blob length */
+static int
+type_cache_fill(char* blob, IR_TypeKind kind, IR_Type* inner, int extra)
 {
-    unsigned long long h = (unsigned long long)kind;
-    h = h * 31 + (unsigned long long)(uintptr_t)inner;
-    h = h * 31 + (unsigned long long)extra;
-    return (unsigned)(h & TYPE_CACHE_MASK);
+    char* p = blob;
+
+    memcpy(p, &kind, sizeof kind);   p += sizeof kind;
+    memcpy(p, &inner, sizeof inner); p += sizeof inner;
+    memcpy(p, &extra, sizeof extra); p += sizeof extra;
+    return (int)(p - blob);
 }
 
-static IR_Type* type_cache_get(IR_TypeKind kind, IR_Type* inner, int extra)
+static IR_Type*
+type_cache_get(IR_TypeKind kind, IR_Type* inner, int extra)
 {
-    unsigned h = type_cache_hash(kind, inner, extra);
+    char   blob[TYPE_CACHE_KEY_BYTES];
+    String key;
 
-    for (int i = 0; i < TYPE_CACHE_SIZE; i++) {
-        TypeSlot* s = &type_slots[h];
-        if (!s->cached) return NULL;
-        if (s->kind == kind && s->inner == inner && s->extra == extra)
-            return s->cached;
-        h = (h + 1) & TYPE_CACHE_MASK;
-    }
-    return NULL;
+    key.data = blob;
+    key.length = type_cache_fill(blob, kind, inner, extra);
+    return (IR_Type*)hashmap_get(&type_cache, key);
 }
 
-static void type_cache_put(IR_TypeKind kind, IR_Type* inner, int extra,
-                           IR_Type* t)
+static void
+type_cache_put(Arena* a, IR_TypeKind kind, IR_Type* inner, int extra,
+               IR_Type* t)
 {
-    unsigned h = type_cache_hash(kind, inner, extra);
+    String key;
 
-    for (int i = 0; i < TYPE_CACHE_SIZE; i++) {
-        TypeSlot* s = &type_slots[h];
-        if (!s->cached) {
-            s->kind = kind;
-            s->inner = inner;
-            s->extra = extra;
-            s->cached = t;
-            return;
-        }
-        h = (h + 1) & TYPE_CACHE_MASK;
-    }
+    if (!type_cache.arena) hashmap_init(&type_cache, a, 128);
+    key.data = arena_alloc(a, TYPE_CACHE_KEY_BYTES);
+    key.length = type_cache_fill((char*)key.data, kind, inner, extra);
+    hashmap_put(&type_cache, key, t);
 }
 
 /* ---------------------------------------------------------------
@@ -148,7 +142,7 @@ ir_ptr_type(Arena* a, IR_Type* inner, int addrspace)
     IR_Type* t = ir_type_new(a, IR_PTR);
     t->inner = inner;
     t->addrspace = addrspace;
-    type_cache_put(IR_PTR, inner, addrspace, t);
+    type_cache_put(a, IR_PTR, inner, addrspace, t);
     return t;
 }
 
@@ -162,7 +156,7 @@ ir_array_type(Arena* a, IR_Type* elem, int size)
     IR_Type* t = ir_type_new(a, IR_ARRAY);
     t->inner = elem;
     t->size = size;
-    type_cache_put(IR_ARRAY, elem, size, t);
+    type_cache_put(a, IR_ARRAY, elem, size, t);
     return t;
 }
 
@@ -186,7 +180,7 @@ ir_type_from_ast(Arena* a, Type* ast_type)
 void
 ir_reset_type_caches(void)
 {
-    memset(type_slots, 0, sizeof(type_slots));
+    memset(&type_cache, 0, sizeof(type_cache));
     ir_reset_struct_caches();
     ir_reset_ast_map();
 }

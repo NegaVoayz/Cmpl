@@ -44,10 +44,11 @@ IR_Type* t_void, *t_i1, *t_i8, *t_i16, *t_i32, *t_i64;
 IR_Type* t_f32, *t_f64;
 ```
 
-Composite types (ptr, array, func) are **interned**: a 128-slot open-addressing
-cache keyed by `(kind, inner_ptr, extra)` ensures `ir_ptr_type(t_i8, 0)` always
-returns the same `IR_Type*`. `ir_type_eq()` reduces to pointer comparison for
-interned types.
+Composite types (ptr, array, func) are **interned**: an open-addressing map
+keyed by `(kind, inner_ptr, extra)` (backed by base/hash.c, growing past an
+initial 128 slots at 70 % load) ensures `ir_ptr_type(t_i8, 0)` always returns
+the same `IR_Type*`. `ir_type_eq()` reduces to pointer comparison for interned
+types.
 
 Address-space-qualified pointer types are created on demand:
 
