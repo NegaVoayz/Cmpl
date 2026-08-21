@@ -16,6 +16,18 @@
 /* child (element/member) type at position idx of an aggregate type */
 IR_Type* init_child_type(IR_Type* ty, int idx);
 
+/* typed pointer to a REGULAR field of a bit-field struct; NULL when the
+ * field is a bit-field (ir_gen_init_pos.c) */
+IR_Value* bf_field_ptr(GenCtx* ctx, IR_Value* dst, IR_Type* ty, int raw_idx);
+
+/* one member step of a designator/continuation walk: advance `slot` to
+ * member `fi` of `cur` (GEP / union bitcast / byte pointer), set *ncur to
+ * the member type.  A bit-field FINAL step fills *bf, sets *ncur to the
+ * field type, and returns NULL (the walk must not continue).
+ * (ir_gen_init_pos.c) */
+IR_Value* step_member_slot(GenCtx* ctx, IR_Value* slot, IR_Type* cur, int fi,
+                           IR_Type** ncur, BfLoc* bf);
+
 /* walk a designator step chain from dst emitting nested GEPs; sets
  * *final_ty and *top_idx and records the path into cont/depth.  a
  * bit-field final step fills *bf instead of returning a slot. */
@@ -39,6 +51,13 @@ int init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
                           AST_Node** sub, int is_desig, IR_Value** slot,
                           IR_Type** child, AST_Node** val, int* pos,
                           ContLevel* cont, int* depth, BfLoc* bf);
+
+/* resolve the destination slot for a positional (no-designator,
+ * no-continuation) element (ir_gen_init_pos.c); same return contract
+ * as init_slot_for_element. */
+int init_positional_slot(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
+                         AST_Node** sub, IR_Value** slot, IR_Type** child,
+                         AST_Node** val, int* pos, BfLoc* bf);
 
 /* ---- constant initializer helpers (ir_gen_const_desig.c) ---- */
 
