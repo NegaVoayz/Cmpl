@@ -1,20 +1,10 @@
-/* ll_type.c -- C type specifier parser
+/* ll_type.c -- C type specifier parser.
  *
- * Parses type specifier chains (int, unsigned long, const, etc.)
- * plus struct/union/enum tag references.
- * Declarator parsing is in decl/ll_declarator.c.
- */
+ * Parses specifier chains (int, unsigned long, const, ...) plus
+ * qualifiers; typedef names and struct/union/enum tag specs are in
+ * ll_type_tag.c.  Declarators are parsed in decl/ll_declarator.c. */
 
 #include "ll.h"
-
-#include <stdio.h>
-
-#include <stdlib.h>
-#include <string.h>
-
-/* from ll.c and decl/ll_decl_agg.c */
-extern void      ll_expect(LR1_Parser* p, TokenKind k);
-extern AST_Node* ll_parse_struct_fields(LR1_Parser* p);
 
 /* ---------------------------------------------------------------
  *  Helpers
@@ -72,38 +62,104 @@ skip_paren_group(LR1_Parser* p)
     }
 }
 
-/* ---------------------------------------------------------------
- *  Struct / union specifier
- *
- *  Parses `struct Foo`, `union Bar`, or an inline definition
- *  `struct { int x; }` / `union { int a; }`.  Returns NULL unless the
- *  current token starts a struct/union specifier.
- * --------------------------------------------------------------- */
-
-static Type* ll_parse_struct_union_spec(LR1_Parser* p)
+/* append a specifier Type to the multi-word specifier chain (linked via
+ * ->next), creating the chain head on the first append. */
+static void
+append_spec(Type** head, Type** tail, Type* t)
 {
-    if (p->tok->kind != TOK_STRUCT && p->tok->kind != TOK_UNION)
-        return NULL;
+    if (!*head)
+        *head = *tail = t;
+    else {
+        (*tail)->next = t;
+        *tail = t;
+    }
+}
 
-    TypeKind tk = (p->tok->kind == TOK_STRUCT) ? TYPE_STRUCT : TYPE_UNION;
-
-    p->tok = p->tok->next;
-
-    Type* t = type_new(p->arena, tk);
-
-    if (p->tok->kind == TOK_IDENT) {
-        t->name = p->tok->body.ident;
+/* consume one qualifier or hint token (const/volatile/restrict/_Atomic/
+ * _Alignas/_Complex/_Imaginary/inline/_Noreturn) and return 1: qualifiers
+ * and hints just advance, a parenthesized _Atomic appends its inner type,
+ * _Complex/_Imaginary append a double unless a float/double follows.
+ * Returns 0 when the current token is a plain type keyword (the caller
+ * appends its specifier). */
+static int
+parse_qualifier_or_spec(LR1_Parser* p, int* is_const, int* is_volatile,
+                        Type** head, Type** tail)
+{
+    if (p->tok->kind == TOK_CONST) {
+        *is_const = 1;
         p->tok = p->tok->next;
+        return 1;
     }
 
-    /* inline body: struct { ... } or union { ... } */
-    if (p->tok->kind == TOK_LBRACE) {
+    if (p->tok->kind == TOK_VOLATILE) {
+        *is_volatile = 1;
         p->tok = p->tok->next;
-        t->params = ll_parse_struct_fields(p);
-        ll_expect(p, TOK_RBRACE);
+        return 1;
     }
 
-    return t;
+    /* restrict is a type-qualifier (C99 6.7.3); accept and ignore —
+     * the IR has no aliasing model, so it is semantically inert. */
+    if (p->tok->kind == TOK_RESTRICT) {
+        p->tok = p->tok->next;
+        return 1;
+    }
+
+    /* _Atomic — C11 6.7.2.4: either a type-qualifier (_Atomic int) or a
+     * parenthesized type-name (_Atomic(int)).  Accept and ignore — the IR
+     * has no atomics, so the type is just its inner type. */
+    if (p->tok->kind == TOK_ATOMIC) {
+        p->tok = p->tok->next;
+
+        if (p->tok->kind == TOK_LPAREN) {
+            p->tok = p->tok->next;
+
+            Type* inner = ll_parse_type_name(p);
+
+            if (inner)
+                append_spec(head, tail, inner);
+
+            if (p->tok->kind == TOK_RPAREN)
+                p->tok = p->tok->next;
+        }
+        return 1;
+    }
+
+    /* _Alignas — C11 6.7.5 alignment-specifier: _Alignas(type-name) or
+     * _Alignas(constant-expression).  Accept and ignore — the IR uses
+     * natural alignment, so the requested alignment is a hint we drop. */
+    if (p->tok->kind == TOK_ALIGNAS) {
+        p->tok = p->tok->next;
+
+        if (p->tok->kind == TOK_LPAREN)
+            skip_paren_group(p);
+        return 1;
+    }
+
+    /* _Complex / _Imaginary — C11 6.7.2p2: complex/imaginary variant of a
+     * real floating type.  The IR has no complex arithmetic, so map to the
+     * underlying float/double: _Complex double -> double.  A bare _Complex
+     * (no following float/double) means _Complex double. */
+    if (p->tok->kind == TOK_COMPLEX || p->tok->kind == TOK_IMAGINARY) {
+        TokenKind nk = p->tok->next->kind;
+
+        p->tok = p->tok->next;
+
+        if (nk != TOK_FLOAT && nk != TOK_DOUBLE) {
+            Type* t = type_new(p->arena, TYPE_DOUBLE);
+            append_spec(head, tail, t);
+        }
+        return 1;
+    }
+
+    /* inline / _Noreturn may legally interleave with type specifiers
+     * (C99 6.7: declaration-specifiers in any order); accept and
+     * ignore — they are hints, not part of the type. */
+    if (p->tok->kind == TOK_INLINE || p->tok->kind == TOK_NORETURN) {
+        p->tok = p->tok->next;
+        return 1;
+    }
+
+    return 0;
 }
 
 /* ---------------------------------------------------------------
@@ -124,132 +180,20 @@ Type* ll_parse_type_specs(LR1_Parser* p)
     while (is_type_keyword(p->tok->kind) || is_qualifier(p->tok->kind) ||
            p->tok->kind == TOK_INLINE || p->tok->kind == TOK_NORETURN ||
            p->tok->kind == TOK_ALIGNAS) {
-        if (p->tok->kind == TOK_CONST) {
-            is_const = 1;
-            p->tok = p->tok->next;
+        if (parse_qualifier_or_spec(p, &is_const, &is_volatile, &head, &tail))
             continue;
-        }
 
-        if (p->tok->kind == TOK_VOLATILE) {
-            is_volatile = 1;
-            p->tok = p->tok->next;
-            continue;
-        }
-
-        /* restrict is a type-qualifier (C99 6.7.3); accept and ignore —
-         * the IR has no aliasing model, so it is semantically inert. */
-        if (p->tok->kind == TOK_RESTRICT) {
-            p->tok = p->tok->next;
-            continue;
-        }
-
-        /* _Atomic — C11 6.7.2.4: either a type-qualifier (_Atomic int) or a
-         * parenthesized type-name (_Atomic(int)).  Accept and ignore — the IR
-         * has no atomics, so the type is just its inner type. */
-        if (p->tok->kind == TOK_ATOMIC) {
-            p->tok = p->tok->next;
-
-            if (p->tok->kind == TOK_LPAREN) {
-                p->tok = p->tok->next;
-
-                Type* inner = ll_parse_type_name(p);
-
-                if (inner) {
-                    if (!head)
-                        head = tail = inner;
-                    else {
-                        tail->next = inner;
-                        tail = inner;
-                    }
-                }
-
-                if (p->tok->kind == TOK_RPAREN)
-                    p->tok = p->tok->next;
-            }
-            continue;
-        }
-
-        /* _Alignas — C11 6.7.5 alignment-specifier: _Alignas(type-name) or
-         * _Alignas(constant-expression).  Accept and ignore — the IR uses
-         * natural alignment, so the requested alignment is a hint we drop. */
-        if (p->tok->kind == TOK_ALIGNAS) {
-            p->tok = p->tok->next;
-
-            if (p->tok->kind == TOK_LPAREN)
-                skip_paren_group(p);
-            continue;
-        }
-
-        /* _Complex / _Imaginary — C11 6.7.2p2: complex/imaginary variant of a
-         * real floating type.  The IR has no complex arithmetic, so map to the
-         * underlying float/double: _Complex double -> double.  A bare _Complex
-         * (no following float/double) means _Complex double. */
-        if (p->tok->kind == TOK_COMPLEX || p->tok->kind == TOK_IMAGINARY) {
-            TokenKind nk = p->tok->next->kind;
-
-            p->tok = p->tok->next;
-
-            if (nk != TOK_FLOAT && nk != TOK_DOUBLE) {
-                Type* t = type_new(p->arena, TYPE_DOUBLE);
-
-                if (!head)
-                    head = tail = t;
-                else {
-                    tail->next = t;
-                    tail = t;
-                }
-            }
-            continue;
-        }
-
-        /* inline / _Noreturn may legally interleave with type specifiers
-         * (C99 6.7: declaration-specifiers in any order); accept and
-         * ignore — they are hints, not part of the type. */
-        if (p->tok->kind == TOK_INLINE || p->tok->kind == TOK_NORETURN) {
-            p->tok = p->tok->next;
-            continue;
-        }
-
+        /* a plain type keyword: append its specifier to the chain */
         Type* t = type_new(p->arena, kw_to_typekind(p->tok->kind));
-
-        if (!head)
-            head = tail = t;
-        else {
-            tail->next = t;
-            tail = t;
-        }
-
+        append_spec(&head, &tail, t);
         p->tok = p->tok->next;
     }
 
-    /* User-defined type: typedef name like `Buffer`, `PPCtx`, etc. */
-    if (!head && p->tok->kind == TOK_IDENT) {
-        Type* t = type_new(p->arena, TYPE_NAMED);
-
-        t->name = p->tok->body.ident;
-        p->tok = p->tok->next;
-        head = t;
-    }
-
-    /* Struct / union tag reference or inline definition */
+    /* no specifier keyword matched: a typedef name, struct/union tag
+     * reference or inline definition, or an enum tag reference */
     if (!head) {
-        Type* t = ll_parse_struct_union_spec(p);
-
-        if (t)
-            head = t;
-    }
-
-    /* Enum tag reference: `enum Color` */
-    if (!head && p->tok->kind == TOK_ENUM) {
-        p->tok = p->tok->next;
-
-        Type* t = type_new(p->arena, TYPE_ENUM);
-
-        if (p->tok->kind == TOK_IDENT) {
-            t->name = p->tok->body.ident;
-            p->tok = p->tok->next;
-        }
-        head = t;
+        Type* t = ll_parse_tag_spec(p);
+        if (t) head = t;
     }
 
     if (!head)

@@ -41,6 +41,10 @@ AST_Node* ll_parse_decl_or_stmt(LR1_Parser* p);
 /* parse type specifiers (int, long, char, ...) returning a Type chain */
 Type* ll_parse_type_specs(LR1_Parser* p);
 
+/* parse a typedef-name / struct-union / enum tag type specifier
+ * (ll_type_tag.c); NULL when the current token starts no tag specifier */
+Type* ll_parse_tag_spec(LR1_Parser* p);
+
 /* parse a C declarator (*x, x[10], f(int), etc.), returns full Type and fills name */
 Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth);
 
