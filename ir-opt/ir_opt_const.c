@@ -86,8 +86,88 @@ simplify(IR_Opcode op, IR_Value* lhs, IR_Value* rhs)
 }
 
 /* ---------------------------------------------------------------
- *  Fold constants in one function
+ *  Fold constants in one function.
+ *  Each helper folds one instruction family and returns changed.
  * --------------------------------------------------------------- */
+
+static int
+fold_arith(IR_Instr* inst)
+{
+    IR_Value* v0 = inst->operands[0];
+    IR_Value* v1 = inst->operands[1];
+    if (!v0 || !v1) return 0;
+
+    /* try identity first (returns existing operand, no alloc) */
+    IR_Value* s = simplify(inst->opcode, v0, v1);
+    int from_fold = 0;
+    if (!s) { s = fold_binary(inst->opcode, v0, v1, inst->type);
+              from_fold = 1; }
+    if (!s) return 0;
+
+    /* replace instruction result with folded constant */
+    if (!inst->result) return 0;
+    inst->result->kind = s->kind;
+    inst->result->body = s->body;
+    /* fold_binary allocates with calloc — must free.
+     * simplify returns an existing operand — never free. */
+    if (from_fold) free(s);
+    return 1;
+}
+
+static int
+fold_icmp(IR_Instr* inst)
+{
+    IR_Value *v0 = inst->operands[0], *v1 = inst->operands[1];
+    if (!v0 || !v1) return 0;
+    if (v0->kind != VAL_CONST_INT ||
+        v1->kind != VAL_CONST_INT) return 0;
+
+    /* normalize both operands to their type width: a u32
+     * 0xFFFFFFFF may be stored raw as 4294967295 or -1 (same
+     * bits).  EQ/NE and the signed conditions need it too. */
+    int u64 = (v0->type && v0->type->kind == IR_I64);
+    unsigned long long ua =
+        (unsigned long long)v0->body.int_val;
+    unsigned long long ub =
+        (unsigned long long)v1->body.int_val;
+    if (!u64) { ua = (unsigned int)ua; ub = (unsigned int)ub; }
+    long long sa = u64 ? (long long)ua : (int)ua;
+    long long sb = u64 ? (long long)ub : (int)ub;
+    int r = 0;
+
+    switch (inst->cond) {
+    case IR_COND_EQ:  r = (ua == ub); break;
+    case IR_COND_NE:  r = (ua != ub); break;
+    case IR_COND_SGT: r = (sa > sb);  break;
+    case IR_COND_SGE: r = (sa >= sb); break;
+    case IR_COND_SLT: r = (sa < sb);  break;
+    case IR_COND_SLE: r = (sa <= sb); break;
+    case IR_COND_UGT: r = (ua > ub);  break;
+    case IR_COND_UGE: r = (ua >= ub); break;
+    case IR_COND_ULT: r = (ua < ub);  break;
+    case IR_COND_ULE: r = (ua <= ub); break;
+    default: break;
+    }
+    inst->result->kind = VAL_CONST_INT;
+    inst->result->type = t_i1;
+    inst->result->body.int_val = r;
+    return 1;
+}
+
+static int
+fold_select(IR_Instr* inst)
+{
+    IR_Value* cond = inst->operands[0];
+    if (!cond || cond->kind != VAL_CONST_INT) return 0;
+
+    IR_Value* pick = cond->body.int_val ?
+                     inst->operands[1] : inst->operands[2];
+    if (pick) {
+        inst->result->body = pick->body;
+        return 1;
+    }
+    return 0;
+}
 
 static int
 fold_func(IR_Func* fn)
@@ -103,80 +183,14 @@ fold_func(IR_Func* fn)
             case IROP_SDIV: case IROP_SREM:
             case IROP_AND: case IROP_OR: case IROP_XOR:
             case IROP_SHL: case IROP_LSHR: case IROP_ASHR:
-            {
-                IR_Value* v0 = inst->operands[0];
-                IR_Value* v1 = inst->operands[1];
-                if (!v0 || !v1) break;
-
-                /* try identity first (returns existing operand, no alloc) */
-                IR_Value* s = simplify(inst->opcode, v0, v1);
-                int from_fold = 0;
-                if (!s) { s = fold_binary(inst->opcode, v0, v1, inst->type);
-                          from_fold = 1; }
-                if (!s) break;
-
-                /* replace instruction result with folded constant */
-                if (!inst->result) break;
-                inst->result->kind = s->kind;
-                inst->result->body = s->body;
-                /* fold_binary allocates with calloc — must free.
-                 * simplify returns an existing operand — never free. */
-                if (from_fold) free(s);
-                changed = 1;
+                changed |= fold_arith(inst);
                 break;
-            }
             case IROP_ICMP:
-            {
-                IR_Value *v0 = inst->operands[0], *v1 = inst->operands[1];
-                if (!v0 || !v1) break;
-                if (v0->kind != VAL_CONST_INT ||
-                    v1->kind != VAL_CONST_INT) break;
-
-                /* normalize both operands to their type width: a u32
-                 * 0xFFFFFFFF may be stored raw as 4294967295 or -1 (same
-                 * bits).  EQ/NE and the signed conditions need it too. */
-                int u64 = (v0->type && v0->type->kind == IR_I64);
-                unsigned long long ua =
-                    (unsigned long long)v0->body.int_val;
-                unsigned long long ub =
-                    (unsigned long long)v1->body.int_val;
-                if (!u64) { ua = (unsigned int)ua; ub = (unsigned int)ub; }
-                long long sa = u64 ? (long long)ua : (int)ua;
-                long long sb = u64 ? (long long)ub : (int)ub;
-                int r = 0;
-
-                switch (inst->cond) {
-                case IR_COND_EQ:  r = (ua == ub); break;
-                case IR_COND_NE:  r = (ua != ub); break;
-                case IR_COND_SGT: r = (sa > sb);  break;
-                case IR_COND_SGE: r = (sa >= sb); break;
-                case IR_COND_SLT: r = (sa < sb);  break;
-                case IR_COND_SLE: r = (sa <= sb); break;
-                case IR_COND_UGT: r = (ua > ub);  break;
-                case IR_COND_UGE: r = (ua >= ub); break;
-                case IR_COND_ULT: r = (ua < ub);  break;
-                case IR_COND_ULE: r = (ua <= ub); break;
-                default: break;
-                }
-                inst->result->kind = VAL_CONST_INT;
-                inst->result->type = t_i1;
-                inst->result->body.int_val = r;
-                changed = 1;
+                changed |= fold_icmp(inst);
                 break;
-            }
             case IROP_SELECT:
-            {
-                IR_Value* cond = inst->operands[0];
-                if (!cond || cond->kind != VAL_CONST_INT) break;
-
-                IR_Value* pick = cond->body.int_val ?
-                                 inst->operands[1] : inst->operands[2];
-                if (pick) {
-                    inst->result->body = pick->body;
-                    changed = 1;
-                }
+                changed |= fold_select(inst);
                 break;
-            }
             default: break;
             }
         }
