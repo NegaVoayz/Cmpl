@@ -10,12 +10,12 @@ add_library(ir
     gen/expr/ir_gen_call.c
     gen/expr/ir_gen_cast.c
     gen/expr/ir_gen_ternary.c
-    gen/expr/ir_gen_lval.c
-    gen/expr/ir_gen_index.c
-    gen/expr/ir_gen_member.c gen/expr/ir_gen_bf.c
+    gen/expr/lval/ir_gen_lval.c
+    gen/expr/lval/ir_gen_index.c
+    gen/expr/lval/ir_gen_member.c gen/expr/lval/ir_gen_bf.c
     gen/expr/ir_gen_generic.c
-    gen/expr/ir_gen_va_arg.c
-    gen/expr/ir_gen_va_intrinsic.c
+    gen/expr/va/ir_gen_va_arg.c
+    gen/expr/va/ir_gen_va_intrinsic.c
     gen/init/ir_gen_init_desig.c
     gen/init/ir_gen_const_desig.c
     gen/init/ir_gen_const_cont.c
@@ -24,5 +24,5 @@ add_library(ir
     gen/init/ir_gen_const_bytes.c gen/init/ir_gen_const_bf.c
     gen/init/ir_gen_const_generic.c gen/init/ir_gen_const_ice.c
     dump/ir_dump.c dump/ir_dump_type.c dump/instr/ir_dump_instr.c dump/instr/ir_dump_instr_extra.c dump/instr/ir_dump_instr_gep.c dump/ir_dump_func.c dump/ir_dump_module.c dump/ir_dump_declares.c dump/ir_dump_struct.c dump/ir_dump_str.c)
-target_include_directories(ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/builder ${CMAKE_CURRENT_SOURCE_DIR}/type ${CMAKE_CURRENT_SOURCE_DIR}/gen ${CMAKE_CURRENT_SOURCE_DIR}/gen/expr ${CMAKE_CURRENT_SOURCE_DIR}/gen/init ${CMAKE_CURRENT_SOURCE_DIR}/gen/resolve ${CMAKE_CURRENT_SOURCE_DIR}/gen/sa ${CMAKE_CURRENT_SOURCE_DIR}/dump ${CMAKE_CURRENT_SOURCE_DIR}/dump/instr)
+target_include_directories(ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/builder ${CMAKE_CURRENT_SOURCE_DIR}/type ${CMAKE_CURRENT_SOURCE_DIR}/gen ${CMAKE_CURRENT_SOURCE_DIR}/gen/expr ${CMAKE_CURRENT_SOURCE_DIR}/gen/expr/va ${CMAKE_CURRENT_SOURCE_DIR}/gen/expr/lval ${CMAKE_CURRENT_SOURCE_DIR}/gen/init ${CMAKE_CURRENT_SOURCE_DIR}/gen/resolve ${CMAKE_CURRENT_SOURCE_DIR}/gen/sa ${CMAKE_CURRENT_SOURCE_DIR}/dump ${CMAKE_CURRENT_SOURCE_DIR}/dump/instr)
 target_link_libraries(ir tokenizer cuda)

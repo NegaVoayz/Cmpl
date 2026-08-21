@@ -9,8 +9,8 @@
  * Returns NULL when the callee is not a va intrinsic (the caller continues
  * with the normal call path). */
 
-#include "../ir_gen.h"
-#include "ir_gen_expr.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_expr.h"
 
 #include <string.h>
 

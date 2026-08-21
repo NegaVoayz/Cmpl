@@ -16,8 +16,8 @@
  * and gen_addr_of.
  */
 
-#include "../ir_gen.h"
-#include "ir_gen_expr.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_expr.h"
 
 /* Prepare the base for base[idx]: return the base VALUE (loaded when
  * it denotes a pointer variable) and set *is_ptr_val to 1 when the

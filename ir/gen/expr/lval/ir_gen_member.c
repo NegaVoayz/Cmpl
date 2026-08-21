@@ -1,7 +1,7 @@
 /* ir_gen_member.c -- member access + lvalue readers for the AST->IR walker. */
 
-#include "../ir_gen.h"
-#include "ir_gen_expr.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_expr.h"
 
 #include <stdlib.h>
 #include <string.h>

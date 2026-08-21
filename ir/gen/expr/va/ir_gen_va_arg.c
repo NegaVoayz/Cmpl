@@ -16,8 +16,8 @@
  * (8 XMM slots of 16 bytes), overflow always advances 8.
  */
 
-#include "../ir_gen.h"
-#include "ir_gen_expr.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_expr.h"
 
 #include <stdio.h>
 

@@ -9,8 +9,8 @@
  * initializer paths (which build a BfLoc from a raw field index).
  */
 
-#include "../ir_gen.h"
-#include "ir_gen_expr.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_expr.h"
 
 #include <stdlib.h>
 

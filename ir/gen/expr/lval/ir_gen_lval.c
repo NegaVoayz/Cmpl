@@ -1,7 +1,7 @@
 /* ir_gen_lval.c -- store-target pointer computation (gen_store_ptr). */
 
-#include "../ir_gen.h"
-#include "ir_gen_expr.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_expr.h"
 
 #include <stdlib.h>
 
