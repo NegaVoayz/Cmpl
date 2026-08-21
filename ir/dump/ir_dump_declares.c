@@ -13,14 +13,14 @@
 
 #include "ir_dump.h"
 
-/* names already given a `declare` by dump_extern_declares — the fnptr
- * pass must not emit a duplicate declare for the same function (LLVM
- * rejects redeclaration even when the signatures are identical) */
+/* names already given a `declare` — the fnptr pass must not emit a
+ * duplicate declare for the same function (LLVM rejects redeclaration
+ * even when the signatures are identical) */
 static const char* extern_seen[64];
 static int   extern_seen_len[64];
 static int   n_extern_seen = 0;
 
-/* record a declared name for the fnptr pass to skip */
+/* record a declared name for the later pass to skip */
 static void
 extern_record_name(const char* data, int len)
 {
@@ -40,6 +40,19 @@ extern_has_name(const char* data, int len)
     return 0;
 }
 
+/* is `name` a function DEFINED in this module?  (Both passes skip
+ * defined functions — only external callees/fnptr operands get a
+ * `declare`.) */
+static int
+extern_is_in_module(IR_Module* mod, const char* data, int len)
+{
+    for (IR_Func* mf = mod->funcs; mf; mf = mf->next)
+        if (mf->name.length == len &&
+            memcmp(mf->name.data, data, len) == 0)
+            return 1;
+    return 0;
+}
+
 /* emit declare for external callees not in module */
 void
 dump_extern_declares(FILE* out, IR_Module* mod)
@@ -47,11 +60,6 @@ dump_extern_declares(FILE* out, IR_Module* mod)
     /* per-module reset: the fnptr pass reads this list in the same
      * module dump; the next module (CUDA dual gen) starts fresh */
     n_extern_seen = 0;
-
-    /* collect unique external callee names (max 64) */
-    const char* seen[64] = {0};
-    int seen_len[64] = {0};
-    int n_seen = 0;
 
     for (IR_Func* f = mod->funcs; f; f = f->next) {
         if (!f->blocks) continue;
@@ -62,36 +70,15 @@ dump_extern_declares(FILE* out, IR_Module* mod)
                 if (!inst->callee.data || inst->callee.length == 0)
                     continue;
 
-                /* check already seen */
-                int done = 0;
-                for (int si = 0; si < n_seen; si++) {
-                    if (seen_len[si] == inst->callee.length &&
-                        memcmp(seen[si], inst->callee.data,
-                               inst->callee.length) == 0) {
-                        done = 1; break;
-                    }
-                }
-                if (done) continue;
-
-                /* check if callee is in module */
-                int found = 0;
-                for (IR_Func* mf = mod->funcs; mf; mf = mf->next) {
-                    if (mf->name.length == inst->callee.length &&
-                        memcmp(mf->name.data, inst->callee.data,
-                               inst->callee.length) == 0) {
-                        found = 1; break;
-                    }
-                }
-                if (found) continue;
+                /* check already seen / check if callee is in module */
+                if (extern_has_name(inst->callee.data, inst->callee.length))
+                    continue;
+                if (extern_is_in_module(mod, inst->callee.data,
+                                        inst->callee.length))
+                    continue;
 
                 /* record and emit */
-                if (n_seen < 64) {
-                    seen[n_seen] = inst->callee.data;
-                    seen_len[n_seen] = inst->callee.length;
-                    n_seen++;
-                    extern_record_name(inst->callee.data,
-                                       inst->callee.length);
-                }
+                extern_record_name(inst->callee.data, inst->callee.length);
 
                 fprintf(out, "declare ");
                 dump_type(out, inst->type);
@@ -138,10 +125,6 @@ dump_extern_declares(FILE* out, IR_Module* mod)
 void
 dump_fnptr_declares(FILE* out, IR_Module* mod)
 {
-    const char* fn_seen[64] = {0};
-    int fn_seen_len[64] = {0};
-    int fn_n_seen = 0;
-
     for (IR_Func* f = mod->funcs; f; f = f->next) {
         if (!f->blocks) continue;
 
@@ -165,31 +148,19 @@ dump_fnptr_declares(FILE* out, IR_Module* mod)
                     if (!v->type->inner ||
                         v->type->inner->kind != IR_FUNC) continue;
 
-                    /* check already seen */
-                    int done = 0;
-                    for (int si = 0; si < fn_n_seen; si++) {
-                        if (fn_seen_len[si] == v->name.length &&
-                            memcmp(fn_seen[si], v->name.data,
-                                   v->name.length) == 0) {
-                            done = 1; break;
-                        }
-                    }
-                    if (done) continue;
+                    /* skip names already declared via call sites or by
+                     * this pass (one shared per-module seen set) */
+                    if (extern_has_name(v->name.data, v->name.length))
+                        continue;
 
                     /* check if function is in module */
-                    int found = 0;
-                    for (IR_Func* mf = mod->funcs; mf; mf = mf->next) {
-                        if (mf->name.length == v->name.length &&
-                            memcmp(mf->name.data, v->name.data,
-                                   v->name.length) == 0) {
-                            found = 1; break;
-                        }
-                    }
-                    if (found) continue;
+                    if (extern_is_in_module(mod, v->name.data, v->name.length))
+                        continue;
 
                     /* skip global variables of fn-ptr type — they are
                      * already emitted as `@g = global ptr ...`, not
                      * `declare`d as functions. */
+                    int found = 0;
                     for (IR_Value* g = mod->globals; g; g = g->next) {
                         if (g->name.length == v->name.length &&
                             memcmp(g->name.data, v->name.data,
@@ -199,16 +170,8 @@ dump_fnptr_declares(FILE* out, IR_Module* mod)
                     }
                     if (found) continue;
 
-                    /* skip names already declared via call sites */
-                    if (extern_has_name(v->name.data, v->name.length))
-                        continue;
-
                     /* record and emit */
-                    if (fn_n_seen < 64) {
-                        fn_seen[fn_n_seen] = v->name.data;
-                        fn_seen_len[fn_n_seen] = v->name.length;
-                        fn_n_seen++;
-                    }
+                    extern_record_name(v->name.data, v->name.length);
 
                     IR_Type* fn_ty = v->type->inner;
                     fprintf(out, "declare ");
