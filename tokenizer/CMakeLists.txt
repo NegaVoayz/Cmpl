@@ -2,6 +2,7 @@ add_library(tokenizer STATIC
     parse.c
     lexer.c
     number.c
+    charstring.c
     ast.c
 )
 
