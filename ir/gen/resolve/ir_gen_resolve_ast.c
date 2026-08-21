@@ -9,7 +9,7 @@
 #include "ir.h"
 
 #include "ast.h"
-#include "ir_gen.h"
+#include "../ir_gen.h"
 
 #define MAX_VISITED 128
 static int was_visited(AST_Node** v, int n, AST_Node* node)

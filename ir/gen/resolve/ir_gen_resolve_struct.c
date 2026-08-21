@@ -10,7 +10,7 @@
 #include "ir.h"
 
 #include "ast.h"
-#include "ir_gen.h"
+#include "../ir_gen.h"
 
 /* seen set: params pointers of struct/union field lists already walked,
  * so definitions and freshly attached references recurse their member

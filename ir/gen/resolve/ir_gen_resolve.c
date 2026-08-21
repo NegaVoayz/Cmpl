@@ -8,7 +8,7 @@
 
 #include "ast.h"
 #include "ast_walk.h"
-#include "ir_gen.h"
+#include "../ir_gen.h"
 
 /* ---------------------------------------------------------------
  *  Typedef & enum table: lookup, type tree resolution
