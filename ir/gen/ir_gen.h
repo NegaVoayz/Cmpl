@@ -140,6 +140,12 @@ int  resolve_sizeof_cast_type_cb(AST_Node* n, void* ctx);
 int  resolve_compound_lit_type_cb(AST_Node* n, void* ctx);
 int  collect_local_struct_def_cb(AST_Node* n, void* ctx);
 
+/* ---- module-wide collection passes (ir_gen_module_collect.c) ---- */
+TypedefEntry* collect_typedefs(Arena* a, AST_Node* root);
+void update_opaque_typedefs(AST_Node* root, TypedefEntry* typedefs);
+TypedefEntry* collect_enum_vals(Arena* a, AST_Node* root, HashMap* globals);
+void collect_func_sigs(Arena* a, AST_Node* root, HashMap* sig_map);
+
 /* ---- module emission passes (ir_gen_module_emit.c) ---- */
 void resolve_struct_refs_all(Arena* a, AST_Node* root);
 int  resolve_array_sizes_pass(Arena* a, AST_Node* root, TypedefEntry* enum_vals,
