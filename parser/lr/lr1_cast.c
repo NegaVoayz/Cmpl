@@ -15,6 +15,81 @@ static int is_type_keyword(TokenKind k)
            k == TOK_ATOMIC || k == TOK_COMPLEX || k == TOK_IMAGINARY;
 }
 
+/* skip const/volatile qualifiers (they only appear in types, never at the
+ * start of a parenthesised expression) */
+static Token*
+skip_qualifiers(Token* t)
+{
+    while (t && (t->kind == TOK_CONST || t->kind == TOK_VOLATILE))
+        t = t->next;
+    return t;
+}
+
+/* a token that can start the expression a cast applies to */
+static int
+is_cast_target_start(TokenKind k)
+{
+    return k == TOK_IDENT || k == TOK_INT_LIT || k == TOK_LONG_LIT ||
+           k == TOK_FLOAT_LIT || k == TOK_DOUBLE_LIT || k == TOK_CHAR_LIT ||
+           k == TOK_STRING_LIT || k == TOK_LPAREN || k == TOK_PLUSPLUS ||
+           k == TOK_MINUSMINUS || k == TOK_BANG || k == TOK_TILDE ||
+           k == TOK_SIZEOF || k == TOK_LBRACE ||
+           /* unary ops: (T)&x, (T)*p, (T)-x, (T)+x — ambiguous with
+            * (a) & b / (a) * b / (a) - b / (a) + b, resolved by the
+            * typedef gate in try_parse_cast */
+           k == TOK_AMP || k == TOK_STAR || k == TOK_MINUS || k == TOK_PLUS;
+}
+
+/* (TypeName*) is a cast ONLY if the type ends at ')'.
+ * (ident * ident) is a parenthesized multiply — treating it
+ * as a cast broke every `(a * b)` expression.  Scan past
+ * the star chain and array dimensions: (T*)x, (T**)x and
+ * (T*[2])x end with ')', (a * b) does not. */
+static int
+ident_star_cast(Token* s)
+{
+    while (s && (s->kind == TOK_STAR ||
+                 s->kind == TOK_CONST ||
+                 s->kind == TOK_VOLATILE))
+        s = s->next;
+    while (s && s->kind == TOK_LBRACKET) {
+        int depth = 1;
+
+        s = s->next;
+        while (s && depth > 0) {
+            if (s->kind == TOK_LBRACKET) depth++;
+            if (s->kind == TOK_RBRACKET) depth--;
+            if (depth > 0) s = s->next;
+        }
+        if (s && s->kind == TOK_RBRACKET) s = s->next;
+    }
+    return s && s->kind == TOK_RPAREN;
+}
+
+/* (TypeName) — find closing ) and peek at what follows */
+static int
+paren_expr_looks_like_cast(Token* after)
+{
+    return after && is_cast_target_start(after->kind);
+}
+
+/* typedef name: (TypeName*) or (TypeName **) is a cast;
+ * (TypeName) without * is ambiguous — check if what follows
+ * ')' looks like a cast target (expr start). */
+static int
+ident_cast_lookahead(Token* tok)
+{
+    Token* next = skip_qualifiers(tok->next);
+
+    if (next && next->kind == TOK_STAR)
+        return ident_star_cast(next);
+
+    if (next && next->kind == TOK_RPAREN)
+        return paren_expr_looks_like_cast(next->next);
+
+    return 0;
+}
+
 /* Check if a token can start a type specifier inside a cast:
  *   (type_keyword...)  e.g. (int*), (unsigned long)
  *   (const ...)        e.g. (const int*), (const Keyword*)
@@ -23,7 +98,8 @@ static int is_type_keyword(TokenKind k)
  *   (IDENT)            e.g. (Keyword)   -- usable as a cast when
  *                        followed by a unary expression (heuristic).
  * Only called when the next token after '(' needs disambiguation. */
-int is_cast_start(Token* tok)
+int
+is_cast_start(Token* tok)
 {
     if (!tok) return 0;
 
@@ -36,72 +112,8 @@ int is_cast_start(Token* tok)
      * at the start of a parenthesised expression. */
     if (k == TOK_CONST || k == TOK_VOLATILE) return 1;
 
-    /* typedef name: (TypeName*) or (TypeName **) is a cast;
-     * (TypeName) without * is ambiguous — check if what follows
-     * ')' looks like a cast target (expr start). */
-    if (k == TOK_IDENT) {
-        Token* next = tok->next;
-
-        while (next && (next->kind == TOK_CONST ||
-                        next->kind == TOK_VOLATILE))
-            next = next->next;
-
-        if (next && next->kind == TOK_STAR) {
-            /* (TypeName*) is a cast ONLY if the type ends at ')'.
-             * (ident * ident) is a parenthesized multiply — treating it
-             * as a cast broke every `(a * b)` expression.  Scan past
-             * the star chain and array dimensions: (T*)x, (T**)x and
-             * (T*[2])x end with ')', (a * b) does not. */
-            Token* s = next;
-
-            while (s && (s->kind == TOK_STAR ||
-                         s->kind == TOK_CONST ||
-                         s->kind == TOK_VOLATILE))
-                s = s->next;
-            while (s && s->kind == TOK_LBRACKET) {
-                int depth = 1;
-
-                s = s->next;
-                while (s && depth > 0) {
-                    if (s->kind == TOK_LBRACKET) depth++;
-                    if (s->kind == TOK_RBRACKET) depth--;
-                    if (depth > 0) s = s->next;
-                }
-                if (s && s->kind == TOK_RBRACKET) s = s->next;
-            }
-            if (s && s->kind == TOK_RPAREN)
-                return 1;
-        }
-
-        /* (TypeName) — find closing ) and peek at what follows */
-        if (next && next->kind == TOK_RPAREN) {
-            Token* after = next->next;
-
-            if (after && (after->kind == TOK_IDENT ||
-                          after->kind == TOK_INT_LIT ||
-                          after->kind == TOK_LONG_LIT ||
-                          after->kind == TOK_FLOAT_LIT ||
-                          after->kind == TOK_DOUBLE_LIT ||
-                          after->kind == TOK_CHAR_LIT ||
-                          after->kind == TOK_STRING_LIT ||
-                          after->kind == TOK_LPAREN ||
-                          after->kind == TOK_PLUSPLUS ||
-                          after->kind == TOK_MINUSMINUS ||
-                          after->kind == TOK_BANG ||
-                          after->kind == TOK_TILDE ||
-                          after->kind == TOK_SIZEOF ||
-                          after->kind == TOK_LBRACE ||
-                          /* unary ops: (T)&x, (T)*p, (T)-x, (T)+x —
-                           * ambiguous with (a) & b / (a) * b / (a) - b
-                           * / (a) + b, resolved by the typedef gate in
-                           * try_parse_cast */
-                          after->kind == TOK_AMP ||
-                          after->kind == TOK_STAR ||
-                          after->kind == TOK_MINUS ||
-                          after->kind == TOK_PLUS))
-                return 1;
-        }
-    }
+    if (k == TOK_IDENT)
+        return ident_cast_lookahead(tok);
 
     return 0;
 }

@@ -57,6 +57,38 @@ parse_until_sep(LR1_Parser* p, Token** sep_out)
     return expr;
 }
 
+/* parse one association arm: [default | type-name] ':' expr.
+ * Returns the arm node, or NULL on error.  Sets *sep_out to the depth-0
+ * separator that ended the expr (',' or the selection's own ')') and
+ * leaves p->tok just past it. */
+static AST_Node*
+parse_generic_arm(LR1_Parser* p, Token** sep_out)
+{
+    AST_Node* assoc = ast_node_new(p->arena, AST_GENERIC_ASSOC,
+                                   p->tok->loc.line, p->tok->loc.col);
+
+    if (p->tok->kind == TOK_DEFAULT) {
+        p->tok = p->tok->next;
+        assoc->body.generic_assoc.type = NULL;
+    } else {
+        assoc->body.generic_assoc.type = ll_parse_type_name(p);
+
+        if (!assoc->body.generic_assoc.type)
+            return NULL;
+    }
+
+    if (p->tok->kind != TOK_COLON)
+        return NULL;
+    p->tok = p->tok->next;             /* skip ':' */
+
+    assoc->body.generic_assoc.expr = parse_until_sep(p, sep_out);
+    if (!assoc->body.generic_assoc.expr || !*sep_out)
+        return NULL;
+    p->tok = (*sep_out)->next;         /* consume ',' or ')' */
+
+    return assoc;
+}
+
 /* Parse the whole selection.  p->tok at '(' following TOK__GENERIC (the
  * shifted frame's token is the keyword).  On success the outer LR stack
  * is restored and the AST_GENERIC node is pushed as a primary. */
@@ -70,8 +102,7 @@ lr1_parse_generic(LR1_Parser* p)
      * cast state; save the outer parse context and restore it before
      * pushing the result */
     StackFrame saved[MAX_STACK];
-    int save_sp = p->sp;
-    int save_pending = p->pending_cast;
+    int save_sp = p->sp, save_pending = p->pending_cast;
     int save_ccount = p->cast_count;
     PendingCast* save_chain = p->cast_chain;
     int save_pdepth = p->paren_depth;
@@ -101,54 +132,30 @@ lr1_parse_generic(LR1_Parser* p)
         while (!closed && p->tok->kind != TOK_RPAREN &&
                p->tok->kind != TOK_EOF) {
             Token* sep = NULL;
-            AST_Node* assoc = ast_node_new(p->arena, AST_GENERIC_ASSOC,
-                                           p->tok->loc.line, p->tok->loc.col);
+            AST_Node* assoc = parse_generic_arm(p, &sep);
 
-            if (p->tok->kind == TOK_DEFAULT) {
-                p->tok = p->tok->next;
-                assoc->body.generic_assoc.type = NULL;
-            } else {
-                assoc->body.generic_assoc.type = ll_parse_type_name(p);
-
-                if (!assoc->body.generic_assoc.type)
-                    goto fail;
-            }
-
-            if (p->tok->kind != TOK_COLON)
-                goto fail;
-            p->tok = p->tok->next;             /* skip ':' */
-
-            assoc->body.generic_assoc.expr = parse_until_sep(p, &sep);
-            if (!assoc->body.generic_assoc.expr || !sep)
-                goto fail;
-            p->tok = sep->next;                /* consume ',' or ')' */
+            if (!assoc) goto fail;
 
             *tail = assoc;
             tail = &assoc->next;
             node->body.generic.last_assoc = assoc;
 
-            /* ')' as the arm's separator is the selection's own closing
-             * paren — already consumed above */
+            /* ')' is the selection's own closing paren — consumed above */
             if (sep->kind == TOK_RPAREN)
                 closed = 1;
         }
 
         /* the selection must end at its own ')' */
         if (!closed) {
-            if (p->tok->kind == TOK_RPAREN) {
-                p->tok = p->tok->next;
-            } else {
-                goto fail;
-            }
+            if (p->tok->kind != TOK_RPAREN) goto fail;
+            p->tok = p->tok->next;
         }
     }
 
     /* restore the outer LR parse context */
     memcpy(p->stack, saved, sizeof(StackFrame) * (size_t)(save_sp + 1));
-    p->sp = save_sp;
-    p->pending_cast = save_pending;
-    p->cast_count = save_ccount;
-    p->cast_chain = save_chain;
+    p->sp = save_sp; p->pending_cast = save_pending;
+    p->cast_count = save_ccount; p->cast_chain = save_chain;
     p->paren_depth = save_pdepth;
 
     /* the selection is a PRIMARY expression: pop the S_GENERIC keyword

@@ -2,8 +2,9 @@
  *
  * Split out of pp_directive.c.  read_logical_line joins backslash-newline
  * continuations into one logical line and stays private to this file;
- * handle_define parses the macro name/params/body and registers it, and is
- * shared with pp_directive.c via pp.h.
+ * handle_define parses the macro name, then delegates the parameter list
+ * and the body to parse_define_params / register_macro_body (also
+ * private).  handle_define is shared with pp_directive.c via pp.h.
  */
 
 #include "../pp.h"
@@ -45,61 +46,56 @@ read_logical_line(const char** pp, const char* end, char* buf, int buf_sz)
     return len;
 }
 
-void
-handle_define(PPCtx* ctx, const char** pp, const char* end)
+/* Parse the parameter list of a function-like macro (entered just past
+ * the '(').  Allocates each parameter name in the arena; sets *nparams and
+ * *variadic; advances *pp past the closing ')'. */
+static void
+parse_define_params(Arena* arena, const char** pp, const char* end,
+                    char* params[64], int* nparams, int* variadic)
 {
     const char* p = *pp;
+
     while (p < end && (*p == ' ' || *p == '\t')) p++;
 
-    const char* name_start = p;
-    while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
-    int name_len = (int)(p - name_start);
-
-    if (name_len == 0) { skip_to_eol(&p, end); *pp = p; return; }
-
-    char name_buf[256];
-    memcpy(name_buf, name_start, name_len);
-    name_buf[name_len] = '\0';
-
-    int  is_func = 0;
-    int  nparams = 0;
-    int  variadic = 0;
-    char* params[64];
-
-    if (p < end && *p == '(') {
-        is_func = 1;
-        p++;
+    while (p < end && *p != ')') {
         while (p < end && (*p == ' ' || *p == '\t')) p++;
 
-        while (p < end && *p != ')') {
+        /* variadic ellipsis — always the final parameter */
+        if (p + 2 < end && p[0] == '.' && p[1] == '.' && p[2] == '.') {
+            *variadic = 1;
+            p += 3;
             while (p < end && (*p == ' ' || *p == '\t')) p++;
-
-            /* variadic ellipsis — always the final parameter */
-            if (p + 2 < end && p[0] == '.' && p[1] == '.' && p[2] == '.') {
-                variadic = 1;
-                p += 3;
-                while (p < end && (*p == ' ' || *p == '\t')) p++;
-                if (p < end && *p == ',') p++;
-                break;
-            }
-
-            const char* pstart = p;
-            while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
-            int plen = (int)(p - pstart);
-
-            if (plen > 0 && nparams < 64) {
-                params[nparams] = arena_alloc(ctx->arena, plen + 1);
-                memcpy(params[nparams], pstart, plen);
-                params[nparams][plen] = '\0';
-                nparams++;
-            }
-            while (p < end && (*p == ' ' || *p == '\t')) p++;
-            if (p < end && *p == ',') { p++; continue; }
-            if (p < end && *p == ')') break;
-            break; /* defensive: any unexpected char can't spin */
+            if (p < end && *p == ',') p++;
+            break;
         }
-        if (p < end && *p == ')') p++;
+
+        const char* pstart = p;
+        while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
+        int plen = (int)(p - pstart);
+
+        if (plen > 0 && *nparams < 64) {
+            params[*nparams] = arena_alloc(arena, plen + 1);
+            memcpy(params[*nparams], pstart, plen);
+            params[*nparams][plen] = '\0';
+            (*nparams)++;
+        }
+        while (p < end && (*p == ' ' || *p == '\t')) p++;
+        if (p < end && *p == ',') { p++; continue; }
+        if (p < end && *p == ')') break;
+        break; /* defensive: any unexpected char can't spin */
     }
+    if (p < end && *p == ')') p++;
+    *pp = p;
+}
+
+/* Read the macro body (one logical line, backslash-continuations joined),
+ * trim trailing whitespace and register the macro. */
+static void
+register_macro_body(PPCtx* ctx, const char** pp, const char* end,
+                    const char* name, int is_func, int nparams, int variadic,
+                    char* params[64])
+{
+    const char* p = *pp;
 
     while (p < end && (*p == ' ' || *p == '\t')) p++;
 
@@ -126,9 +122,42 @@ handle_define(PPCtx* ctx, const char** pp, const char* end)
             memcpy(params_copy, params, nparams * sizeof(char*));
         }
 
-        macro_add(&ctx->macros, name_buf, body, is_func, nparams, variadic,
+        macro_add(&ctx->macros, name, body, is_func, nparams, variadic,
                   params_copy);
     }
+
+    *pp = p;
+}
+
+void
+handle_define(PPCtx* ctx, const char** pp, const char* end)
+{
+    const char* p = *pp;
+    while (p < end && (*p == ' ' || *p == '\t')) p++;
+
+    const char* name_start = p;
+    while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
+    int name_len = (int)(p - name_start);
+
+    if (name_len == 0) { skip_to_eol(&p, end); *pp = p; return; }
+
+    char name_buf[256];
+    memcpy(name_buf, name_start, name_len);
+    name_buf[name_len] = '\0';
+
+    int  is_func = 0;
+    int  nparams = 0;
+    int  variadic = 0;
+    char* params[64];
+
+    if (p < end && *p == '(') {
+        is_func = 1;
+        p++;
+        parse_define_params(ctx->arena, &p, end, params, &nparams, &variadic);
+    }
+
+    register_macro_body(ctx, &p, end, name_buf, is_func, nparams, variadic,
+                        params);
 
     *pp = p;
 }

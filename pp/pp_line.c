@@ -44,7 +44,88 @@ ds_pop(DisabledSet* ds)
     if (ds->count > 0) ds->count--;
 }
 
+/* --- Verbatim spans: literals and comments copy through unchanged --- */
+
+/* skip predicates: advance *pp past one verbatim preprocessing token.
+ * They differ only in their termination predicate; copy_verbatim then
+ * appends the whole span. */
+
+static void
+skip_literal(const char** pp, const char* end)
+{
+    char q = **pp;
+
+    (*pp)++;
+    while (*pp < end) {
+        if (**pp == '\\' && *pp + 1 < end) { *pp += 2; continue; }
+        (*pp)++;
+        if ((*pp)[-1] == q) break;
+    }
+}
+
+static void
+skip_block_comment(const char** pp, const char* end)
+{
+    *pp += 2;
+    while (*pp + 1 < end && !((*pp)[0] == '*' && (*pp)[1] == '/')) (*pp)++;
+    if (*pp + 1 < end) *pp += 2;
+    else if (*pp < end) (*pp)++;
+}
+
+static void
+skip_line_comment(const char** pp, const char* end)
+{
+    while (*pp < end) (*pp)++;
+}
+
+/* copy a verbatim span (literal/comment) without macro expansion */
+static void
+copy_verbatim(const char** pp, const char* end, Buffer* out,
+              void (*skip)(const char**, const char*))
+{
+    const char* lit = *pp;
+
+    skip(pp, end);
+    buf_append(out, lit, (int)(*pp - lit));
+}
+
 /* --- Expand all macros in one line (fixed-point iteration) --- */
+
+/* expand one identifier if it names an enabled macro; otherwise copy it
+ * verbatim.  Returns 1 when a macro expanded (caller sets had_expansion). */
+static int
+expand_ident(MacroTable* mt, const char* work, const char* end,
+             const char** pp, Buffer* out, DisabledSet* ds)
+{
+    const char* id_start = *pp;
+
+    while (*pp < end && (isalnum((unsigned char)**pp) || **pp == '_'))
+        (*pp)++;
+    int  id_len = (int)(*pp - id_start);
+    char name_buf[256];
+
+    if (id_len < (int)sizeof(name_buf)) {
+        memcpy(name_buf, id_start, id_len);
+        name_buf[id_len] = '\0';
+
+        Macro* m = macro_lookup(mt, name_buf);
+
+        if (m && !ds_contains(ds, name_buf)) {
+            ds_push(ds, name_buf);
+            int consumed = macro_expand(mt, work,
+                                        (int)(end - work),
+                                        id_start, out);
+            ds_pop(ds);
+            if (consumed > 0) {
+                *pp = id_start + consumed;
+                if (*pp > end) *pp = end;
+                return 1;
+            }
+        }
+    }
+    buf_append(out, id_start, id_len);
+    return 0;
+}
 
 void
 expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
@@ -75,71 +156,28 @@ expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
                  * (C99 6.10.3p10).  Backslash escapes keep the quote
                  * from closing early. */
                 if (*p == '"' || *p == '\'') {
-                    char        q = *p;
-                    const char* lit = p;
-
-                    p++;
-                    while (p < end) {
-                        if (*p == '\\' && p + 1 < end) { p += 2; continue; }
-                        p++;
-                        if (p[-1] == q) break;
-                    }
-                    buf_append(&scratch, lit, (int)(p - lit));
+                    copy_verbatim(&p, end, &scratch, skip_literal);
                     continue;
                 }
 
                 /* comments: copy verbatim so macro expansion cannot
                  * inject comment delimiters (gcc does not expand here) */
                 if (*p == '/' && p + 1 < end && p[1] == '*') {
-                    const char* lit = p;
-
-                    p += 2;
-                    while (p + 1 < end && !(p[0] == '*' && p[1] == '/')) p++;
-                    if (p + 1 < end) p += 2;
-                    else if (p < end) p++;
-                    buf_append(&scratch, lit, (int)(p - lit));
+                    copy_verbatim(&p, end, &scratch, skip_block_comment);
                     continue;
                 }
                 if (*p == '/' && p + 1 < end && p[1] == '/') {
-                    const char* lit = p;
-
-                    while (p < end) p++;
-                    buf_append(&scratch, lit, (int)(p - lit));
+                    copy_verbatim(&p, end, &scratch, skip_line_comment);
                     continue;
                 }
 
                 if (isalpha((unsigned char)*p) || *p == '_') {
-                    const char* id_start = p;
-                    while (p < end && (isalnum((unsigned char)*p) || *p == '_'))
-                        p++;
-                    int  id_len = (int)(p - id_start);
-                    char name_buf[256];
-
-                    if (id_len < (int)sizeof(name_buf)) {
-                        memcpy(name_buf, id_start, id_len);
-                        name_buf[id_len] = '\0';
-
-                        Macro* m = macro_lookup(mt, name_buf);
-
-                        if (m && !ds_contains(&ds, name_buf)) {
-                            ds_push(&ds, name_buf);
-                            int consumed = macro_expand(mt, work,
-                                                        (int)(end - work),
-                                                        id_start, &scratch);
-                            ds_pop(&ds);
-                            if (consumed > 0) {
-                                had_expansion = 1;
-                                p = id_start + consumed;
-                                if (p > end) p = end;
-                                continue;
-                            }
-                        }
-                    }
-                    buf_append(&scratch, id_start, id_len);
-                } else {
-                    buf_append(&scratch, p, 1);
-                    p++;
+                    if (expand_ident(mt, work, end, &p, &scratch, &ds))
+                        had_expansion = 1;
+                    continue;
                 }
+                buf_append(&scratch, p, 1);
+                p++;
             }
 
             buf_append(&scratch, "\0", 1);
