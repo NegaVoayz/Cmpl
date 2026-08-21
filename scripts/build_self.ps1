@@ -77,7 +77,7 @@ foreach ($src in $sources) {
     $objFiles += $objFile
 
     Write-Host "  $src -> $llFile"
-    $result = & $CMPL -emit-llvm -I./include -I./base -I./ir -I./ir/builder -I./ir/type -I./ir/dump -I./ir/dump/instr -I./pp/inc -I. -o $llFile $src 2>&1
+    $result = & $CMPL -emit-llvm -Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen -o $llFile $src 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "    FAIL (cmpl): $src"
         Write-Host $result
@@ -133,7 +133,7 @@ Write-Host "SUCCESS: cmpl_self.exe built!"
 
 Write-Host ""
 Write-Host "=== Stage 3: Test cmpl_self.exe ==="
-$testResult = & ./build/self/cmpl_self.exe -emit-llvm -I./include -I./base -I./ir -I./ir/builder -I./ir/type -I./ir/dump -I./ir/dump/instr -I./pp/inc -I. -o build/self/test_self.ll test/test.c 2>&1
+$testResult = & ./build/self/cmpl_self.exe -emit-llvm -Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen -o build/self/test_self.ll test/test.c 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "SELF-COMPILATION WORKS!"
 } else {

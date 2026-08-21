@@ -26,7 +26,7 @@ for src in "${SOURCES[@]}"; do
   obj="$OUT/${base}.o"
   objfiles+=("$obj")
 
-  if ! "$CMPL" -emit-llvm -I./include -I./base -I./ir -I./ir/builder -I./ir/type -I./ir/dump -I./ir/dump/instr -I./pp/inc -I. -o "$ll" "$src" >/dev/null 2>"$OUT/${base}.cmpl.err"; then
+  if ! "$CMPL" -emit-llvm -Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen -o "$ll" "$src" >/dev/null 2>"$OUT/${base}.cmpl.err"; then
     echo "  FAIL (cmpl): $src"
     tail -5 "$OUT/${base}.cmpl.err" | sed 's/^/    /'
     failed=$((failed+1))
