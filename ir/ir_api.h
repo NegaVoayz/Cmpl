@@ -9,7 +9,8 @@
 
 #include <stdio.h>
 
-/* All struct/enum types declared in ir.h (included before this file) */
+/* All struct/enum types declared in ir_types.h / ir_program.h (included
+ * before this file) */
 
 /* AST type forward (from tokenizer/ast.h, included via ir.h) */
 typedef struct AST_Node AST_Node;
