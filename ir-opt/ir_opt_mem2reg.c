@@ -92,7 +92,15 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca, Arena* arena)
             if (inst->opcode == IROP_STORE &&
                 inst->operands[1] == alloca) {
                 for (int j = 0; j < n; j++)
-                    if (bi[j].blk == blk) { defs[nd++] = j; break; }
+                    if (bi[j].blk == blk) {
+                        /* defs[] is a fixed stack array (MAX_BLK);
+                         * a hot alloca with more stores than that must
+                         * refuse promotion (safe: the alloca is left in
+                         * place) instead of overflowing the array. */
+                        if (nd >= MAX_BLK) return 0;
+                        defs[nd++] = j;
+                        break;
+                    }
             }
         }
     }

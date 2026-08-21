@@ -22,12 +22,14 @@ collect_blocks(IR_Func* fn, BlkInfo* bi, int cap)
 
         if (t->opcode == IROP_BR) {
             for (int j = 0; j < n; j++)
-                if (bi[j].blk == t->in_blocks[0])
+                if (bi[j].blk == t->in_blocks[0] &&
+                    bi[j].n_preds < MAX_PRE)
                     bi[j].preds[bi[j].n_preds++] = i;
         } else if (t->opcode == IROP_COND_BR) {
             for (int k = 0; k < 2; k++)
                 for (int j = 0; j < n; j++)
-                    if (bi[j].blk == t->in_blocks[k])
+                    if (bi[j].blk == t->in_blocks[k] &&
+                        bi[j].n_preds < MAX_PRE)
                         bi[j].preds[bi[j].n_preds++] = i;
         }
     }
