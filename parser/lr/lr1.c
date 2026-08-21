@@ -54,6 +54,7 @@ LR1_Parser* lr1_parser_new(Token* first_tok, Arena* a)
     p->pending_cast = 0;
     p->cast_count = 0;
     p->cast_chain = NULL;
+    p->stop_at = NULL;
     p->typedefs = NULL;
     p->arena = a;
     p->stack[0].state = S_ENTRY;
@@ -102,8 +103,20 @@ static AST_Node* lr1_parse_expr_inner(LR1_Parser* p)
     p->cast_chain = NULL;
     p->paren_depth = 0;
 
+    /* capture the caller's stop token and disarm the field: the loop stops
+     * at this exact token INSTANCE (pointer identity, so nested same-kind
+     * tokens never match).  Captured once so nested re-entries (compound-lit
+     * inits, _Generic/va_arg arms) can't corrupt an outer loop's terminator. */
+    Token* stop = p->stop_at; p->stop_at = NULL;
+
     while (1) {
         TokenKind next = p->tok->kind;
+
+        /* virtual terminator: the stop token routes through the `;` action
+         * (lr1_accept), exactly as the old in-place kind rewrite did */
+        if (stop && p->tok == stop)
+            next = TOK_SEMI;
+
         LR1_State state = (LR1_State)p->stack[p->sp].state;
         LR1_Func  func = action_table[state][next];
 

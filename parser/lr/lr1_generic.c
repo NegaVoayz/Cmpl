@@ -10,9 +10,9 @@
  *
  * The inner expressions are terminated with the depth-aware separator
  * scan parse_init_expr_until uses for initializer elements: the first
- * depth-0 separator (',' or the selection's own ')') is temporarily
- * rewritten to TOK_SEMI so the LR parser reduces the complete expression
- * and stops, then restored.
+ * depth-0 separator (',' or the selection's own ')') is installed as
+ * the parser's stop token (its kind untouched), so the LR parser
+ * reduces the complete expression and stops there.
  */
 
 #include "lr1.h"
@@ -22,10 +22,11 @@
 #include <string.h>
 
 /* parse one inner expression up to the first depth-0 separator (',' or
- * the selection's ')').  The separator is rewritten to TOK_SEMI for the
- * duration of the parse (the LR loop stops at terminators) and restored
- * before returning; p->tok is left AT the separator token. */
-static AST_Node*
+ * the construct's own ')').  The separator is installed as the parser's
+ * stop token (its kind is never touched) so the LR loop terminates the
+ * expression there; p->tok is left AT the separator token.  Shared with
+ * lr1_va_arg.c (declared in lr1.h). */
+AST_Node*
 parse_until_sep(LR1_Parser* p, Token** sep_out)
 {
     int depth = 0;
@@ -47,11 +48,9 @@ parse_until_sep(LR1_Parser* p, Token** sep_out)
     if (!sep)
         return NULL;
 
-    TokenKind saved = sep->kind;
-
-    sep->kind = TOK_SEMI;
+    p->stop_at = sep;
     AST_Node* expr = lr1_parse_expr(p);
-    sep->kind = saved;
+    p->stop_at = NULL;
 
     *sep_out = sep;
     return expr;

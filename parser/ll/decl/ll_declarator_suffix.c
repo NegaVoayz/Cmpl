@@ -82,11 +82,9 @@ parse_array_suffix(LR1_Parser* p, Type** result, int* ptr_count,
         while (rbrack && rbrack->kind != TOK_RBRACKET)
             rbrack = rbrack->next;
 
-        if (rbrack) rbrack->kind = TOK_SEMI;
-
+        p->stop_at = rbrack;
         AST_Node* expr = ll_parse_expr(p);
-
-        if (rbrack) rbrack->kind = TOK_RBRACKET;
+        p->stop_at = NULL;
 
         if (expr) {
             if (expr->type == AST_INT_LIT)

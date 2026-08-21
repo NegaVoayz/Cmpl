@@ -157,6 +157,10 @@ struct LR1_Parser {
     int        error;
     int        allow_unmatched_rparen;  /* for for-loop update expr terminated by ')' */
     int        stop_at_comma;           /* treat comma as expression terminator */
+    Token*     stop_at;                 /* terminate the expression at this exact
+                                           token INSTANCE (pointer identity, so
+                                           nested same-kind tokens don't match);
+                                           NULL = inactive (lr1.c captures it) */
     int        pending_cast;            /* cast prefix was detected; wrap result */
     PendingCast* cast_chain;            /* pending cast prefixes, head = innermost */
     int        cast_count;             /* number of pending casts in the chain */
@@ -211,6 +215,13 @@ int lr1_parse_generic(LR1_Parser* p);
  * AST_VA_ARG node as a primary on the (restored) LR stack.  Returns 1 on
  * success, 0 with p->error set on malformed input. */
 int lr1_parse_va_arg(LR1_Parser* p);
+
+/* Depth-aware separator scan shared by lr1_generic.c / lr1_va_arg.c:
+ * parse one inner expression up to the first depth-0 separator (',' or the
+ * construct's own ')'), arming it as the parser's stop token (the token's
+ * kind is never touched).  p->tok is left AT the separator; *sep_out gets
+ * it. */
+AST_Node* parse_until_sep(LR1_Parser* p, Token** sep_out);
 
 int       try_parse_cast(LR1_Parser* p, LR1_State state);
 AST_Node* lr1_stop_at_comma(LR1_Parser* p, TokenKind next);

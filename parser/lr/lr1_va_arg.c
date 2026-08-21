@@ -9,9 +9,9 @@
  * the AST_VA_ARG node is pushed as a primary.
  *
  * The inner expression is terminated with the same depth-aware
- * separator scan lr1_generic.c uses: the first depth-0 ',' is
- * temporarily rewritten to TOK_SEMI so the LR parser reduces the
- * complete expression and stops, then restored.
+ * separator scan lr1_generic.c uses: the first depth-0 ',' is installed
+ * as the parser's stop token (shared parse_until_sep, declared in
+ * lr1.h) so the LR parser reduces the complete expression and stops.
  */
 
 #include "lr1.h"
@@ -19,42 +19,6 @@
 
 #include <stdio.h>
 #include <string.h>
-
-/* parse one inner expression up to the first depth-0 separator (',' or
- * the call's ')'), rewriting it to TOK_SEMI for the LR loop and
- * restoring it before returning; p->tok is left AT the separator.
- * (Copied from lr1_generic.c — it is static there.) */
-static AST_Node*
-parse_until_sep(LR1_Parser* p, Token** sep_out)
-{
-    int depth = 0;
-    Token* sep = NULL;
-
-    for (Token* t = p->tok; t && t->kind != TOK_EOF; t = t->next) {
-        if (t->kind == TOK_LPAREN || t->kind == TOK_LBRACKET ||
-            t->kind == TOK_LBRACE) {
-            depth++;
-        } else if (t->kind == TOK_RPAREN || t->kind == TOK_RBRACKET ||
-                   t->kind == TOK_RBRACE) {
-            if (depth == 0) { sep = t; break; }
-            depth--;
-        } else if (depth == 0 && t->kind == TOK_COMMA) {
-            sep = t;
-            break;
-        }
-    }
-    if (!sep)
-        return NULL;
-
-    TokenKind saved = sep->kind;
-
-    sep->kind = TOK_SEMI;
-    AST_Node* expr = lr1_parse_expr(p);
-    sep->kind = saved;
-
-    *sep_out = sep;
-    return expr;
-}
 
 /* Parse the whole call.  p->tok at '(' following TOK_BUILTIN_VA_ARG (the
  * shifted frame's token is the keyword).  On success the outer LR stack

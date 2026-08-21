@@ -7,7 +7,7 @@ extern void ll_expect(LR1_Parser* p, TokenKind k);
 /* parse a bracketed constant index expression `[expr]` in a designator.
  * p->tok is at '['; consumes through ']' and returns the AST node (NOT
  * folded — enum/const folding happens later in the opt passes).  mirrors
- * the bracket-rewrite pattern in ll_declarator.c. */
+ * the bracket-stop pattern in ll_declarator.c. */
 static AST_Node*
 parse_designator_index(LR1_Parser* p)
 {
@@ -15,9 +15,9 @@ parse_designator_index(LR1_Parser* p)
     Token* rbrack = p->tok;
     while (rbrack && rbrack->kind != TOK_RBRACKET)
         rbrack = rbrack->next;
-    if (rbrack) rbrack->kind = TOK_SEMI;
+    p->stop_at = rbrack;
     AST_Node* expr = ll_parse_expr(p);
-    if (rbrack) rbrack->kind = TOK_RBRACKET;
+    p->stop_at = NULL;
     if (p->tok->kind == TOK_RBRACKET)
         p->tok = p->tok->next;  /* skip ']' */
     return expr;
@@ -75,12 +75,13 @@ parse_designator(LR1_Parser* p, Token** dstart)
  *
  * The LR expression parser has no "end of initializer element" token, so a
  * top-level ',' would be read as the comma operator and swallow the next
- * element.  Scan ahead for the next depth-0 comma (or `term`) and rewrite
- * that one comma to TOK_SEMI so the LR parser stops there, then restore it.
- * A naive `lr1_stop_at_comma` flag can't be used here: it fires on *any*
- * comma once the LR stack holds a node, so `{ foo(a,b), c }` would mis-parse
- * the ',' inside the call as the element terminator.  Only the depth-aware
- * scan here rewrites a genuine top-level separator. */
+ * element.  Scan ahead for the next depth-0 comma (or `term`) and install
+ * that exact comma as the parser's stop token so the LR parser stops there
+ * (the comma's kind is never touched).  A naive `lr1_stop_at_comma` flag
+ * can't be used here: it fires on *any* comma once the LR stack holds a
+ * node, so `{ foo(a,b), c }` would mis-parse the ',' inside the call as the
+ * element terminator.  Only the depth-aware scan here selects a genuine
+ * top-level separator. */
 AST_Node*
 parse_init_expr_until(LR1_Parser* p, TokenKind term)
 {
@@ -98,16 +99,9 @@ parse_init_expr_until(LR1_Parser* p, TokenKind term)
             break;
     }
 
-    TokenKind saved = TOK_COMMA;
-    if (comma) {
-        saved = comma->kind;
-        comma->kind = TOK_SEMI;
-    }
-
+    p->stop_at = comma;
     AST_Node* elem = ll_parse_expr(p);
-
-    if (comma)
-        comma->kind = saved;
+    p->stop_at = NULL;
     return elem;
 }
 
