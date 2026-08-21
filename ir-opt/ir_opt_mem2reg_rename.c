@@ -1,4 +1,5 @@
-/* ir_opt_mem2reg_rename.c -- SSA rename pass via dominator-tree DFS */
+/* ir_opt_mem2reg_rename.c -- SSA rename pass via dominator-tree DFS,
+ * plus post-rename cleanup (remove_dead). */
 
 #include "ir-opt.h"
 
@@ -161,4 +162,39 @@ rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca,
     rename_dfs(0, bi, n, alloca, &st);
 
     stack_free(&st);
+}
+
+/* ---------------------------------------------------------------
+ *  Post-rename cleanup: unlink the alloca's dead loads/stores and
+ *  the alloca itself (DCE keeps them alive for id-numbering).
+ * --------------------------------------------------------------- */
+
+void
+remove_dead(IR_Func* fn, IR_Value* alloca, IR_Value* undef)
+{
+    for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
+        IR_Instr** prev = &blk->first;
+
+        while (*prev) {
+            IR_Instr* i = *prev;
+            int dead = (i->opcode == IROP_LOAD  && i->operands[0] == alloca) ||
+                       (i->opcode == IROP_STORE && i->operands[1] == alloca) ||
+                       (i->opcode == IROP_ALLOCA && i->result == alloca);
+
+            if (dead) {
+                /* A load in an UNREACHABLE block is never visited by the
+                   rename DFS (walks only the dominator tree), so its result
+                   dangles from a reachable-block phi — rewire it to undef
+                   before unlinking (no-op for reachable loads). */
+                if (i->opcode == IROP_LOAD && i->result)
+                    redirect_users(i->result, undef);
+
+                *prev = i->next;
+                if (blk->last == i)
+                    blk->last = (*prev) ? *prev : NULL;
+            } else {
+                prev = &i->next;
+            }
+        }
+    }
 }

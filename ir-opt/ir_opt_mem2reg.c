@@ -15,6 +15,10 @@ extern int compute_idf(BlkInfo* bi, int n, int* defs, int nd, int* out);
 extern void rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca,
                         Arena* arena, IR_Value* undef);
 
+/* post-rename cleanup: unlink a promoted alloca's dead loads/stores
+ * and the alloca itself (lives in ir_opt_mem2reg_rename.c) */
+extern void remove_dead(IR_Func* fn, IR_Value* alloca, IR_Value* undef);
+
 /* ---------------------------------------------------------------
  *  Find promotable allocas (only load/store users, no address-taken)
  * --------------------------------------------------------------- */
@@ -72,45 +76,6 @@ alloca_ok(IR_Func* fn, IR_Value* a)
         }
     }
     return 1;
-}
-
-/* ---------------------------------------------------------------
- *  Remove a promoted alloca's dead loads/stores and the alloca
- *  itself.  DCE keeps ALLOCA/STORE alive (id-numbering safety), so
- *  mem2reg must unlink them here once loads have been rewired.
- * --------------------------------------------------------------- */
-
-static void
-remove_dead(IR_Func* fn, IR_Value* alloca, IR_Value* undef)
-{
-    for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-        IR_Instr** prev = &blk->first;
-
-        while (*prev) {
-            IR_Instr* i = *prev;
-            int dead =
-                (i->opcode == IROP_LOAD  && i->operands[0] == alloca) ||
-                (i->opcode == IROP_STORE && i->operands[1] == alloca) ||
-                (i->opcode == IROP_ALLOCA && i->result == alloca);
-
-            if (dead) {
-                /* A load in an UNREACHABLE block is never visited by the
-                   rename DFS (which walks only the dominator tree), so its
-                   result still dangles from a phi in a reachable block.
-                   Rewire any remaining users to undef before unlinking.
-                   For reachable loads this is a no-op: rename already
-                   rewired their users, so none still reference the result. */
-                if (i->opcode == IROP_LOAD && i->result)
-                    redirect_users(i->result, undef);
-
-                *prev = i->next;
-                if (blk->last == i)
-                    blk->last = (*prev) ? *prev : NULL;
-            } else {
-                prev = &i->next;
-            }
-        }
-    }
 }
 
 /* ---------------------------------------------------------------

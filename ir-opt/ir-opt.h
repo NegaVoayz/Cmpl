@@ -50,6 +50,11 @@ int opt_inline_dev(IR_Module* mod);
 
 void build_use_lists(IR_Func* fn, Arena* a);
 
+/* Visit every operand value of an instruction (operands[0..2],
+ * call_args[], phi in_vals[]) and call fn(v, ctx) for each non-NULL
+ * value.  Shared by build_use_lists and the DCE mark recursion. */
+void visit_users(IR_Instr* inst, void (*fn)(IR_Value*, void*), void* ctx);
+
 /* ---------------------------------------------------------------
  *  Rewire all users of old_val to use new_val (operands[0..2],
  *  call_args[], phi in_vals[]).  Requires build_use_lists() to have
