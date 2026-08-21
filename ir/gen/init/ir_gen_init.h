@@ -45,6 +45,7 @@ int init_slot_for_element(GenCtx* ctx, IR_Value* dst, IR_Type* ty,
 IR_Value* gen_const_zero(Arena* a, IR_Type* ty);
 IR_Type*  gen_const_child_type(IR_Type* ty, int idx);
 IR_Value* gen_const_scalar(Arena* a, IR_Type* ty, long long iv, double fv);
+IR_Value* gen_const_string(Arena* a, AST_Node* init, IR_Type* target_type);
 IR_Value* gen_const_desig(Arena* a, IR_Type* ty, AST_Node* steps,
                           AST_Node* val, TypedefEntry* enum_vals,
                           HashMap* globals, int* err);
@@ -78,6 +79,17 @@ void     gen_const_cont_set(Arena* a, IR_Value* root, ContLevel* cont,
 IR_Value* gen_const_init_list(Arena* a, AST_Node* init, IR_Type* target_type,
                               TypedefEntry* enum_vals, HashMap* globals,
                               int* err);
+/* union + designator element cases (ir_gen_const_union.c /
+ * ir_gen_const_desig_elem.c) */
+AST_Node* gen_const_union_elem(Arena* a, IR_Value** elems,
+                               IR_Type* target_type, TypedefEntry* enum_vals,
+                               AST_Node* e, int* union_done, HashMap* globals,
+                               int* err);
+AST_Node* gen_const_desig_elem(Arena* a, IR_Value** elems,
+                               IR_Type* target_type, TypedefEntry* enum_vals,
+                               AST_Node* e, int slots, int* pos,
+                               ContLevel* cont, int* depth, HashMap* globals,
+                               int* err);
 /* continuation + positional/elided element cases (ir_gen_const_elem.c) */
 AST_Node* gen_const_cont_elem(Arena* a, IR_Value** elems,
                               TypedefEntry* enum_vals, AST_Node* e,

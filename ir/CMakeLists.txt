@@ -18,9 +18,13 @@ add_library(ir
     gen/expr/va/ir_gen_va_intrinsic.c
     gen/init/desig/ir_gen_init_desig.c
     gen/init/desig/ir_gen_const_desig.c
+    gen/init/desig/ir_gen_const_union.c
+    gen/init/desig/ir_gen_const_absorb.c
     gen/init/desig/ir_gen_const_cont.c
     gen/init/desig/ir_gen_const_list.c
+    gen/init/desig/ir_gen_const_desig_elem.c
     gen/init/desig/ir_gen_const_elem.c
+    gen/init/ir_gen_const.c gen/init/ir_gen_const_scalar.c
     gen/init/ir_gen_const_bytes.c gen/init/ir_gen_const_bf.c
     gen/init/ir_gen_const_generic.c gen/init/ir_gen_const_ice.c
     dump/ir_dump.c dump/ir_dump_type.c dump/instr/ir_dump_instr.c dump/instr/ir_dump_instr_extra.c dump/instr/ir_dump_instr_gep.c dump/ir_dump_func.c dump/ir_dump_module.c dump/ir_dump_declares.c dump/ir_dump_struct.c dump/ir_dump_str.c)
