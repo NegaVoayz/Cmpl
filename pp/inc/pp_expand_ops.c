@@ -2,10 +2,103 @@
  *
  * Split out of pp_expand.c.  stringize_arg quotes an argument's text,
  * escaping " and \; append_va_args joins the trailing variadic arguments
- * with ", " the way gcc -E renders __VA_ARGS__.
+ * with ", " the way gcc -E renders __VA_ARGS__.  The replacement-list
+ * substitution branches (handle_stringize / handle_ident) and the shared
+ * scanners (scan_ident / skip_ws) moved here in B-17 — pp_expand.c's
+ * expand_func_body loop dispatches to them.
  */
 
 #include "../pp.h"
+
+#include <ctype.h>
+#include <string.h>
+
+/* Scan an identifier starting at p, return its length */
+int
+scan_ident(const char* p, const char* end)
+{
+    const char* start = p;
+
+    while (p < end && (isalnum((unsigned char)*p) || *p == '_'))
+        p++;
+    return (int)(p - start);
+}
+
+const char*
+skip_ws(const char* p, const char* end)
+{
+    while (p < end && (*p == ' ' || *p == '\t'))
+        p++;
+    return p;
+}
+
+/* stringize: `#` (ws) paramname -> a quoted string literal.
+ * `#__VA_ARGS__` stringizes the WHOLE variadic argument text (joined
+ * with ", "), not the first element.  Returns the cursor past the name. */
+const char*
+handle_stringize(Macro* macro, const char* bp, const char* be,
+                 const char** arg_starts, const int* arg_lens, int argc,
+                 Buffer* out)
+{
+    const char* q = skip_ws(bp + 1, be);
+    int qlen = scan_ident(q, be);
+    int found = -1;
+
+    if (macro->variadic && qlen == 11 &&
+        strncmp(q, "__VA_ARGS__", 11) == 0) {
+        stringize_va_args(arg_starts, arg_lens,
+                          macro->nparams, argc, out);
+        return q + qlen;
+    }
+
+    for (int i = 0; qlen > 0 && i < macro->nparams; i++) {
+        if (qlen == (int)strlen(macro->params[i])
+            && strncmp(q, macro->params[i], qlen) == 0) {
+            found = i;
+            break;
+        }
+    }
+    if (found >= 0) {
+        stringize_arg(arg_starts[found], arg_lens[found], out);
+        return q + qlen;
+    }
+    buf_append(out, bp, 1);
+    return bp + 1;
+}
+
+/* a parameter / `__VA_ARGS__` identifier in the replacement list, else
+ * copy-through.  Returns the cursor past the identifier. */
+const char*
+handle_ident(Macro* macro, const char* bp, const char* be,
+             const char** arg_starts, const int* arg_lens, int argc,
+             Buffer* out)
+{
+    int blen = scan_ident(bp, be);
+    char bname[128];
+
+    if (blen >= (int)sizeof(bname)) blen = (int)sizeof(bname) - 1;
+    memcpy(bname, bp, blen);
+    bname[blen] = '\0';
+
+    if (macro->variadic && strcmp(bname, "__VA_ARGS__") == 0) {
+        append_va_args(arg_starts, arg_lens, macro->nparams, argc, out);
+        return bp + blen;
+    }
+
+    int found = -1;
+    for (int i = 0; i < macro->nparams; i++) {
+        if (strcmp(bname, macro->params[i]) == 0) {
+            found = i;
+            break;
+        }
+    }
+
+    if (found >= 0)
+        buf_append(out, arg_starts[found], arg_lens[found]);
+    else
+        buf_append(out, bp, blen);
+    return bp + blen;
+}
 
 /* Emit `"` + arg text (escaping " and \) + `"` to out. */
 void

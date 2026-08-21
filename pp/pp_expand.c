@@ -4,28 +4,42 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Scan an identifier starting at p, return its length */
-static int
-scan_ident(const char* p, const char* end)
+/* string/char literal in the replacement list: copy verbatim — a
+ * parameter name inside quotes is NOT substituted (only #x
+ * stringizes, C99 6.10.3.2).  Returns the cursor past the literal. */
+static const char*
+copy_string_literal(const char* bp, const char* be, Buffer* out)
 {
-    const char* start = p;
+    char        q = *bp;
+    const char* lit = bp;
 
-    while (p < end && (isalnum((unsigned char)*p) || *p == '_'))
-        p++;
-    return (int)(p - start);
+    bp++;
+    while (bp < be) {
+        if (*bp == '\\' && bp + 1 < be) { bp += 2; continue; }
+        bp++;
+        if (bp[-1] == q) break;
+    }
+    buf_append(out, lit, (int)(bp - lit));
+    return bp;
 }
 
+/* token paste: drop `##` and surrounding whitespace so the adjacent
+ * tokens concatenate into one.  Returns the cursor after the `##`. */
 static const char*
-skip_ws(const char* p, const char* end)
+handle_token_paste(const char* bp, const char* be, Buffer* out)
 {
-    while (p < end && (*p == ' ' || *p == '\t'))
-        p++;
-    return p;
+    while (out->len > 0 && (out->data[out->len - 1] == ' '
+                         || out->data[out->len - 1] == '\t'))
+        out->len--;
+    bp += 2;
+    return skip_ws(bp, be);
 }
 
 /* Substitute a function-like macro's parameter names in `macro->body` with
  * the captured argument text, appending the result to `out`.  Handles `#`
- * stringize, `##` paste, and `__VA_ARGS__` for variadic macros. */
+ * stringize, `##` paste, and `__VA_ARGS__` for variadic macros.  The
+ * stringize / ident substitution branches live in inc/pp_expand_ops.c
+ * (shared scanners scan_ident / skip_ws are declared in pp.h). */
 static void
 expand_func_body(Macro* macro, const char** arg_starts, const int* arg_lens,
                  int argc, Buffer* out)
@@ -34,98 +48,30 @@ expand_func_body(Macro* macro, const char** arg_starts, const int* arg_lens,
     const char* be = bp + strlen(macro->body);
 
     while (bp < be) {
-        /* string/char literal in the replacement list: copy verbatim —
-         * a parameter name inside quotes is NOT substituted (only #x
-         * stringizes, C99 6.10.3.2). */
         if (*bp == '"' || *bp == '\'') {
-            char        q = *bp;
-            const char* lit = bp;
-
-            bp++;
-            while (bp < be) {
-                if (*bp == '\\' && bp + 1 < be) { bp += 2; continue; }
-                bp++;
-                if (bp[-1] == q) break;
-            }
-            buf_append(out, lit, (int)(bp - lit));
+            bp = copy_string_literal(bp, be, out);
             continue;
         }
 
-        /* token paste: drop `##` and surrounding whitespace so the
-         * adjacent tokens concatenate into one. */
         if (*bp == '#' && bp + 1 < be && bp[1] == '#') {
-            while (out->len > 0 && (out->data[out->len - 1] == ' '
-                                 || out->data[out->len - 1] == '\t'))
-                out->len--;
-            bp += 2;
-            bp = skip_ws(bp, be);
+            bp = handle_token_paste(bp, be, out);
             continue;
         }
 
-        /* stringize: `#` (ws) paramname -> a quoted string literal */
         if (*bp == '#') {
-            const char* q = skip_ws(bp + 1, be);
-            int qlen = scan_ident(q, be);
-            int found = -1;
-
-            /* `#__VA_ARGS__` stringizes the WHOLE variadic argument
-             * text (joined with ", "), not the first element. */
-            if (macro->variadic && qlen == 11 &&
-                strncmp(q, "__VA_ARGS__", 11) == 0) {
-                stringize_va_args(arg_starts, arg_lens,
-                                  macro->nparams, argc, out);
-                bp = q + qlen;
-                continue;
-            }
-
-            for (int i = 0; qlen > 0 && i < macro->nparams; i++) {
-                if (qlen == (int)strlen(macro->params[i])
-                    && strncmp(q, macro->params[i], qlen) == 0) {
-                    found = i;
-                    break;
-                }
-            }
-            if (found >= 0) {
-                stringize_arg(arg_starts[found], arg_lens[found], out);
-                bp = q + qlen;
-                continue;
-            }
-            buf_append(out, bp, 1);
-            bp++;
+            bp = handle_stringize(macro, bp, be,
+                                  arg_starts, arg_lens, argc, out);
             continue;
         }
 
         if (isalpha((unsigned char)*bp) || *bp == '_') {
-            int blen = scan_ident(bp, be);
-            char bname[128];
-
-            if (blen >= (int)sizeof(bname)) blen = (int)sizeof(bname) - 1;
-            memcpy(bname, bp, blen);
-            bname[blen] = '\0';
-
-            if (macro->variadic && strcmp(bname, "__VA_ARGS__") == 0) {
-                append_va_args(arg_starts, arg_lens, macro->nparams, argc, out);
-                bp += blen;
-                continue;
-            }
-
-            int found = -1;
-            for (int i = 0; i < macro->nparams; i++) {
-                if (strcmp(bname, macro->params[i]) == 0) {
-                    found = i;
-                    break;
-                }
-            }
-
-            if (found >= 0)
-                buf_append(out, arg_starts[found], arg_lens[found]);
-            else
-                buf_append(out, bp, blen);
-            bp += blen;
-        } else {
-            buf_append(out, bp, 1);
-            bp++;
+            bp = handle_ident(macro, bp, be,
+                              arg_starts, arg_lens, argc, out);
+            continue;
         }
+
+        buf_append(out, bp, 1);
+        bp++;
     }
 }
 
