@@ -13,6 +13,7 @@ add_library(ir
     gen/expr/lval/ir_gen_lval.c
     gen/expr/lval/ir_gen_index.c
     gen/expr/lval/ir_gen_member.c gen/expr/lval/ir_gen_bf.c
+    gen/expr/lval/ir_gen_addr.c
     gen/expr/ir_gen_generic.c
     gen/expr/va/ir_gen_va_arg.c
     gen/expr/va/ir_gen_va_intrinsic.c

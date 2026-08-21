@@ -70,7 +70,16 @@ IR_Value* gen_va_intrinsic(GenCtx* ctx, AST_Node* n);
  * loading pointer-variable bases, and set *is_ptr_val to 1 for a
  * single-index GEP (pointer value) or 0 for the two-index (0, idx)
  * form on an array address.  Shared by gen_index_expr,
- * gen_store_index_ptr and gen_addr_of. */
+ * gen_store_index_ptr and gen_addr_index. */
 IR_Value* gen_index_base(GenCtx* ctx, AST_Node* operand, int* is_ptr_val);
+
+/* address-of paths (ir_gen_addr.c): return the address pointer for an
+ * identifier / subscript / member operand, no load.  gen_addr_ident and
+ * gen_addr_member return NULL when the operand doesn't resolve (the
+ * gen_addr_of dispatcher then falls back to gen_store_ptr / gen_expr);
+ * gen_addr_index always returns a value (GEP, or VAL_UNDEF on error). */
+IR_Value* gen_addr_ident(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_addr_index(GenCtx* ctx, AST_Node* n);
+IR_Value* gen_addr_member(GenCtx* ctx, AST_Node* n);
 
 #endif /* IR_GEN_EXPR_H */
