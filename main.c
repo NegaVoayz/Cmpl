@@ -88,6 +88,9 @@ parse_args(int argc, char** argv, PPCtx* pp_ctx, CmdOpts* opts)
     }
 }
 
+/* full pipeline after arg validation (defined below main) */
+static int compile_source(PPCtx* pp_ctx, const CmdOpts* opts);
+
 int
 main(int argc, char** argv)
 {
@@ -104,27 +107,36 @@ main(int argc, char** argv)
         return 1;
     }
 
-    if (opts.dump_preprocess) {
-        char* pp_code = pp_preprocess(&pp_ctx, opts.filename);
+    return compile_source(&pp_ctx, &opts);
+}
+
+/* the full front-end pipeline after arg validation: preprocess, parse,
+ * optimize, dispatch to the requested output pipeline, and reclaim the
+ * compiler-allocated buffers.  Returns the process exit code. */
+static int
+compile_source(PPCtx* pp_ctx, const CmdOpts* opts)
+{
+    if (opts->dump_preprocess) {
+        char* pp_code = pp_preprocess(pp_ctx, opts->filename);
 
         if (pp_code) {
             fputs(pp_code, stdout);
             free(pp_code);
         }
-        pp_ctx_free(&pp_ctx);
+        pp_ctx_free(pp_ctx);
         return 0;
     }
 
-    char* code = pp_preprocess(&pp_ctx, opts.filename);
+    char* code = pp_preprocess(pp_ctx, opts->filename);
 
     if (!code) {
-        pp_ctx_free(&pp_ctx);
+        pp_ctx_free(pp_ctx);
         return 1;
     }
 
     if (!code[0]) {
-        fprintf(stderr, "pp: empty preprocessor output for '%s'\n", opts.filename);
-        pp_ctx_free(&pp_ctx);
+        fprintf(stderr, "pp: empty preprocessor output for '%s'\n", opts->filename);
+        pp_ctx_free(pp_ctx);
         free(code);
         return 1;
     }
@@ -135,7 +147,7 @@ main(int argc, char** argv)
 
     if (!root) {
         printf("Parse error!\n");
-        pp_ctx_free(&pp_ctx);
+        pp_ctx_free(pp_ctx);
         arena_free(ast_arena);
         free(code);
         return 1;
@@ -144,20 +156,20 @@ main(int argc, char** argv)
     printf("\n--- Optimizing ---\n");
     root = optimize(root);
 
-    if (opts.cuda_mode)
-        run_cuda_pipeline(root, opts.filename, opts.dump_spv, opts.opt_level);
-    else if (opts.codegen_mode) {
-        if (run_codegen_pipeline(root, opts.filename, opts.out_file,
-                                 opts.codegen_mode, opts.opt_level) != 0) {
-            pp_ctx_free(&pp_ctx);
+    if (opts->cuda_mode)
+        run_cuda_pipeline(root, opts->filename, opts->dump_spv, opts->opt_level);
+    else if (opts->codegen_mode) {
+        if (run_codegen_pipeline(root, opts->filename, opts->out_file,
+                                 opts->codegen_mode, opts->opt_level) != 0) {
+            pp_ctx_free(pp_ctx);
             arena_free(ast_arena);
             free(code);
             return 1;
         }
     }
-    else if (opts.dump_ir) {
-        if (run_ir_pipeline(root, opts.opt_level) != 0) {
-            pp_ctx_free(&pp_ctx);
+    else if (opts->dump_ir) {
+        if (run_ir_pipeline(root, opts->opt_level) != 0) {
+            pp_ctx_free(pp_ctx);
             arena_free(ast_arena);
             free(code);
             return 1;
@@ -166,7 +178,7 @@ main(int argc, char** argv)
     else
         run_ast_pipeline(root);
 
-    pp_ctx_free(&pp_ctx);
+    pp_ctx_free(pp_ctx);
 
     /* AST arena owns all AST nodes; code buffer holds the preprocessed
      * source text that AST String fields point into.  Free the AST

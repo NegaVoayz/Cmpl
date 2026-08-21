@@ -12,14 +12,12 @@
 #include <stdint.h>
 #include <string.h>
 
-/* fill bytes[off..] with the little-endian bytes of constant `v` (type `ty`)
- * laid out per ir_type_size's struct/array/union rules; returns the next free
- * offset or -1 on overflow/unsupported (caller zero-fills). */
+/* fill bytes[off..] with a scalar/pointer constant's little-endian bytes;
+ * returns the next free offset or -1 on overflow/unsupported. */
 static int
-gen_const_fill_bytes(unsigned char bytes[8], IR_Value* v, IR_Type* ty, int off)
+gen_const_fill_scalar(unsigned char bytes[8], IR_Value* v, IR_Type* ty,
+                      int off)
 {
-    if (!ty) return -1;
-
     int sz = ir_type_size(ty);
     switch (ty->kind) {
     case IR_VOID:
@@ -60,6 +58,26 @@ gen_const_fill_bytes(unsigned char bytes[8], IR_Value* v, IR_Type* ty, int off)
         /* VAL_CONST_NULL / zero -> already zero */
         return off + 8;
     }
+
+    default:
+        return -1;
+    }
+}
+
+/* fill bytes[off..] with the little-endian bytes of constant `v` (type `ty`)
+ * laid out per ir_type_size's struct/array/union rules; returns the next free
+ * offset or -1 on overflow/unsupported (caller zero-fills). */
+static int
+gen_const_fill_bytes(unsigned char bytes[8], IR_Value* v, IR_Type* ty, int off)
+{
+    if (!ty) return -1;
+
+    switch (ty->kind) {
+    case IR_VOID: case IR_FUNC:
+    case IR_I1: case IR_I8: case IR_I16: case IR_I32: case IR_I64:
+    case IR_F32: case IR_F64:
+    case IR_PTR:
+        return gen_const_fill_scalar(bytes, v, ty, off);
 
     case IR_ARRAY:
     {
