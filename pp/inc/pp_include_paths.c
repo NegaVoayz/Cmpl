@@ -14,6 +14,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* access(F_OK) — declared here instead of including <unistd.h>/<io.h>,
+ * which aren't part of the self-hosting stub include/ set. */
+#ifdef _WIN32
+extern int _access(const char*, int);
+#define access _access
+#else
+extern int access(const char*, int);
+#endif
+#ifndef F_OK
+#define F_OK 0
+#endif
+
+/* Bound on tree-walk probes per try_subdirs call: a header missed by the
+ * -I list triggers a directory scan; on slow filesystem bridges (WSL
+ * /mnt/c) that was 200ms-1.3s per include, so cap the scan. */
+#define MAX_TREE_PROBES 64
+
 /* Join dir + inc_path, test for existence, and return 1 if readable. */
 int
 try_join(const char* dir, const char* inc_path, char* out)
@@ -22,14 +39,12 @@ try_join(const char* dir, const char* inc_path, char* out)
 
     if (written >= MAX_PATH) return 0;
 
-    FILE* test = fopen(out, "rb");
-
-    if (test) { fclose(test); return 1; }
-    return 0;
+    return access(out, F_OK) == 0;
 }
 
-/* Try to find inc_path in subdirectories (up to 2 levels deep) of base.
- * If found, writes the full path to out_buf (size out_sz) and returns 1. */
+/* Try to find inc_path in immediate subdirectories of base (level 1 only),
+ * probing at most MAX_TREE_PROBES candidates.  If found, writes the full
+ * path to out_buf (size out_sz) and returns 1. */
 static int
 try_subdirs(const char* base, const char* inc_path, char* out_buf, int out_sz)
 {
@@ -38,37 +53,21 @@ try_subdirs(const char* base, const char* inc_path, char* out_buf, int out_sz)
     if (!d) return 0;
 
     struct dirent* ent;
+    int probes = 0;
+
     while ((ent = readdir(d)) != NULL) {
         if (ent->d_name[0] == '.') continue; /* skip . and .. */
 
-        /* Level 1: base/subdir/inc_path */
+        if (probes >= MAX_TREE_PROBES) break;
+
         int written = snprintf(out_buf, out_sz, "%s/%s/%s",
                                base, ent->d_name, inc_path);
-        if (written < out_sz) {
-            FILE* test = fopen(out_buf, "rb");
-            if (test) { fclose(test); closedir(d); return 1; }
+        probes++;
+
+        if (written < out_sz && access(out_buf, F_OK) == 0) {
+            closedir(d);
+            return 1;
         }
-
-        /* Level 2: base/subdir/subsub/inc_path */
-        char l2dir[MAX_PATH];
-        written = snprintf(l2dir, MAX_PATH, "%s/%s", base, ent->d_name);
-        if (written >= MAX_PATH) continue;
-
-        DIR* d2 = opendir(l2dir);
-        if (!d2) continue;
-
-        struct dirent* ent2;
-        while ((ent2 = readdir(d2)) != NULL) {
-            if (ent2->d_name[0] == '.') continue;
-
-            written = snprintf(out_buf, out_sz, "%s/%s/%s/%s",
-                               base, ent->d_name, ent2->d_name, inc_path);
-            if (written >= out_sz) continue;
-
-            FILE* test = fopen(out_buf, "rb");
-            if (test) { fclose(test); closedir(d2); closedir(d); return 1; }
-        }
-        closedir(d2);
     }
     closedir(d);
     return 0;
@@ -124,7 +123,7 @@ try_include_paths(PPCtx* ctx, const char* inc_path, char* out)
     return 0;
 }
 
-/* Try subdirectories (up to 2 levels) under each include path. */
+/* Try immediate subdirectories under each include path. */
 int
 try_include_subdirs(PPCtx* ctx, const char* inc_path, char* out)
 {
