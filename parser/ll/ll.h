@@ -44,6 +44,18 @@ Type* ll_parse_type_specs(LR1_Parser* p);
 /* parse a C declarator (*x, x[10], f(int), etc.), returns full Type and fills name */
 Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name, int depth);
 
+/* declarator suffix helpers (ll_declarator_suffix.c) */
+void wrap_ptr_layers(LR1_Parser* p, Type** result, int* count);
+int thread_ptr_layers(LR1_Parser* p, Type* result, int* count);
+void parse_array_suffix(LR1_Parser* p, Type** result, int* ptr_count,
+                        Type** suffixes, int* n_arrays);
+Type* parse_func_suffix(LR1_Parser* p, Type* result);
+
+/* parenthesized pointer-to-function chain rotation (ll_declarator_rot.c) */
+int paren_ptrfunc_rotatable(Type* result);
+Type* rotate_paren_func_suffix(LR1_Parser* p, Type* ptr_result);
+Type* rotate_paren_func_suffix_dataptr(LR1_Parser* p, Type* ptr_result);
+
 /* parse a comma-separated parameter list inside ( ... ), leaving p->tok after ')' */
 AST_Node* ll_parse_params(LR1_Parser* p, int* is_variadic);
 
