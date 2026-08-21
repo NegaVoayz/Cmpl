@@ -67,6 +67,8 @@ IR_Value* gen_const_init(Arena* a, AST_Node* init, IR_Type* target_type,
                          TypedefEntry* enum_vals, HashMap* globals, int* err);
 
 /* ---- type/struct resolution (ir_gen_resolve*.c) ---- */
+/* typedef-table lookup, shared with ir_gen_resolve_arrays.c */
+Type* typedef_lookup(TypedefEntry* table, String name);
 void resolve_type_tree(Type* t, TypedefEntry* table);
 void resolve_expr_types(AST_Node* e, TypedefEntry* table);
 void resolve_ast_node(AST_Node* n, TypedefEntry* table);

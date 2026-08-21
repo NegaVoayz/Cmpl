@@ -15,12 +15,24 @@
 
 int  ice_addr_of(Arena* a, AST_Node* e, ICEVal* out, const char** why,
                  HashMap* globals);
+int  ice_addr_member(Arena* a, AST_Node* e, ICEVal* out, const char** why,
+                     HashMap* globals);
 int  ice_eval_binary(Arena* a, AST_Node* e, ICEVal* out, const char** why,
                      HashMap* globals);
 int  ice_eval_cast(Arena* a, AST_Node* e, ICEVal* out, const char** why,
                    HashMap* globals);
 int  ice_eval_sizeof(Arena* a, AST_Node* e, ICEVal* out, const char** why,
                      HashMap* globals);
+
+/* integer operator groups of ice_eval_binary (ice_binary_int.c) */
+int  ice_bin_cmp(TokenKind op, ICEVal* l, ICEVal* r, ICEVal* out,
+                 const char** why);
+int  ice_bin_arith(TokenKind op, ICEVal* l, ICEVal* r, ICEVal* out,
+                   const char** why);
+int  ice_bin_shift(TokenKind op, ICEVal* l, ICEVal* r, ICEVal* out,
+                   const char** why);
+int  ice_bin_bitwise(TokenKind op, ICEVal* l, ICEVal* r, ICEVal* out,
+                     const char** why);
 
 void ice_trunc(ICEVal* v, int bits, int uns);
 void ice_convert(ICEVal* v, int bits);

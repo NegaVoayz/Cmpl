@@ -14,6 +14,10 @@
  * signed char/short sign-extend.  Shared by binary/call/cast/coerce. */
 int widen_zext(IR_Type* t);
 
+/* sizeof(expr) codegen (ir_gen_sizeof.c): full array size for array
+ * operands, else the operand's type size. */
+IR_Value* gen_expr_sizeof_expr(GenCtx* ctx, AST_Node* n);
+
 /* Build a 2-incoming phi in the current block; returns its result.
  * Shared by short-circuit logical AND/OR and the ternary merge. */
 IR_Value* build_phi2(IR_Builder* b, IR_Type* ty,
