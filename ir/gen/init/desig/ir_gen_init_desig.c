@@ -6,8 +6,8 @@
  * (ir_gen_bf.c).  Plain structs keep the old member-index GEPs.
  */
 
-#include "../ir_gen.h"
-#include "ir_gen_init.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_init.h"
 
 #include <stdio.h>
 #include <string.h>

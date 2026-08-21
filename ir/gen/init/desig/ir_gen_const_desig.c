@@ -5,8 +5,8 @@
  * instead of emitting GEPs.  Shared across the const init-list walker.
  */
 
-#include "../ir_gen.h"
-#include "ir_gen_init.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_init.h"
 
 #include <stdio.h>
 #include <string.h>

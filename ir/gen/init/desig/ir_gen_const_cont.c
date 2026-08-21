@@ -7,8 +7,8 @@
  * "store" means (mutate a VAL_CONST_AGGREGATE tree vs. emit a GEP).
  */
 
-#include "../ir_gen.h"
-#include "ir_gen_init.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_init.h"
 
 /* walk a designator step chain recording (aggregate type, child index)
  * per level into cont (level 0 = the top aggregate).  returns the

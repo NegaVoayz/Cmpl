@@ -6,8 +6,8 @@
  * and return the next list element.
  */
 
-#include "../ir_gen.h"
-#include "ir_gen_init.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_init.h"
 
 #include <string.h>
 

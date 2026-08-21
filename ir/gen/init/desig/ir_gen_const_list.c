@@ -6,8 +6,8 @@
  * (gen_const_cont_elem / gen_const_elided_elem, in ir_gen_const_elem.c).
  */
 
-#include "../ir_gen.h"
-#include "ir_gen_init.h"
+#include "../../ir_gen.h"
+#include "../ir_gen_init.h"
 
 #include <stdio.h>
 #include <string.h>
