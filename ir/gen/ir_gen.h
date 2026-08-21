@@ -99,6 +99,10 @@ void gen_stmt_for(GenCtx* ctx, AST_Node* n);
 void gen_stmt_goto(GenCtx* ctx, AST_Node* n);
 void gen_stmt_label(GenCtx* ctx, AST_Node* n);
 
+/* ---- variable declarations (ir_gen_stmt_decl.c) ---- */
+IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n);
+void      gen_stmt_var_decl(GenCtx* ctx, AST_Node* n);
+
 /* ---- lvalue / member readers (ir/gen/expr/) ---- */
 IR_Value* gen_member_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_index_expr(GenCtx* ctx, AST_Node* n);
