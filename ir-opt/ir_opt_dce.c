@@ -32,6 +32,65 @@ uses_reserve(IR_Value* v, Arena* a)
 }
 
 /* ---------------------------------------------------------------
+ *  Visit every operand value of an instruction: fixed operands 0..2,
+ *  call args, and phi in_vals — one shared walk for the use-list
+ *  builder and the mark_live recursion (B-18).  Guards call_args /
+ *  in_vals the way build_use_lists does, calls fn(v, ctx) for each
+ *  non-NULL value.
+ * --------------------------------------------------------------- */
+
+static void mark_live(IR_Instr* inst, int* marked, IR_Instr** all,
+                      int n_all);
+
+typedef struct { IR_Instr* inst; Arena* a; } UseCtx;
+
+/* record one use: this instruction (the user) appended to v's list */
+static void
+record_use(IR_Value* v, void* ctx)
+{
+    UseCtx* c = (UseCtx*)ctx;
+
+    if (v->kind != VAL_INSTR) return;
+    uses_reserve(v, c->a);
+    v->uses[v->n_uses++] = c->inst;
+}
+
+typedef struct { int* marked; IR_Instr** all; int n_all; } MarkCtx;
+
+/* recurse through one operand's defining instruction */
+static void
+mark_use(IR_Value* v, void* ctx)
+{
+    MarkCtx* c = (MarkCtx*)ctx;
+
+    if (v->def_instr)
+        mark_live(v->def_instr, c->marked, c->all, c->n_all);
+}
+
+static void
+visit_users(IR_Instr* inst, void (*fn)(IR_Value*, void*), void* ctx)
+{
+    for (int o = 0; o < 3; o++) {
+        IR_Value* v = inst->operands[o];
+        if (v) fn(v, ctx);
+    }
+
+    if (inst->call_args) {
+        for (int a = 0; a < inst->n_call_args; a++) {
+            IR_Value* v = inst->call_args[a];
+            if (v) fn(v, ctx);
+        }
+    }
+
+    if (inst->in_vals) {
+        for (int p = 0; p < inst->n_incoming; p++) {
+            IR_Value* v = inst->in_vals[p];
+            if (v) fn(v, ctx);
+        }
+    }
+}
+
+/* ---------------------------------------------------------------
  *  Build use-def chains for one function.
  *
  *  Walks all instructions and, for each operand, adds this
@@ -57,34 +116,8 @@ build_use_lists(IR_Func* fn, Arena* a)
     /* Pass 2: record uses (operands, call args, phi in_vals). */
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
         for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
-
-            /* operands 0..2 */
-            for (int o = 0; o < 3; o++) {
-                IR_Value* v = inst->operands[o];
-                if (!v || v->kind != VAL_INSTR) continue;
-                uses_reserve(v, a);
-                v->uses[v->n_uses++] = inst;
-            }
-
-            /* call args */
-            if (inst->call_args) {
-                for (int a_idx = 0; a_idx < inst->n_call_args; a_idx++) {
-                    IR_Value* v = inst->call_args[a_idx];
-                    if (!v || v->kind != VAL_INSTR) continue;
-                    uses_reserve(v, a);
-                    v->uses[v->n_uses++] = inst;
-                }
-            }
-
-            /* phi incoming values */
-            if (inst->in_vals) {
-                for (int p = 0; p < inst->n_incoming; p++) {
-                    IR_Value* v = inst->in_vals[p];
-                    if (!v || v->kind != VAL_INSTR) continue;
-                    uses_reserve(v, a);
-                    v->uses[v->n_uses++] = inst;
-                }
-            }
+            UseCtx uc = { inst, a };
+            visit_users(inst, record_use, &uc);
         }
     }
 }
@@ -125,27 +158,8 @@ mark_live(IR_Instr* inst, int* marked, IR_Instr** all, int n_all)
     marked[idx] = 1;
 
     /* mark operand-defining instructions (O(1) via def_instr) */
-    for (int o = 0; o < 3; o++) {
-        IR_Value* v = inst->operands[o];
-        if (v && v->def_instr)
-            mark_live(v->def_instr, marked, all, n_all);
-    }
-
-    /* call args */
-    for (int a = 0; a < inst->n_call_args; a++) {
-        IR_Value* v = inst->call_args[a];
-        if (v && v->def_instr)
-            mark_live(v->def_instr, marked, all, n_all);
-    }
-
-    /* phi incoming values */
-    if (inst->opcode == IROP_PHI) {
-        for (int p = 0; p < inst->n_incoming; p++) {
-            IR_Value* v = inst->in_vals[p];
-            if (v && v->def_instr)
-                mark_live(v->def_instr, marked, all, n_all);
-        }
-    }
+    MarkCtx mc = { marked, all, n_all };
+    visit_users(inst, mark_use, &mc);
 }
 
 /* ---------------------------------------------------------------
