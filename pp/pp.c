@@ -43,17 +43,33 @@ process_source(PPCtx* ctx, const char* src, int srclen)
         buf_init(&line);
 
         while (p < end && *p != '\n') {
-            if (*p == '#' && at_line_begin(p, src))
-                break;   /* directive (possibly indented): outer loop handles */
-            if (*p == '\\' && p + 1 < end && p[1] == '\n') {
-                p += 2;
-            } else if (*p == '\\' && p + 2 < end
-                       && p[1] == '\r' && p[2] == '\n') {
-                p += 3;
-            } else {
-                buf_append(&line, p, 1);
+            const char* run = p;
+
+            /* scan the plain-text run up to a directive or a splice */
+            while (p < end && *p != '\n') {
+                if (*p == '#' && at_line_begin(p, src))
+                    break;   /* directive (possibly indented) */
+                if (*p == '\\' && p + 1 < end && p[1] == '\n')
+                    break;   /* backslash-newline splice */
+                if (*p == '\\' && p + 2 < end
+                    && p[1] == '\r' && p[2] == '\n')
+                    break;   /* backslash-CR-LF splice */
                 p++;
             }
+            if (p > run)
+                buf_append(&line, run, (int)(p - run));
+
+            if (p >= end || *p == '\n')
+                break;
+
+            if (*p == '#')
+                break;
+
+            /* consume the splice (the scan verified its suffix) */
+            if (p[1] == '\n')
+                p += 2;
+            else
+                p += 3;
         }
         if (p < end && *p == '\n') {
             buf_append(&line, "\n", 1);

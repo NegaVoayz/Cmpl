@@ -151,10 +151,8 @@ expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
             ds_init(&ds);
 
             while (p < end) {
-                /* string/char literal: copy verbatim — a literal is one
-                 * preprocessing token, so macros never expand inside it
-                 * (C99 6.10.3p10).  Backslash escapes keep the quote
-                 * from closing early. */
+                /* string/char literal: copy verbatim — one preprocessing
+                 * token (C99 6.10.3p10), macros never expand inside it. */
                 if (*p == '"' || *p == '\'') {
                     copy_verbatim(&p, end, &scratch, skip_literal);
                     continue;
@@ -162,12 +160,10 @@ expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
 
                 /* comments: copy verbatim so macro expansion cannot
                  * inject comment delimiters (gcc does not expand here) */
-                if (*p == '/' && p + 1 < end && p[1] == '*') {
-                    copy_verbatim(&p, end, &scratch, skip_block_comment);
-                    continue;
-                }
-                if (*p == '/' && p + 1 < end && p[1] == '/') {
-                    copy_verbatim(&p, end, &scratch, skip_line_comment);
+                if (*p == '/' && p + 1 < end && (p[1] == '*' || p[1] == '/')) {
+                    copy_verbatim(&p, end, &scratch,
+                                  p[1] == '*' ? skip_block_comment
+                                              : skip_line_comment);
                     continue;
                 }
 
@@ -176,17 +172,21 @@ expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
                         had_expansion = 1;
                     continue;
                 }
-                buf_append(&scratch, p, 1);
-                p++;
+
+                /* plain text run: append the whole span, not char-by-char */
+                const char* run = p;
+
+                while (p < end && *p != '"' && *p != '\''
+                       && !(isalpha((unsigned char)*p) || *p == '_')
+                       && !(*p == '/' && p + 1 < end
+                            && (p[1] == '*' || p[1] == '/')))
+                    p++;
+                buf_append(&scratch, run, (int)(p - run));
             }
 
             buf_append(&scratch, "\0", 1);
-            /* use scratch output as next iteration's work */
-            {
-                int slen = scratch.len - 1;  /* exclude trailing \0 */
-                work = arena_alloc(a, slen + 1);
-                memcpy(work, scratch.data, slen + 1);
-            }
+            work = arena_alloc(a, scratch.len);
+            memcpy(work, scratch.data, scratch.len);  /* incl. trailing NUL */
 
             if (!had_expansion) break;
         }

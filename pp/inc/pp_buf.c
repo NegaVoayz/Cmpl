@@ -23,7 +23,12 @@ void
 buf_append(Buffer* b, const char* s, int slen)
 {
     if (b->len + slen + 1 > b->cap) {
-        b->cap = b->len + slen + 256;
+        int newcap = b->cap ? b->cap : 64;
+
+        while (newcap < b->len + slen + 1)
+            newcap *= 2;
+
+        b->cap = newcap;
         b->data = realloc(b->data, b->cap);
     }
     memcpy(b->data + b->len, s, slen);
