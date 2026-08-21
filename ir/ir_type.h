@@ -1,7 +1,7 @@
 /* ir_type.h -- internal declarations shared across the ir_type*.c split.
  * ir_type.c owns singletons + composite cache; ir_type_ast.c owns AST->IR
- * conversion + the struct dedup cache; ir_type_struct.c owns the IR->AST
- * struct map. */
+ * conversion + the struct dedup cache; ir_type_func.c owns the function-form
+ * conversion; ir_type_struct.c owns the IR->AST struct map. */
 
 #ifndef IR_TYPE_H
 #define IR_TYPE_H
@@ -10,6 +10,13 @@
 
 /* AST -> IR type conversion (ir_type_ast.c) */
 IR_Type* ast_to_ir_type(Arena* a, Type* ast);
+IR_Type* ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee);
+
+/* function-form conversion + shared chain-clone/signedness helpers
+ * (ir_type_func.c) */
+IR_Type* ast_to_func_type(Arena* a, Type* ast, int pointee);
+IR_Type* clone_type_for_chain(Arena* a, IR_Type* src);
+IR_Type* unsigned_of(IR_Type* t);
 
 /* struct-dedup cache reset (ir_type_ast.c) */
 void ir_reset_struct_caches(void);

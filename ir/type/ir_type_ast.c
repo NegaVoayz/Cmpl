@@ -1,6 +1,8 @@
 /* ir_type_ast.c -- AST type -> IR type conversion, plus the named/anonymous
  * struct dedup cache.  Singletons, the composite interning cache, and the
- * constructors live in ir_type.c; the IR->AST struct map in ir_type_struct.c. */
+ * constructors live in ir_type.c; the IR->AST struct map in ir_type_struct.c.
+ * Function-form conversion (ast_to_func_type) and the shared chain-clone /
+ * signedness helpers live in ir_type_func.c. */
 
 #include "ir.h"
 #include "ir_type.h"
@@ -22,47 +24,9 @@ typedef struct StructCacheEntry {
 static StructCacheEntry* struct_cache = NULL;
 static int cache_enabled = 0;
 
-/* clone a type for use in a linked list (params/members chain).
- * shallow copy shares inner/members/name; only next is independent.
- * prevents corrupting singletons like t_i32 when two members
- * have the same type. */
-static IR_Type* clone_type_for_chain(Arena* a, IR_Type* src)
-{
-    if (!src) return NULL;
-    IR_Type* cp = arena_alloc(a, sizeof(IR_Type));
-    memcpy(cp, src, sizeof(IR_Type));
-    cp->next = NULL;
-    return cp;
-}
-
-/* signed -> unsigned singleton counterpart (identity for non-integer kinds) */
-static IR_Type*
-unsigned_of(IR_Type* t)
-{
-    switch (t->kind) {
-    case IR_I8:  return t_u8;
-    case IR_I16: return t_u16;
-    case IR_I32: return t_u32;
-    case IR_I64: return t_u64;
-    default:     return t;
-    }
-}
-
-/* ---------------------------------------------------------------
- *  AST-to-IR type conversion
- *
- *  A TYPE_FUNC node is ambiguous between "pointer to function" (fnptr
- *  type: FUNC(A, PTR(B)) lifts its PTR/ARRAY layers OUTSIDE the
- *  function, so void (*f)(void) -> PTR(FUNC(void->void))) and a
- *  function whose OWN return is a pointer (the pointee context: the
- *  layers are the return type, FUNC(A, PTR(B)) -> FUNC(A->PTR(B))).
- *  The context flag `pointee` selects the second reading for FUNC
- *  nodes reached through a pointer/array layer.
- * --------------------------------------------------------------- */
-
-static IR_Type* ast_to_func_type(Arena* a, Type* ast, int pointee);
+/* function-form conversion (ast_to_func_type) and the shared chain-clone /
+ * signedness helpers live in ir_type_func.c (declared in ir_type.h). */
 static IR_Type* ast_to_struct_type(Arena* a, Type* ast);
-static IR_Type* ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee);
 
 IR_Type*
 ast_to_ir_type(Arena* a, Type* ast)
@@ -70,7 +34,7 @@ ast_to_ir_type(Arena* a, Type* ast)
     return ast_to_ir_type_ctx(a, ast, 0);
 }
 
-static IR_Type*
+IR_Type*
 ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee)
 {
     if (!ast) return t_void;
@@ -132,85 +96,6 @@ ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee)
     default:
         return t_i32;
     }
-}
-
-/* pointer-to-function: the declarator parser produces TYPE_FUNC ->
- * TYPE_PTR -> ret_ty for (*f)(args), and TYPE_FUNC -> TYPE_ARRAY ->
- * TYPE_PTR -> ret_ty for (*f[N])(args).  Lift the pointer/array layers
- * outside the function type so IR is ARRAY -> PTR -> FUNC rather than
- * FUNC -> ARRAY -> PTR -> ret. */
-static IR_Type*
-ast_to_func_type(Arena* a, Type* ast, int pointee)
-{
-    enum { MAX_LAYERS = 16 };
-    Type* layers[MAX_LAYERS];
-    int   n_layers = 0;
-
-    Type* inner = ast->inner;
-    while (inner && (inner->kind == TYPE_PTR || inner->kind == TYPE_ARRAY)) {
-        if (n_layers >= MAX_LAYERS) break;
-        layers[n_layers++] = inner;
-        inner = inner->inner;
-    }
-    IR_Type *params = NULL, **tail = &params;
-
-    for (AST_Node* p = ast->params; p; p = p->next) {
-        IR_Type* pt = ast_to_ir_type_ctx(a, p->body.param_decl.param_type, 0);
-        /* C11 6.7.6.3p7: array parameters decay to a pointer to their
-         * element type.  Literal `int a[4]` params already decayed at
-         * parse time (ll_declarator_params.c); typedef'd arrays like
-         * va_list arrive here as IR_ARRAY and must decay too, or the
-         * function type (and every call to it) passes the array by
-         * value instead of by address. */
-        if (pt && pt->kind == IR_ARRAY)
-            pt = ir_ptr_type(a, pt->inner, 0);
-        *tail = clone_type_for_chain(a, pt);
-        register_clone_ast(*tail, pt);
-        tail = &(*tail)->next;
-    }
-
-    /* pointee context: the layers describe THIS function's own return
-     * type (function returning pointer-to-X).  int *(*q)(int) needs its
-     * pointee FUNC((int), PTR(INT)) read as FUNC((int) -> PTR(INT)), not
-     * as PTR(FUNC((int) -> INT)). */
-    if (pointee) {
-        IR_Type* ret = ast_to_ir_type_ctx(a, ast->inner, 0);
-
-        return ir_func_type(a, ret, params, ast->is_variadic);
-    }
-
-    /* function returning a function pointer — FUNC(A, PTR(FUNC(B, X))):
-     * the pointer/array layers describe the RETURN type (a pointer to
-     * the inner function), so convert the inner function as a pointee
-     * and wrap ret with the layers.  The plain case (*f)(args) keeps
-     * the layers OUTSIDE the function. */
-    if (inner && inner->kind == TYPE_FUNC) {
-        IR_Type* ret = ast_to_func_type(a, inner, 1);
-
-        for (int i = n_layers - 1; i >= 0; i--) {
-            if (layers[i]->kind == TYPE_PTR)
-                ret = ir_ptr_type(a, ret, 0);
-            else
-                ret = ir_array_type(a, ret,
-                    layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
-        }
-        return ir_func_type(a, ret, params, ast->is_variadic);
-    }
-
-    IR_Type* ret = ast_to_ir_type_ctx(a, inner, 0);
-    IR_Type* ft = ir_func_type(a, ret, params, ast->is_variadic);
-
-    /* Re-wrap the layers outermost-first (the layer closest to the
-     * return type is applied last in the walk, so rebuild in
-     * reverse). */
-    for (int i = n_layers - 1; i >= 0; i--) {
-        if (layers[i]->kind == TYPE_PTR)
-            ft = ir_ptr_type(a, ft, 0);
-        else
-            ft = ir_array_type(a, ft,
-                layers[i]->arr_size > 0 ? layers[i]->arr_size : 0);
-    }
-    return ft;
 }
 
 /* struct/union: dedup by name (named) or by AST pointer (anonymous).
