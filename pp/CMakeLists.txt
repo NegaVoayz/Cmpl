@@ -11,6 +11,7 @@ add_library(pp STATIC
     inc/pp_include_paths.c
     inc/pp_define.c
     inc/pp_expand_ops.c
+    inc/pp_buf.c
 )
 
 target_include_directories(pp PUBLIC . inc)

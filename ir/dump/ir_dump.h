@@ -1,10 +1,11 @@
 /* ir_dump.h -- internal cross-file declarations for the ir/dump/*.c printers.
  *
  * The module dumper is split across ir_dump.c (type/value/condition
- * printers), ir_dump_instr.c (instruction printer), ir_dump_str.c (string
- * globals), ir_dump_struct.c (struct collector/emitter), ir_dump_func.c
- * (block/function printers) and ir_dump_module.c (module pass driver).
- * This header replaces the "extern" soup each file used to duplicate.
+ * printers), ir_dump_const.c (constant printers), ir_dump_instr.c
+ * (instruction printer), ir_dump_str.c (string globals), ir_dump_struct.c
+ * (struct collector/emitter), ir_dump_func.c (block/function printers)
+ * and ir_dump_module.c (module pass driver).  This header replaces the
+ * "extern" soup each file used to duplicate.
  */
 
 #ifndef IR_DUMP_H
@@ -19,6 +20,11 @@ void        dump_type(FILE* out, IR_Type* ty);
 void        dump_value(FILE* out, IR_Value* val);
 const char* cond_str(IR_Cond cond);
 const char* fcmp_cond_str(IR_Cond cond);
+
+/* --- constant printers (ir_dump_const.c) --- */
+long long sign_extend_int(long long v, IR_Type* ty);
+void        dump_const_float(FILE* out, IR_Value* val);
+void        dump_const_aggregate(FILE* out, IR_Value* val);
 
 /* shared anonymous-struct name table (defined in ir_dump.c) */
 extern IR_Type* dump_anon_types[IR_MAX_ANON_TYPES];
