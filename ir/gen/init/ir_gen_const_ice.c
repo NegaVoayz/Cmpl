@@ -4,7 +4,7 @@
  * directly; every other constant initializer expression (sizeof,
  * _Alignof, ternary selections, arithmetic over constants, mixed
  * float/int) is evaluated here with the same C integer-constant-
- * expression semantics as _Static_assert (ir_gen_sa.c).  Address
+ * expression semantics as _Static_assert (ir/gen/sa/).  Address
  * constants (&g, &arr[0], &g + 0) become VAL_GLOBAL values.  Before
  * this file existed those expressions fell into the silent default
  * fallback of gen_const_init and emitted 0 (wrong code).

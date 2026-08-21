@@ -147,7 +147,7 @@ void emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
 void gen_module_functions(AST_Node* root, IR_Module* mod, int is_device,
                           HashMap* sig_map);
 
-/* ---- C11 _Static_assert (ir_gen_sa.c) ---- */
+/* ---- C11 _Static_assert (ir/gen/sa/) ---- */
 void ir_check_static_asserts(Arena* a, IR_Module* mod, AST_Node* root,
                              TypedefEntry* enum_vals, HashMap* globals);
 
@@ -196,7 +196,7 @@ IR_Value* gen_const_ice_eval(Arena* a, AST_Node* init, IR_Type* target_type,
                              TypedefEntry* enum_vals, HashMap* globals,
                              int* err);
 
-/* ---- constant-expression type inference (ir_gen_ice_type.c) ---- */
+/* ---- constant-expression type inference (ir/gen/sa/ice_type.c) ---- */
 
 /* infer the IR type of an expression for sizeof/_Alignof (C11 6.5.3.4p2:
  * the operand is never evaluated).  Uses `globals` (file-scope var name

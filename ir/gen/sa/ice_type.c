@@ -1,14 +1,14 @@
-/* ir_gen_ice_type.c -- constant-expression type inference.
+/* ir/gen/sa/ice_type.c -- constant-expression type inference.
  *
  * C11 6.5.3.4p2: sizeof never evaluates its operand; sizeof(expr) is
- * the size of the expression's type.  The ICE evaluator (ir_gen_sa.c)
- * needs that type for operands that are not literals: globals
- * (sizeof(garr) == full array size), binary arithmetic (sizeof(2*1.5)
- * == 8, double), casts (sizeof((int)2.5+1) == 4), subscripts and member
- * accesses.  ice_expr_type infers the IR type of an expression;
- * collect_global_types builds the file-scope var name -> Type* table
- * that identifiers resolve against (declaration order, so array bounds
- * are set by the time sizeof uses them).
+ * the size of the expression's type.  The ICE evaluator (the other
+ * ir/gen/sa/ files) needs that type for operands that are not literals:
+ * globals (sizeof(garr) == full array size), binary arithmetic
+ * (sizeof(2*1.5) == 8, double), casts (sizeof((int)2.5+1) == 4),
+ * subscripts and member accesses.  ice_expr_type infers the IR type of
+ * an expression; collect_global_types builds the file-scope var name ->
+ * Type* table that identifiers resolve against (declaration order, so
+ * array bounds are set by the time sizeof uses them).
  */
 
 #include "ir.h"
@@ -17,7 +17,7 @@
 
 #include "ast.h"
 #include "hash.h"
-#include "ir_gen.h"
+#include "../ir_gen.h"
 
 /* infer the IR type of an expression for sizeof/_Alignof.  NULL when
  * the type cannot be determined (unknown ident, function name, call,
