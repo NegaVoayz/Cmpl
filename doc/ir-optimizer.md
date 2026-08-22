@@ -175,12 +175,27 @@ void opt_const_fold(OptCtx* ctx)
 void opt_simplify_cfg(OptCtx* ctx)
 {
     for each IR_Func:
-        merge_blocks(func);
-        remove_unreachable(func);
-        simplify_cond_br(func);
-        thread_jumps(func);
+        merge_blocks(func);      // worklist of single-branch blocks
+        simplify_cond_br(func);  // fold constant cond_br, re-seed merges
 }
 ```
+
+### Implementation
+
+Worklist-driven, split across two files:
+
+- `ir_opt_simplify.c` — the primitives: `merge_block` (merge a single-branch
+  block into its sole successor, tested with an O(1) predecessor count),
+  `simplify_cond_brs` (fold constant-cond branches; the dead successor loses
+  its phi incoming and one predecessor count).
+- `ir_opt_simplify_work.c` — the driver: `build_pred_counts` populates
+  `IR_Block.n_preds` (an otherwise-unused field) once per function; a
+  `BlockStack` worklist drains single-branch blocks, cascading merges, instead
+  of the old rescan-after-every-merge loop.
+
+A fold can turn a block into a single branch and drop a dead successor's count
+to 1, so after each fold round the worklist re-seeds. Rounds are bounded: a
+fold round folds every constant cond_br, and merges never create new ones.
 
 ## Pass 5: GVN — Local Value Numbering (CSE)
 
@@ -287,7 +302,8 @@ void opt_addrspace_canon(OptCtx* ctx, IR_Module* mod)
 | `ir_opt_mem2reg_rename.c` | SSA rename: DFS over dominator tree, scoped value stacks |
 | `ir_opt_dce.c` | DCE + `build_use_lists()`: def-use chain builder + mark-sweep |
 | `ir_opt_const.c` | IR-level constant folding for all binary + compare + select ops |
-| `ir_opt_simplify.c` | CFG simplification: block merge, unreachable removal, jump threading |
+| `ir_opt_simplify.c` | CFG simplification primitives: block merge, constant-cond branch folding |
+| `ir_opt_simplify_work.c` | CFG simplification driver: pred-count cache + merge worklist |
 | `ir_opt_gvn.c` | Local value numbering / CSE |
 | `ir_opt_inline.c` | Device function inlining with heuristics |
 

@@ -1,49 +1,56 @@
-/* ir_opt_simplify.c -- CFG simplification: merge blocks, remove dead branches */
+/* ir_opt_simplify.c -- CFG simplification primitives: merge single-branch
+ * blocks, fold constant branches.  The worklist driver lives in
+ * ir_opt_simplify_work.c. */
 
 #include "ir-opt.h"
 
-#include <stdlib.h>
-#include <string.h>
-
 /* ---------------------------------------------------------------
- *  Replace all br references and phi in_blocks from 'old' to 'new'
+ *  Patch phi in_blocks references from 'old' to 'new'.
+ *
+ *  Only old's successors' leading phis can reference old (a phi's
+ *  in_blocks are exactly its block's predecessors), and old's only
+ *  predecessor is the block being consumed -- so the walk is bounded
+ *  by old's out-degree, not the whole function.
  * --------------------------------------------------------------- */
 
 static void
-redirect_brs(IR_Func* fn, IR_Block* old, IR_Block* new)
+redirect_brs(IR_Block* old, IR_Block* new)
 {
-    for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-        /* update branch terminators */
-        IR_Instr* term = blk->last;
+    IR_Instr* term = old->last;
+    if (!term) return;
 
-        if (term) {
-            if (term->opcode == IROP_BR && term->in_blocks &&
-                term->in_blocks[0] == old)
-                term->in_blocks[0] = new;
-
-            if (term->opcode == IROP_COND_BR && term->in_blocks) {
-                if (term->in_blocks[0] == old)
-                    term->in_blocks[0] = new;
-                if (term->in_blocks[1] == old)
-                    term->in_blocks[1] = new;
-            }
-        }
-
-        /* update phi in_blocks pointing at the merged-away block */
-        IR_FOR_INST(inst, blk) {
-            if (inst->opcode != IROP_PHI) break;
+    if (term->opcode == IROP_BR && term->in_blocks && term->in_blocks[0]) {
+        IR_Block* t = term->in_blocks[0];
+        if (t == old) return;
+        for (IR_Instr* inst = t->first; inst && inst->opcode == IROP_PHI;
+             inst = inst->next)
             for (int p = 0; p < inst->n_incoming; p++)
                 if (inst->in_blocks[p] == old)
                     inst->in_blocks[p] = new;
-        }
+        return;
     }
+
+    if (term->opcode == IROP_COND_BR && term->in_blocks)
+        for (int s = 0; s < 2; s++) {
+            IR_Block* t = term->in_blocks[s];
+            if (!t || t == old) continue;
+            for (IR_Instr* inst = t->first; inst && inst->opcode == IROP_PHI;
+                 inst = inst->next)
+                for (int p = 0; p < inst->n_incoming; p++)
+                    if (inst->in_blocks[p] == old)
+                        inst->in_blocks[p] = new;
+        }
 }
 
 /* ---------------------------------------------------------------
- *  Try to merge a block with its sole successor
+ *  Try to merge a block with its sole successor.
+ *  Non-static: driven by the worklist in ir_opt_simplify_work.c.
+ *  succ->n_preds is a transient count built by build_pred_counts;
+ *  on success succ is tombstoned so stale worklist entries skip it
+ *  in O(1).
  * --------------------------------------------------------------- */
 
-static int
+int
 merge_block(IR_Func* fn, IR_Block* blk)
 {
     IR_Instr* term = blk->last;
@@ -53,19 +60,8 @@ merge_block(IR_Func* fn, IR_Block* blk)
     IR_Block* succ = term->in_blocks[0];
     if (!succ || succ == blk) return 0;
 
-    /* check succ has exactly one predecessor (this block) */
-    int pred_count = 0;
-    for (IR_Block* b = fn->blocks; b; b = b->next) {
-        IR_Instr* t = b->last;
-        if (!t) continue;
-        if (t->opcode == IROP_BR && t->in_blocks &&
-            t->in_blocks[0] == succ) pred_count++;
-        if (t->opcode == IROP_COND_BR && t->in_blocks) {
-            if (t->in_blocks[0] == succ) pred_count++;
-            if (t->in_blocks[1] == succ) pred_count++;
-        }
-    }
-    if (pred_count != 1) return 0;
+    /* succ must have exactly one predecessor (this block) */
+    if (succ->n_preds != 1) return 0;
 
     /* remove the branch instruction */
     if (blk->last == term) {
@@ -96,7 +92,11 @@ merge_block(IR_Func* fn, IR_Block* blk)
     if (*bp == succ) *bp = succ->next;
 
     /* redirect references to succ → blk */
-    redirect_brs(fn, succ, blk);
+    redirect_brs(succ, blk);
+
+    /* tombstone succ so stale worklist entries skip it */
+    succ->first = NULL;
+    succ->last = NULL;
 
     return 1;
 }
@@ -119,10 +119,13 @@ phi_remove_incoming(IR_Instr* phi, IR_Block* blk)
 }
 
 /* ---------------------------------------------------------------
- *  Convert constant-conditional branch to unconditional
+ *  Convert constant-conditional branch to unconditional.
+ *  Non-static: the worklist driver re-seeds after each fold round.
+ *  Maintains succ->n_preds -- the dead successor (or a shared target)
+ *  loses one incoming edge.
  * --------------------------------------------------------------- */
 
-static int
+int
 simplify_cond_brs(IR_Func* fn)
 {
     int changed = 0;
@@ -140,12 +143,19 @@ simplify_cond_brs(IR_Func* fn)
         IR_Block* dead = (target == term->in_blocks[0])
                        ? term->in_blocks[1] : term->in_blocks[0];
 
-        /* the block we no longer branch to loses this phi incoming */
-        if (dead) {
+        /* the block we no longer branch to loses this phi incoming
+         * (only a truly dead edge -- a shared target still receives
+         * our branch) */
+        if (dead && dead != target) {
             for (IR_Instr* inst = dead->first; inst && inst->opcode == IROP_PHI;
                  inst = inst->next)
                 phi_remove_incoming(inst, blk);
         }
+
+        /* one incoming edge vanishes: the dead successor, or one of
+         * two shared-target slots (cond_br counted 2, br counts 1) */
+        if (dead)
+            dead->n_preds--;
 
         /* replace cond_br with br */
         term->opcode = IROP_BR;
@@ -155,50 +165,5 @@ simplify_cond_brs(IR_Func* fn)
         term->n_incoming = 1;
         changed = 1;
     }
-    return changed;
-}
-
-/* ---------------------------------------------------------------
- *  Simplify CFG in one function
- * --------------------------------------------------------------- */
-
-static int
-simplify_func(IR_Func* fn)
-{
-    int changed = 0, again;
-
-    do {
-        again = 0;
-
-        /* merge blocks that are a single unconditional branch */
-        for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-            if (blk == fn->blocks) continue;
-            if (!blk->last || blk->last->opcode != IROP_BR) continue;
-            if (blk->first != blk->last) continue;
-            again |= merge_block(fn, blk);
-            if (again) break;
-        }
-        if (again) { changed = 1; continue; }
-
-        /* simplify constant cond_br */
-        again |= simplify_cond_brs(fn);
-        changed |= again;
-
-    } while (again);
-
-    return changed;
-}
-
-/* ---------------------------------------------------------------
- *  Public entry
- * --------------------------------------------------------------- */
-
-int
-opt_simplify_cfg(IR_Module* mod)
-{
-    int changed = 0;
-    for (IR_Func* fn = mod->funcs; fn; fn = fn->next)
-        if (fn->blocks)
-            changed |= simplify_func(fn);
     return changed;
 }

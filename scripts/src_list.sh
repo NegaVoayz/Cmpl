@@ -40,7 +40,7 @@ CMPL_SOURCES=(
   vulkan/vk_spirv_func.c vulkan/vk_mock.c
   ir-opt/ir_opt.c ir-opt/ir_opt_count.c ir-opt/ir_opt_mem2reg.c ir-opt/ir_opt_mem2reg_cfg.c
   ir-opt/ir_opt_mem2reg_rename.c ir-opt/ir_opt_dce.c ir-opt/ir_opt_const.c
-  ir-opt/ir_opt_simplify.c ir-opt/ir_opt_gvn.c ir-opt/ir_opt_gvn_tab.c ir-opt/ir_opt_inline.c
+  ir-opt/ir_opt_simplify.c ir-opt/ir_opt_simplify_work.c ir-opt/ir_opt_gvn.c ir-opt/ir_opt_gvn_tab.c ir-opt/ir_opt_inline.c
   ir-opt/use/ir_opt_use.c
   llvm-codegen/llvm_cg.c
 )
