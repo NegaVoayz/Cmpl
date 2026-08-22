@@ -12,11 +12,9 @@ extern void compute_df(BlkInfo* bi, int n);
 extern int compute_idf(BlkInfo* bi, int n, int* defs, int nd, int* out);
 
 /* from ir_opt_mem2reg_rename.c */
-extern void rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca,
-                        Arena* arena, IR_Value* undef);
+extern void rename_vars(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca, Arena* arena, IR_Value* undef);
 
-/* post-rename cleanup: unlink a promoted alloca's dead loads/stores
- * and the alloca itself (lives in ir_opt_mem2reg_rename.c) */
+/* post-rename cleanup (ir_opt_mem2reg_rename.c) */
 extern void remove_dead(IR_Func* fn, IR_Value* alloca, IR_Value* undef);
 
 /* ---------------------------------------------------------------
@@ -93,10 +91,8 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca, Arena* arena)
                 inst->operands[1] == alloca) {
                 for (int j = 0; j < n; j++)
                     if (bi[j].blk == blk) {
-                        /* defs[] is a fixed stack array (MAX_BLK);
-                         * a hot alloca with more stores than that must
-                         * refuse promotion (safe: the alloca is left in
-                         * place) instead of overflowing the array. */
+                        /* defs[] is fixed (MAX_BLK): refuse promotion
+                         * (safe) rather than overflow the stack array. */
                         if (nd >= MAX_BLK) return 0;
                         defs[nd++] = j;
                         break;
