@@ -38,7 +38,7 @@ CMPL_SOURCES=(
   cuda/cuda_qual.c cuda/cuda_split.c cuda/cuda_launch.c
   vulkan/vk_spirv.c vulkan/vk_spirv_collect.c vulkan/vk_spirv_emit.c
   vulkan/vk_spirv_func.c vulkan/vk_mock.c
-  ir-opt/ir_opt.c ir-opt/ir_opt_mem2reg.c ir-opt/ir_opt_mem2reg_cfg.c
+  ir-opt/ir_opt.c ir-opt/ir_opt_count.c ir-opt/ir_opt_mem2reg.c ir-opt/ir_opt_mem2reg_cfg.c
   ir-opt/ir_opt_mem2reg_rename.c ir-opt/ir_opt_dce.c ir-opt/ir_opt_const.c
   ir-opt/ir_opt_simplify.c ir-opt/ir_opt_gvn.c ir-opt/ir_opt_inline.c
   ir-opt/use/ir_opt_use.c

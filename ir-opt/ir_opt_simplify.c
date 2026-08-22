@@ -30,7 +30,7 @@ redirect_brs(IR_Func* fn, IR_Block* old, IR_Block* new)
         }
 
         /* update phi in_blocks pointing at the merged-away block */
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+        IR_FOR_INST(inst, blk) {
             if (inst->opcode != IROP_PHI) break;
             for (int p = 0; p < inst->n_incoming; p++)
                 if (inst->in_blocks[p] == old)

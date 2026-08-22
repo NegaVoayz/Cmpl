@@ -139,7 +139,7 @@ gvn_func(IR_Func* fn, Arena* a)
         VNEntry table[MAX_VN];
         int n = 0;
 
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+        IR_FOR_INST(inst, blk) {
             if (!can_cse(inst)) {
                 /* side-effecting instructions invalidate the table
                  * (store, call could modify memory) */

@@ -94,7 +94,7 @@ build_use_lists(IR_Func* fn, Arena* a)
        and clearing the def's list mid-add would wipe uses already recorded
        by earlier users. */
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next)
+        IR_FOR_INST(inst, blk)
             if (inst->result) {
                 inst->result->uses = NULL;
                 inst->result->n_uses = 0;
@@ -103,7 +103,7 @@ build_use_lists(IR_Func* fn, Arena* a)
 
     /* Pass 2: record uses (operands, call args, phi in_vals). */
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+        IR_FOR_INST(inst, blk) {
             UseCtx uc = { inst, a };
             visit_users(inst, record_use, &uc);
         }

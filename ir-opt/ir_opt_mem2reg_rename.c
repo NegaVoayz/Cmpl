@@ -87,7 +87,7 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca, RenameStack* st)
     /* Push phi results for THIS alloca as reaching definitions.
        When multiple allocas are promoted, each has its own phi nodes;
        we only push the phi that belongs to the alloca being renamed. */
-    for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+    IR_FOR_INST(inst, blk) {
         if (inst->opcode != IROP_PHI) break;
         if (inst->phi_alloca == alloca) {
             cur = inst->result;
@@ -96,7 +96,7 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca, RenameStack* st)
     }
 
     /* Walk instructions: track stores, rewire loads to the reaching def. */
-    for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+    IR_FOR_INST(inst, blk) {
         if (inst->opcode == IROP_PHI) continue;
 
         if (inst->opcode == IROP_STORE && inst->operands[1] == alloca) {
@@ -117,7 +117,7 @@ rename_dfs(int bi_idx, BlkInfo* bi, int n, IR_Value* alloca, RenameStack* st)
             int ns = (term->opcode == IROP_BR) ? 1 : 2;
             for (int s = 0; s < ns; s++) {
                 IR_Block* succ = term->in_blocks[s];
-                for (IR_Instr* inst = succ->first; inst; inst = inst->next) {
+                IR_FOR_INST(inst, succ) {
                     if (inst->opcode != IROP_PHI) break;
                     if (inst->phi_alloca != alloca) continue;
                     for (int pi = 0; pi < inst->n_incoming; pi++) {

@@ -75,10 +75,7 @@ static int
 dce_func(IR_Func* fn, Arena* a)
 {
     /* first pass: count instructions so we can allocate exactly */
-    int n = 0;
-    for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next)
-            n++;
+    int n = ir_count_instrs(fn);
     if (!n) return 0;
 
     /* build use lists before marking */
@@ -88,7 +85,7 @@ dce_func(IR_Func* fn, Arena* a)
     IR_Instr** all = arena_alloc(a, n * sizeof(IR_Instr*));
     int idx = 0;
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next)
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next)
+        IR_FOR_INST(inst, blk)
             all[idx++] = inst;
 
     int* marked = arena_alloc(a, n * sizeof(int));

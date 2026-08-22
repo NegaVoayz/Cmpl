@@ -175,7 +175,7 @@ fold_func(IR_Func* fn)
     int changed = 0;
 
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+        IR_FOR_INST(inst, blk) {
 
             /* only fold binary/icmp instructions */
             switch (inst->opcode) {

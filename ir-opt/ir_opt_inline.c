@@ -6,19 +6,6 @@
 #include <string.h>
 
 /* ---------------------------------------------------------------
- *  Count instructions in a function
- * --------------------------------------------------------------- */
-
-static int
-func_size(IR_Func* fn)
-{
-    int n = 0;
-    for (IR_Block* b = fn->blocks; b; b = b->next)
-        for (IR_Instr* i = b->first; i; i = i->next) n++;
-    return n;
-}
-
-/* ---------------------------------------------------------------
  *  Check if function has control flow (branches)
  * --------------------------------------------------------------- */
 
@@ -88,7 +75,7 @@ inline_call(IR_Func* caller, IR_Block* blk, IR_Instr* call, IR_Func* callee,
     IR_Instr* cloned_first = NULL;
     IR_Instr* cloned_last  = NULL;
 
-    for (IR_Instr* ci = callee_blk->first; ci; ci = ci->next) {
+    IR_FOR_INST(ci, callee_blk) {
 
         if (ci->opcode == IROP_RET) {
             /* map return value to call result */
@@ -147,7 +134,7 @@ inline_in_module(IR_Module* mod)
         if (!fn->blocks) continue;
 
         for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-            for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+            IR_FOR_INST(inst, blk) {
                 if (inst->opcode != IROP_CALL) continue;
 
                 /* find callee in module */
@@ -166,7 +153,7 @@ inline_in_module(IR_Module* mod)
                 if (!callee) continue;
 
                 /* only inline small, straight-line device functions */
-                if (func_size(callee) > MAX_INLINE_SIZE) continue;
+                if (ir_count_instrs(callee) > MAX_INLINE_SIZE) continue;
                 if (!is_straight_line(callee)) continue;
 
                 changed |= inline_call(fn, blk, inst, callee, mod->arena);

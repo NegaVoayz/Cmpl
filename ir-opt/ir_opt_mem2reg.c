@@ -29,7 +29,7 @@ alloca_ok(IR_Func* fn, IR_Value* a)
     IR_Type* elem = a->type ? a->type->inner : NULL;
 
     for (IR_Block* b = fn->blocks; b; b = b->next) {
-        for (IR_Instr* i = b->first; i; i = i->next) {
+        IR_FOR_INST(i, b) {
             /* Address-taken escape: the alloca may only appear as the
                memory operand -- LOAD.operands[0] (source) or
                STORE.operands[1] (destination).  Any other operand slot,
@@ -88,7 +88,7 @@ promote_one(IR_Func* fn, BlkInfo* bi, int n, IR_Value* alloca, Arena* arena)
     int defs[MAX_BLK], nd = 0;
 
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-        for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+        IR_FOR_INST(inst, blk) {
             if (inst->opcode == IROP_STORE &&
                 inst->operands[1] == alloca) {
                 for (int j = 0; j < n; j++)
@@ -172,7 +172,7 @@ promote_func(IR_Func* fn, Arena* arena)
     for (int pass = 0; pass < 4; pass++) {
         int did = 0;
         for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-            for (IR_Instr* inst = blk->first; inst; inst = inst->next) {
+            IR_FOR_INST(inst, blk) {
                 if (inst->opcode != IROP_ALLOCA) continue;
                 if (!alloca_ok(fn, inst->result)) continue;
                 did |= promote_one(fn, bi, n, inst->result, arena);

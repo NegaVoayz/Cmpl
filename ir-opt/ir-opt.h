@@ -6,6 +6,18 @@
 #include "ir.h"
 
 /* ---------------------------------------------------------------
+ *  Shared instruction-iteration helpers (B-32)
+ * --------------------------------------------------------------- */
+
+/* Walk every instruction of a block (blk->first .. ->next).  `inst` is
+ * declared by the macro; break/continue/return behave as in a plain for. */
+#define IR_FOR_INST(inst, blk) \
+    for (IR_Instr* inst = (blk)->first; inst; inst = inst->next)
+
+/* Count all instructions in a function (over all its blocks). */
+int ir_count_instrs(IR_Func* fn);
+
+/* ---------------------------------------------------------------
  *  Block info for CFG analysis (shared by mem2reg pass)
  * --------------------------------------------------------------- */
 

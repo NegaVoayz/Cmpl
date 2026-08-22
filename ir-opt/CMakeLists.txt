@@ -1,4 +1,4 @@
-add_library(ir-opt ir_opt.c ir_opt_mem2reg.c ir_opt_mem2reg_cfg.c
+add_library(ir-opt ir_opt.c ir_opt_count.c ir_opt_mem2reg.c ir_opt_mem2reg_cfg.c
             ir_opt_mem2reg_rename.c ir_opt_dce.c ir_opt_const.c
             ir_opt_simplify.c ir_opt_gvn.c ir_opt_inline.c
             use/ir_opt_use.c)
