@@ -20,6 +20,6 @@ typedef enum {
    For CG_OUT_LLVM_IR, dumps .ll directly -- no subprocess.
    Returns 0 on success, nonzero on failure. */
 int cg_compile(IR_Module* mod, const char* outfile,
-               CG_OutputMode mode, int opt_level);
+               CG_OutputMode mode, int opt_level, int quiet);
 
 #endif /* LLVM_CG_H */

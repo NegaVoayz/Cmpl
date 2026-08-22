@@ -48,7 +48,7 @@ for o in "$ROOT"/build/self/*.o; do
   # main_driver.o references dump_ast_public (defined in dump_ast.o), so
   # both must be excluded together (mirrors run_stageC_via.sh)
   case "$(basename "$o")" in
-    main.o|main_driver.o|dump_ast.o|dump_ast_decl.o) ;; *) MODOBJS+=("$o");; esac
+    main.o|main_driver.o|main_batch.o|dump_ast.o|dump_ast_decl.o) ;; *) MODOBJS+=("$o");; esac
 done
 
 CPASS=0; CFAIL=0; CFAILED_FILES=()

@@ -88,7 +88,7 @@ ext_for_mode(CG_OutputMode mode)
 
 int
 cg_compile(IR_Module* mod, const char* outfile,
-           CG_OutputMode mode, int opt_level)
+           CG_OutputMode mode, int opt_level, int quiet)
 {
     if (!mod) {
         fprintf(stderr, "llvm-cg: null module\n");
@@ -103,7 +103,7 @@ cg_compile(IR_Module* mod, const char* outfile,
         if (!write_ll_file(mod, outfile))
             return 1;
 
-        printf("LLVM IR written to %s\n", outfile);
+        if (!quiet) printf("LLVM IR written to %s\n", outfile);
         return 0;
     }
 
@@ -143,6 +143,6 @@ cg_compile(IR_Module* mod, const char* outfile,
         return 1;
     }
 
-    printf("Output written to %s\n", outfile);
+    if (!quiet) printf("Output written to %s\n", outfile);
     return 0;
 }

@@ -7,43 +7,21 @@
 #include "vulkan.h"
 #include "llvm_cg.h"
 #include "arena.h"
+#include "main_driver.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* pipeline drivers -- defined in main_driver.c */
-extern void run_cuda_pipeline(AST_Node* root, const char* filename,
-                              int dump_spv, int opt_level);
-extern int  run_codegen_pipeline(AST_Node* root, const char* filename,
-                                 const char* out_file, int codegen_mode,
-                                 int opt_level);
-extern int  run_ir_pipeline(AST_Node* root, int opt_level);
-extern void run_ast_pipeline(AST_Node* root);
-
-typedef struct {
-    const char* filename;
-    int         dump_ir;
-    int         cuda_mode;
-    int         dump_spv;
-    int         opt_level;
-    int         codegen_mode;
-    const char* out_file;
-    int         dump_preprocess;
-} CmdOpts;
-
-/* Parse command-line flags into opts and set up the preprocessor include
- * paths (bundled stubs + self-hosting source directories). */
-static void
-parse_args(int argc, char** argv, PPCtx* pp_ctx, CmdOpts* opts)
+/* Bundled include stubs + self-hosting source dirs, in search order.
+ * Paths are relative to the build directory (where cmpl is normally run). */
+void
+cmpl_add_default_include_paths(PPCtx* pp_ctx)
 {
-    memset(opts, 0, sizeof(*opts));
-
     /* Add bundled include stubs for system headers */
     pp_add_include_path(pp_ctx, "../include");
 
-    /* Add all source directories for self-hosting cross-directory includes.
-     * Paths are relative to the build directory (where cmpl is normally run). */
+    /* Add all source directories for self-hosting cross-directory includes. */
     pp_add_include_path(pp_ctx, "../base");
     pp_add_include_path(pp_ctx, "../tokenizer");
     pp_add_include_path(pp_ctx, "../ir");
@@ -54,6 +32,16 @@ parse_args(int argc, char** argv, PPCtx* pp_ctx, CmdOpts* opts)
     pp_add_include_path(pp_ctx, "../vulkan");
     pp_add_include_path(pp_ctx, "../cuda");
     pp_add_include_path(pp_ctx, "../llvm-codegen");
+}
+
+/* Parse command-line flags into opts and set up the preprocessor include
+ * paths (bundled stubs + self-hosting source directories). */
+static void
+parse_args(int argc, char** argv, PPCtx* pp_ctx, CmdOpts* opts)
+{
+    memset(opts, 0, sizeof(*opts));
+
+    cmpl_add_default_include_paths(pp_ctx);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ir") == 0) {
@@ -88,12 +76,13 @@ parse_args(int argc, char** argv, PPCtx* pp_ctx, CmdOpts* opts)
     }
 }
 
-/* full pipeline after arg validation (defined below main) */
-static int compile_source(PPCtx* pp_ctx, const CmdOpts* opts);
-
 int
 main(int argc, char** argv)
 {
+    /* batch mode: many translation units in one process (B-42) */
+    if (argc > 1 && (strcmp(argv[1], "batch") == 0 || argv[1][0] == '@'))
+        return run_batch(argc, argv);
+
     CmdOpts opts;
     PPCtx   pp_ctx;
 
@@ -112,8 +101,9 @@ main(int argc, char** argv)
 
 /* the full front-end pipeline after arg validation: preprocess, parse,
  * optimize, dispatch to the requested output pipeline, and reclaim the
- * compiler-allocated buffers.  Returns the process exit code. */
-static int
+ * compiler-allocated buffers.  Returns the process exit code.  Frees the
+ * PPCtx on every exit path. */
+int
 compile_source(PPCtx* pp_ctx, const CmdOpts* opts)
 {
     if (opts->dump_preprocess) {
@@ -141,26 +131,27 @@ compile_source(PPCtx* pp_ctx, const CmdOpts* opts)
         return 1;
     }
 
-    printf("--- Parsing ---\n");
+    if (!opts->quiet) printf("--- Parsing ---\n");
     Arena* ast_arena = arena_new();
     AST_Node* root = parse_program(code, ast_arena);
 
     if (!root) {
-        printf("Parse error!\n");
+        fprintf(stderr, "Parse error!\n");
         pp_ctx_free(pp_ctx);
         arena_free(ast_arena);
         free(code);
         return 1;
     }
 
-    printf("\n--- Optimizing ---\n");
+    if (!opts->quiet) printf("\n--- Optimizing ---\n");
     root = optimize(root);
 
     if (opts->cuda_mode)
         run_cuda_pipeline(root, opts->filename, opts->dump_spv, opts->opt_level);
     else if (opts->codegen_mode) {
         if (run_codegen_pipeline(root, opts->filename, opts->out_file,
-                                 opts->codegen_mode, opts->opt_level) != 0) {
+                                 opts->codegen_mode, opts->opt_level,
+                                 opts->quiet) != 0) {
             pp_ctx_free(pp_ctx);
             arena_free(ast_arena);
             free(code);

@@ -11,6 +11,7 @@
 #include "vulkan.h"
 #include "llvm_cg.h"
 #include "arena.h"
+#include "main_driver.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,9 +90,9 @@ run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
  * Returns 0 on success, nonzero when IR gen or codegen failed. */
 int
 run_codegen_pipeline(AST_Node* root, const char* filename, const char* out_file,
-                     int codegen_mode, int opt_level)
+                     int codegen_mode, int opt_level, int quiet)
 {
-    printf("\n--- Generating IR for codegen ---\n");
+    if (!quiet) printf("\n--- Generating IR for codegen ---\n");
     IR_Module* mod = ir_gen_program(root);
 
     if (!mod) {
@@ -121,7 +122,7 @@ run_codegen_pipeline(AST_Node* root, const char* filename, const char* out_file,
         output = default_out;
     }
 
-    int result = cg_compile(mod, output, codegen_mode, opt_level);
+    int result = cg_compile(mod, output, codegen_mode, opt_level, quiet);
 
     if (result != 0)
         fprintf(stderr, "Codegen failed.\n");

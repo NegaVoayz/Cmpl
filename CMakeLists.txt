@@ -31,7 +31,7 @@ add_subdirectory(vulkan)
 add_subdirectory(ir-opt)
 add_subdirectory(llvm-codegen)
 
-set(CMPL_SOURCES main.c main_driver.c dump_ast.c dump_ast_decl.c)
+set(CMPL_SOURCES main.c main_driver.c main_batch.c dump_ast.c dump_ast_decl.c)
 # build/self_new/crt_shim.c is a MinGW/UCRT-only bridge (stdin/stdout/
 # stderr are not exported as globals by UCRT).  It is gitignored and
 # must be created by the user on Windows (build_self.ps1 compiles it
