@@ -100,13 +100,8 @@ lr1_parse_generic(LR1_Parser* p)
     /* the re-entrant lr1_parse_expr() calls reset the LR stack and the
      * cast state; save the outer parse context and restore it before
      * pushing the result */
-    StackFrame saved[MAX_STACK];
-    int save_sp = p->sp, save_pending = p->pending_cast;
-    int save_ccount = p->cast_count;
-    PendingCast* save_chain = p->cast_chain;
-    int save_pdepth = p->paren_depth;
-
-    memcpy(saved, p->stack, sizeof(StackFrame) * (size_t)(save_sp + 1));
+    LR1_Saved saved;
+    lr1_save_outer(p, &saved);
 
     AST_Node* node = ast_node_new(p->arena, AST_GENERIC,
                                   gtok->loc.line, gtok->loc.col);
@@ -152,10 +147,7 @@ lr1_parse_generic(LR1_Parser* p)
     }
 
     /* restore the outer LR parse context */
-    memcpy(p->stack, saved, sizeof(StackFrame) * (size_t)(save_sp + 1));
-    p->sp = save_sp; p->pending_cast = save_pending;
-    p->cast_count = save_ccount; p->cast_chain = save_chain;
-    p->paren_depth = save_pdepth;
+    lr1_restore_outer(p, &saved);
 
     /* the selection is a PRIMARY expression: pop the S_GENERIC keyword
      * frame (its token must not survive as a unary operator) and push

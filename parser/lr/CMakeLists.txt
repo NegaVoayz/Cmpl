@@ -5,6 +5,7 @@ add_library(parser_lr STATIC
     lr1_cast_pending.c
     lr1_shift.c
     lr1_generic.c
+    lr1_save.c
     lr1_va_arg.c
     reduce/lr1_reduce.c
     reduce/lr1_reduce_passthrough.c

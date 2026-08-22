@@ -62,6 +62,11 @@ int lr1_parse_va_arg(LR1_Parser* p);
  * it. */
 AST_Node* parse_until_sep(LR1_Parser* p, Token** sep_out);
 
+/* Save/restore the outer LR parse context around a re-entrant
+ * lr1_parse_expr() (lr1_generic.c / lr1_va_arg.c); defined in lr1_save.c. */
+void lr1_save_outer(LR1_Parser* p, LR1_Saved* saved);
+void lr1_restore_outer(LR1_Parser* p, const LR1_Saved* saved);
+
 int       try_parse_cast(LR1_Parser* p, LR1_State state);
 AST_Node* lr1_stop_at_comma(LR1_Parser* p, TokenKind next);
 void      apply_pending_cast_at_reduce(LR1_Parser* p);

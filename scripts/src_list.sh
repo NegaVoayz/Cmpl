@@ -20,7 +20,7 @@ CMPL_SOURCES=(
   pp/pp.c pp/pp_expand.c pp/pp_if.c pp/pp_eval.c pp/pp_cond.c
   pp/pp_macro.c pp/pp_directive.c pp/pp_include.c pp/inc/pp_include_paths.c pp/inc/pp_define.c pp/inc/pp_expand_ops.c pp/inc/pp_buf.c pp/pp_line.c
   parser/lr/lr1.c parser/lr/lr1_cast.c parser/lr/lr1_cast_apply.c parser/lr/lr1_cast_pending.c parser/lr/lr1_shift.c
-  parser/lr/lr1_generic.c parser/lr/lr1_va_arg.c
+  parser/lr/lr1_generic.c parser/lr/lr1_va_arg.c parser/lr/lr1_save.c
   parser/lr/reduce/lr1_reduce.c parser/lr/reduce/lr1_reduce_binary.c parser/lr/reduce/lr1_reduce_ctx.c
   parser/lr/reduce/lr1_reduce_postfix.c parser/lr/reduce/lr1_reduce_passthrough.c
   parser/lr/table/lr1_table.c parser/lr/table/lr1_table_acts.c parser/lr/table/lr1_table_goto.c parser/lr/table/lr1_table_reds.c

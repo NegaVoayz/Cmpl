@@ -32,14 +32,8 @@ lr1_parse_va_arg(LR1_Parser* p)
     /* the re-entrant lr1_parse_expr() call resets the LR stack and the
      * cast state; save the outer parse context and restore it before
      * pushing the result */
-    StackFrame saved[MAX_STACK];
-    int save_sp = p->sp;
-    int save_pending = p->pending_cast;
-    int save_ccount = p->cast_count;
-    PendingCast* save_chain = p->cast_chain;
-    int save_pdepth = p->paren_depth;
-
-    memcpy(saved, p->stack, sizeof(StackFrame) * (size_t)(save_sp + 1));
+    LR1_Saved saved;
+    lr1_save_outer(p, &saved);
 
     AST_Node* node = ast_node_new(p->arena, AST_VA_ARG,
                                   ktok->loc.line, ktok->loc.col);
@@ -68,12 +62,7 @@ lr1_parse_va_arg(LR1_Parser* p)
     }
 
     /* restore the outer LR parse context */
-    memcpy(p->stack, saved, sizeof(StackFrame) * (size_t)(save_sp + 1));
-    p->sp = save_sp;
-    p->pending_cast = save_pending;
-    p->cast_count = save_ccount;
-    p->cast_chain = save_chain;
-    p->paren_depth = save_pdepth;
+    lr1_restore_outer(p, &saved);
 
     /* the whole call is a PRIMARY expression: pop the S_VA_ARG keyword
      * frame (its token must not survive as a unary operator) and push

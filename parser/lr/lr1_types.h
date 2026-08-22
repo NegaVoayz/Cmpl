@@ -149,6 +149,18 @@ typedef struct {
     AST_Node* node;
 } StackFrame;
 
+/* Saved "outer" LR parse context (used by lr1_generic.c / lr1_va_arg.c):
+ * a re-entrant lr1_parse_expr() resets the LR stack and cast state, so
+ * the surrounding parse's state is snapshotted here and restored after. */
+typedef struct {
+    StackFrame    stack[MAX_STACK];  /* live stack prefix [0..sp] */
+    int           sp;
+    int           pending_cast;
+    int           cast_count;
+    PendingCast*  cast_chain;
+    int           paren_depth;
+} LR1_Saved;
+
 /* typedef-name registry node (defined in lr1.c) — for (ident)( casts */
 typedef struct TypedefName TypedefName;
 
