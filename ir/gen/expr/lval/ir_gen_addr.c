@@ -58,8 +58,7 @@ gen_addr_index(GenCtx* ctx, AST_Node* n)
     IR_Value* arr = gen_index_base(ctx, n->body.subscript.array,
                                    &is_ptr_val);
     if (!arr) {
-        IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
-        v->kind = VAL_UNDEF; v->type = t_i32; return v;
+        return gen_undef(b, t_i32);
     }
     IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
     return is_ptr_val
@@ -81,8 +80,7 @@ gen_addr_member(GenCtx* ctx, AST_Node* n)
             fprintf(stderr, "cmpl: error: cannot take address of"
                     " bit-field\n");
             if (ctx->mod) ctx->mod->had_error = 1;
-            IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-            v->kind = VAL_UNDEF; v->type = t_i32; return v;
+            return gen_undef(b, t_i32);
         }
         /* regular field of a bit-field struct: byte address */
         IR_Value* p = bf_byte_addr(ctx, n);

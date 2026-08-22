@@ -153,6 +153,9 @@ IR_Value* gen_call_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_ternary_expr(GenCtx* ctx, AST_Node* n);
 IR_Value* gen_cast(GenCtx* ctx, AST_Node* n);
 
+/* typed undef placeholder value (error paths, aggregate ternary coercion) */
+IR_Value* gen_undef(IR_Builder* b, IR_Type* ty);
+
 /* from ir_builder.c (shared internal helper) */
 void append_instr(IR_Builder* b, IR_Instr* inst);
 

@@ -60,7 +60,7 @@ gen_func_params(GenCtx* ctx, IR_Builder* b, IR_Func* func, AST_Node* fd,
  * is not a terminator get a ret; already-terminated blocks are left
  * alone. */
 static void
-gen_func_terminators(IR_Builder* b, IR_Func* func, Arena* a)
+gen_func_terminators(IR_Builder* b, IR_Func* func)
 {
     IR_Block* blk = func->blocks;
     while (blk) {
@@ -73,10 +73,7 @@ gen_func_terminators(IR_Builder* b, IR_Func* func, Arena* a)
             ir_builder_set_block(b, blk);
 
             if (func->ret_type && func->ret_type->kind != IR_VOID) {
-                IR_Value* undef = arena_alloc(a, sizeof(IR_Value));
-                undef->kind = VAL_UNDEF;
-                undef->type = func->ret_type;
-                ir_build_ret(b, undef);
+                ir_build_ret(b, gen_undef(b, func->ret_type));
             } else {
                 ir_build_ret(b, NULL);
             }
@@ -143,7 +140,7 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     if (fd->body.func_def.body)
         gen_stmt(&ctx, fd->body.func_def.body);
 
-    gen_func_terminators(b, func, a);
+    gen_func_terminators(b, func);
 
     /* append to module */
     if (mod->last_func)

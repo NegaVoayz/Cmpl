@@ -51,8 +51,7 @@ emit_member_load(GenCtx* ctx, IR_Value* struct_ptr, IR_Type* struct_ty,
     IR_Builder* b = ctx->b;
     if (!struct_ty || (struct_ty->kind != IR_STRUCT &&
                        struct_ty->kind != IR_UNION)) {
-        IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-        v->kind = VAL_UNDEF; v->type = t_i32; return v;
+        return gen_undef(ctx->b, t_i32);
     }
 
     Type* ast_struct = ir_struct_ast_lookup(struct_ty);
@@ -62,8 +61,7 @@ emit_member_load(GenCtx* ctx, IR_Value* struct_ptr, IR_Type* struct_ty,
         field_idx = ir_struct_field_index(ast_struct, mem_name);
 
     if (field_idx < 0) {
-        IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-        v->kind = VAL_UNDEF; v->type = t_i32; return v;
+        return gen_undef(ctx->b, t_i32);
     }
 
     /* compute field type */
@@ -109,8 +107,7 @@ gen_member_expr(GenCtx* ctx, AST_Node* n)
     IR_Type* struct_ty = NULL;
     if (!resolve_member_record(ctx, n->body.member.record,
                                n->body.member.op, &struct_ptr, &struct_ty)) {
-        IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-        v->kind = VAL_UNDEF; v->type = t_i32; return v;
+        return gen_undef(ctx->b, t_i32);
     }
     return emit_member_load(ctx, struct_ptr, struct_ty,
                             n->body.member.member);
@@ -146,8 +143,7 @@ gen_index_expr(GenCtx* ctx, AST_Node* n)
     IR_Value* arr = gen_index_base(ctx, n->body.subscript.array,
                                    &is_ptr_val);
     if (!arr) {
-        IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
-        v->kind = VAL_UNDEF; v->type = t_i32; return v;
+        return gen_undef(b, t_i32);
     }
     IR_Value* idx = gen_expr(ctx, n->body.subscript.index);
     IR_Value* gep = is_ptr_val
@@ -177,7 +173,7 @@ gen_postfix_expr(GenCtx* ctx, AST_Node* n)
     }
 
     IR_Value* ptr = gen_store_ptr(ctx, opnd);
-    if (!ptr) { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+    if (!ptr) return gen_undef(ctx->b, t_i32);
     IR_Value* old_val = ir_build_load(b, ptr);
     IR_Value* new_val;
     if (old_val->type && old_val->type->kind == IR_PTR) {

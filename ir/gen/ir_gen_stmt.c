@@ -40,8 +40,7 @@ static void gen_stmt_return(GenCtx* ctx, AST_Node* n)
     IR_Value* rv = gen_expr(ctx, n->body.ret.expr);
 
     if (!rv && ctx->ret_type && ctx->ret_type->kind != IR_VOID) {
-        IR_Value* undef = arena_alloc(b->arena, sizeof(IR_Value));
-        undef->kind = VAL_UNDEF; undef->type = ctx->ret_type; rv = undef;
+        rv = gen_undef(b, ctx->ret_type);
     }
 
     /* coerce return value to function return type */

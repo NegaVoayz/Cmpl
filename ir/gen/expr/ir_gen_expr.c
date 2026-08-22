@@ -41,8 +41,7 @@ gen_expr_ident(GenCtx* ctx, AST_Node* n)
               return ir_const_int(ctx->b, t_i32,
                                   (int)(intptr_t)ev->aliased_type);
       } }
-    IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value));
-    v->kind = VAL_UNDEF; v->type = t_i32; return v;
+    return gen_undef(ctx->b, t_i32);
 }
 
 /* binary operator: short-circuit AND/OR, assignment/compound-assignment
@@ -175,6 +174,6 @@ gen_expr(GenCtx* ctx, AST_Node* n)
     case AST_VA_ARG: return gen_va_arg_expr(ctx, n);
 
     default:
-    { IR_Value* v = arena_alloc(ctx->b->arena, sizeof(IR_Value)); v->kind = VAL_UNDEF; v->type = t_i32; return v; }
+    { return gen_undef(ctx->b, t_i32); }
     }
 }

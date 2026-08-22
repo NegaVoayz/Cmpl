@@ -47,7 +47,7 @@ ternary_coerce(IR_Builder* b, IR_Value* v, IR_Type* ct)
  * (there is no implicit AST cast yet).  Returns the common type, or
  * NULL when the branches already agree.  Mutates *tp/*ep in place. */
 static IR_Type*
-ternary_common_type(Arena* a, IR_Value** tp, IR_Value** ep)
+ternary_common_type(IR_Builder* b, IR_Value** tp, IR_Value** ep)
 {
     IR_Value* t = *tp;
     IR_Value* e = *ep;
@@ -59,12 +59,10 @@ ternary_common_type(Arena* a, IR_Value** tp, IR_Value** ep)
 
     if (t_agg && !e_agg) {
         ct = t->type;
-        e = arena_alloc(a, sizeof(IR_Value));
-        e->kind = VAL_UNDEF; e->type = ct;
+        e = gen_undef(b, ct);
     } else if (e_agg && !t_agg) {
         ct = e->type;
-        t = arena_alloc(a, sizeof(IR_Value));
-        t->kind = VAL_UNDEF; t->type = ct;
+        t = gen_undef(b, ct);
     } else if (t->type->kind != e->type->kind ||
                ir_type_size(t->type) != ir_type_size(e->type)) {
         if (t->type->kind == IR_PTR || e->type->kind == IR_PTR)
@@ -129,7 +127,7 @@ gen_ternary_expr(GenCtx* ctx, AST_Node* n)
      * phi-merge.  (Coercing in the merge block would be invalid: a
      * value from one branch does not dominate the 2-predecessor
      * merge, and neither does an instruction that uses it.) */
-    IR_Type* ct = ternary_common_type(ctx->b->arena, &t, &e);
+    IR_Type* ct = ternary_common_type(ctx->b, &t, &e);
 
     /* per-branch coercion + branch to merge.  Use then_end/else_end
      * (the LAST block of each branch): a nested ternary inside a

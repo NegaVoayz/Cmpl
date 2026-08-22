@@ -77,3 +77,15 @@ void sym_scope_pop(GenCtx* ctx)
         }
     }
 }
+
+/* typed VAL_UNDEF placeholder value (error paths, aggregate ternary
+ * coercion).  Shared by the ir/gen/*.c files that used to build one
+ * inline. */
+IR_Value*
+gen_undef(IR_Builder* b, IR_Type* ty)
+{
+    IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
+    v->kind = VAL_UNDEF;
+    v->type = ty;
+    return v;
+}

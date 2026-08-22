@@ -123,11 +123,7 @@ gen_expr_generic(GenCtx* ctx, AST_Node* n)
                 "matching association and no default arm\n",
                 n->loc.line, n->loc.col);
         ctx->mod->had_error = 1;
-        IR_Value* v = arena_alloc(b->arena, sizeof(IR_Value));
-
-        v->kind = VAL_UNDEF;
-        v->type = t_i32;
-        return v;
+        return gen_undef(b, t_i32);
     }
 
     /* evaluate ONLY the selected arm (C11 6.5.1.1p3) */
