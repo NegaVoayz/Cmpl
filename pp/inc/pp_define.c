@@ -69,9 +69,9 @@ parse_define_params(Arena* arena, const char** pp, const char* end,
             break;
         }
 
-        const char* pstart = p;
-        while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
-        int plen = (int)(p - pstart);
+        const char* pstart;
+        int plen = pp_read_ident(p, end, &pstart);
+        p = pstart + plen;
 
         if (plen > 0 && *nparams < 64) {
             params[*nparams] = arena_alloc(arena, plen + 1);
@@ -133,11 +133,9 @@ void
 handle_define(PPCtx* ctx, const char** pp, const char* end)
 {
     const char* p = *pp;
-    while (p < end && (*p == ' ' || *p == '\t')) p++;
-
-    const char* name_start = p;
-    while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
-    int name_len = (int)(p - name_start);
+    const char* name_start;
+    int name_len = pp_read_ident(p, end, &name_start);
+    p = name_start + name_len;
 
     if (name_len == 0) { skip_to_eol(&p, end); *pp = p; return; }
 

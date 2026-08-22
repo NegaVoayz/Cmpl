@@ -32,6 +32,17 @@ skip_ws(const char* p, const char* end)
     return p;
 }
 
+/* Skip whitespace, then read an identifier: sets *start to the first ident
+ * char and returns its length (0 if no ident follows the ws).  The cursor
+ * just past the identifier is *start + len. */
+int
+pp_read_ident(const char* p, const char* end, const char** start)
+{
+    p = skip_ws(p, end);
+    *start = p;
+    return scan_ident(p, end);
+}
+
 /* stringize: `#` (ws) paramname -> a quoted string literal.
  * `#__VA_ARGS__` stringizes the WHOLE variadic argument text (joined
  * with ", "), not the first element.  Returns the cursor past the name. */
@@ -40,8 +51,8 @@ handle_stringize(Macro* macro, const char* bp, const char* be,
                  const char** arg_starts, const int* arg_lens, int argc,
                  Buffer* out)
 {
-    const char* q = skip_ws(bp + 1, be);
-    int qlen = scan_ident(q, be);
+    const char* q;
+    int qlen = pp_read_ident(bp + 1, be, &q);
     int found = -1;
 
     if (macro->variadic && qlen == 11 &&

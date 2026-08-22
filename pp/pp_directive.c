@@ -27,11 +27,9 @@ static void
 handle_undef(PPCtx* ctx, const char** pp, const char* end)
 {
     const char* p = *pp;
-    while (p < end && (*p == ' ' || *p == '\t')) p++;
-
-    const char* name_start = p;
-    while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
-    int name_len = (int)(p - name_start);
+    const char* name_start;
+    int name_len = pp_read_ident(p, end, &name_start);
+    p = name_start + name_len;
 
     if (name_len > 0 && name_len < 256) {
         char name_buf[256];
@@ -89,11 +87,10 @@ handle_directive(PPCtx* ctx, const char** pp, const char* end)
     const char* p = *pp;
 
     p++; /* skip '#' */
-    while (p < end && (*p == ' ' || *p == '\t')) p++;
 
-    const char* dname = p;
-    while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
-    int dlen = (int)(p - dname);
+    const char* dname;
+    int dlen = pp_read_ident(p, end, &dname);
+    p = dname + dlen;
 
     while (p < end && (*p == ' ' || *p == '\t')) p++;
     *pp = p;

@@ -40,12 +40,10 @@ resolve_defined(MacroTable* mt, const char* src, const char* end, Buffer* out)
                 int has_paren = 0;
                 if (q < end && *q == '(') {
                     has_paren = 1; q++;
-                    while (q < end && (*q == ' ' || *q == '\t')) q++;
                 }
-                const char* mname = q;
-                while (q < end && (isalnum((unsigned char)*q) || *q == '_'))
-                    q++;
-                int mlen = (int)(q - mname);
+                const char* mname;
+                int mlen = pp_read_ident(q, end, &mname);
+                q = mname + mlen;
                 if (has_paren && q < end && *q == ')') q++;
 
                 int def = 0;
@@ -87,11 +85,9 @@ void
 handle_ifdef(PPCtx* ctx, const char** pp, const char* end, int is_ifdef)
 {
     const char* p = *pp;
-    while (p < end && (*p == ' ' || *p == '\t')) p++;
-
-    const char* name_start = p;
-    while (p < end && (isalnum((unsigned char)*p) || *p == '_')) p++;
-    int name_len = (int)(p - name_start);
+    const char* name_start;
+    int name_len = pp_read_ident(p, end, &name_start);
+    p = name_start + name_len;
 
     int defined = 0;
     if (name_len > 0 && name_len < 256) {

@@ -58,12 +58,14 @@ void   macro_free(MacroTable* mt);
 int macro_expand(MacroTable* mt, const char* src, int srclen,
                  const char* p, Buffer* out);
 
-/* Replacement-list scanners + substitution helpers (in inc/pp_expand_ops.c,
- * shared with pp_expand.c).  scan_ident / skip_ws scan a token / ws run;
- * handle_stringize / handle_ident consume one `#param` / param construct in
- * a function-like macro body and return the cursor past it. */
+/* Shared scanners (in inc/pp_expand_ops.c): scan_ident / skip_ws scan a
+ * token / ws run; pp_read_ident skips ws then reads an ident (returns its
+ * length, sets *start).  handle_stringize / handle_ident consume one `#param`
+ * / param construct in a function-like macro body and return the cursor
+ * past it. */
 int  scan_ident(const char* p, const char* end);
 const char* skip_ws(const char* p, const char* end);
+int  pp_read_ident(const char* p, const char* end, const char** start);
 const char* handle_stringize(Macro* macro, const char* bp, const char* be,
                              const char** arg_starts, const int* arg_lens,
                              int argc, Buffer* out);
