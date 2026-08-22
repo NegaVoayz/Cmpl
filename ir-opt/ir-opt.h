@@ -56,6 +56,34 @@ int opt_gvn(IR_Module* mod);
 int opt_inline_dev(IR_Module* mod);
 
 /* ---------------------------------------------------------------
+ *  GVN value-number table (local CSE within a basic block).
+ *  Growable: inline 64 entries, then heap doubling (B-34) — never
+ *  silently drops past a fixed cap.  vn_tab_* live in ir_opt_gvn_tab.c.
+ * --------------------------------------------------------------- */
+
+#define VN_INLINE_CAP 64
+
+typedef struct {
+    IR_Opcode opcode;
+    IR_Value* ops[3];    /* operands 0..2 (GEP has 3; ops[2] must NOT
+                            alias type -- was sized 2, breaking GVN) */
+    IR_Type*  type;
+    IR_Cond   cond;
+    IR_Value* result;    /* first occurrence's result */
+} VNEntry;
+
+typedef struct {
+    VNEntry  inline_buf[VN_INLINE_CAP];
+    VNEntry* data;       /* == inline_buf until it grows */
+    int      len;
+    int      cap;
+} VNTab;
+
+void vn_tab_init(VNTab* t);
+void vn_tab_push(VNTab* t, IR_Instr* inst);
+void vn_tab_free(VNTab* t);
+
+/* ---------------------------------------------------------------
  *  Use-list builder — populates IR_Value.uses / def_instr
  *  before passes that need def-use chains (DCE, GVN).
  * --------------------------------------------------------------- */

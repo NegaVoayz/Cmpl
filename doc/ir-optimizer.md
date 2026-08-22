@@ -189,7 +189,8 @@ Eliminates duplicate computations within basic blocks.
 ### Algorithm (local GVN, def-use aware)
 
 1. `build_use_lists(func, arena)` — populate `IR_Value.uses` arrays.
-2. Per basic block: maintain a VN table (max 64 entries, `(opcode, ops[2], type, cond)`).
+2. Per basic block: maintain a VN table (growable `VNTab` — inline 64
+   entries, then heap doubling (B-34); entries are `(opcode, ops[2], type, cond)`).
 3. For each CSE-able instruction, check for a VN match.
 4. On match: call `redirect_users(inst->result, canonical_result)` which iterates
    the uses list and patches all operand references (regular operands, call args,
@@ -202,15 +203,15 @@ int opt_gvn(IR_Module* mod)
     for each IR_Func:
         build_use_lists(func, mod->arena);
         for each IR_Block:
-            VNEntry table[64]; int n = 0;
+            VNTab tab; vn_tab_init(&tab);
             for each IR_Instr:
-                if (vn_match) redirect_users(inst->result, canonical);
-                    replace_all_uses_with(inst->result, seen[key]->result);
-                    remove_inst(inst);
-                    ctx->changed = 1;
+                if (vn_match(&tab.data[i], inst)) {
+                    redirect_users(inst->result, tab.data[i].result);
+                    changed = 1;
                 } else {
-                    seen[key] = inst;
+                    vn_tab_push(&tab, inst);
                 }
+            vn_tab_free(&tab);
 }
 ```
 

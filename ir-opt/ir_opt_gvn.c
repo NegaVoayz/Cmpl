@@ -2,24 +2,7 @@
 
 #include "ir-opt.h"
 
-#include <stdlib.h>
-#include <string.h>
-
 #include "arena.h"
-
-#define MAX_VN 64
-
-/* ---------------------------------------------------------------
- *  Value-number entry
- * --------------------------------------------------------------- */
-
-typedef struct {
-    IR_Opcode opcode;
-    IR_Value* ops[2];
-    IR_Type*  type;
-    IR_Cond   cond;
-    IR_Value* result;    /* first occurrence's result */
-} VNEntry;
 
 /* ---------------------------------------------------------------
  *  Check if two values are the same (for VN purposes)
@@ -55,24 +38,6 @@ vn_match(VNEntry* e, IR_Instr* inst)
     if (e->ops[2] && !same_val(e->ops[2], inst->operands[2])) return 0;
     if (inst->opcode == IROP_ICMP && e->cond != inst->cond) return 0;
     return 1;
-}
-
-/* ---------------------------------------------------------------
- *  Add an instruction to the VN table
- * --------------------------------------------------------------- */
-
-static void
-vn_add(VNEntry* table, int* n, IR_Instr* inst)
-{
-    if (*n >= MAX_VN) return;
-    table[*n].opcode = inst->opcode;
-    table[*n].ops[0] = inst->operands[0];
-    table[*n].ops[1] = inst->operands[1];
-    table[*n].ops[2] = inst->operands[2];
-    table[*n].type   = inst->type;
-    table[*n].cond   = inst->cond;
-    table[*n].result = inst->result;
-    (*n)++;
 }
 
 /* ---------------------------------------------------------------
@@ -136,8 +101,8 @@ gvn_func(IR_Func* fn, Arena* a)
     build_use_lists(fn, a);
 
     for (IR_Block* blk = fn->blocks; blk; blk = blk->next) {
-        VNEntry table[MAX_VN];
-        int n = 0;
+        VNTab tab;
+        vn_tab_init(&tab);
 
         IR_FOR_INST(inst, blk) {
             if (!can_cse(inst)) {
@@ -145,23 +110,25 @@ gvn_func(IR_Func* fn, Arena* a)
                  * (store, call could modify memory) */
                 if (inst->opcode == IROP_STORE ||
                     inst->opcode == IROP_CALL)
-                    n = 0;
+                    tab.len = 0;
                 continue;
             }
 
             /* check for existing match */
             int found = 0;
-            for (int i = 0; i < n; i++) {
-                if (vn_match(&table[i], inst)) {
+            for (int i = 0; i < tab.len; i++) {
+                if (vn_match(&tab.data[i], inst)) {
                     /* redirect all users to canonical result */
-                    redirect_users(inst->result, table[i].result);
+                    redirect_users(inst->result, tab.data[i].result);
                     found = 1; changed = 1;
                     break;
                 }
             }
             if (!found)
-                vn_add(table, &n, inst);
+                vn_tab_push(&tab, inst);
         }
+
+        vn_tab_free(&tab);
     }
     return changed;
 }
