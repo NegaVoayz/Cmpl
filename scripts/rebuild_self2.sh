@@ -16,26 +16,47 @@ rm -f "$OUT"/*.o "$OUT"/*.ll "$OUT"/*.err "$OUT/cmpl_self2"
 source "$ROOT/scripts/src_list.sh"
 SOURCES=("${CMPL_SOURCES[@]}")
 
-objfiles=()
-failed=0
+# parallelism: SELF_JOBS overrides; default = cores, capped at 16 (memory)
+JOBS="${SELF_JOBS:-$(nproc)}"
+[ "$JOBS" -gt 16 ] && JOBS=16
 
-echo "=== Stage 2: cmpl_self -> .ll -> .o ==="
+# include flags (no spaces in any value, safe to word-split in the jobs)
+I_ARGS_STR="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen"
+
+echo "=== Stage 2: cmpl_self -> .ll -> .o (jobs=$JOBS) ==="
+FAIL_LOG="$OUT/.failures"
+: > "$FAIL_LOG"
+
+# one job per source: cmpl then clang; a failure appends one line to FAIL_LOG
+build_one() {
+    local src="$1" base="$2"
+    local ll="$OUT/${base}.ll" obj="$OUT/${base}.o"
+
+    if ! "$C" -emit-llvm $I_ARGS_STR -o "$ll" "$src" >/dev/null 2>"$OUT/${base}.cmpl.err"; then
+        echo "cmpl:$src" >> "$FAIL_LOG"
+        return
+    fi
+    if ! clang -c "$ll" -o "$obj" 2>"$OUT/${base}.clang.err"; then
+        echo "clang:$src" >> "$FAIL_LOG"
+    fi
+}
+export -f build_one
+export C OUT I_ARGS_STR FAIL_LOG
+
+jobs=()
 for src in "${SOURCES[@]}"; do
-  base="${src//\//_}"
-  ll="$OUT/${base}.ll"
-  obj="$OUT/${base}.o"
-  objfiles+=("$obj")
-  if ! "$C" -emit-llvm -Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen -o "$ll" "$src" >/dev/null 2>"$OUT/${base}.cmpl.err"; then
-    echo "  FAIL (cmpl): $src"
-    tail -3 "$OUT/${base}.cmpl.err" | sed 's/^/    /'
-    failed=$((failed+1))
-    continue
-  fi
-  if ! clang -c "$ll" -o "$obj" 2>"$OUT/${base}.clang.err"; then
-    echo "  FAIL (clang): $src"
-    failed=$((failed+1))
-  fi
+    base="${src//\//_}"
+    jobs+=("$src $base")
 done
+printf '%s\n' "${jobs[@]}" | xargs -P "$JOBS" -n 2 bash -c 'build_one "$@"' _
+
+failed=0
+while read -r line; do
+    failed=$((failed+1))
+    kind="${line%%:*}"; s="${line#*:}"
+    echo "  FAIL ($kind): $s"
+done < "$FAIL_LOG"
+rm -f "$FAIL_LOG"
 
 echo "Passed: $(( ${#SOURCES[@]} - failed )) / ${#SOURCES[@]}"
 
