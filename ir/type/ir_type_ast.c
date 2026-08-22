@@ -1,28 +1,14 @@
-/* ir_type_ast.c -- AST type -> IR type conversion, plus the named/anonymous
- * struct dedup cache.  Singletons, the composite interning cache, and the
- * constructors live in ir_type.c; the IR->AST struct map in ir_type_struct.c.
+/* ir_type_ast.c -- AST type -> IR type conversion.  Singletons, the composite
+ * interning cache, and the constructors live in ir_type.c; the IR->AST struct
+ * map in ir_type_struct.c; the struct dedup cache in ir_type_struct_cache.c.
  * Function-form conversion (ast_to_func_type) and the shared chain-clone /
  * signedness helpers live in ir_type_func.c. */
 
 #include "ir.h"
 #include "ir_type.h"
 
-#include <string.h>
-
-/* struct type cache — deduplicates IR_Type objects for the same struct.
- * Unbounded (arena-linked): modules with many distinct struct types
- * (the compiler's own sources exceed any fixed cap) must not evict a
- * self-referential struct — a bounded cache lets structs past the cap
- * recurse forever through their pointer cycles.
- * Disabled during pass 0 (pre-typedef-resolution) to avoid caching
- * incomplete types. */
-typedef struct StructCacheEntry {
-    IR_Type* ty;
-    Type*    ast;   /* AST ptr for anonymous dedup */
-    struct StructCacheEntry* next;
-} StructCacheEntry;
-static StructCacheEntry* struct_cache = NULL;
-static int cache_enabled = 0;
+extern IR_Type* struct_cache_get_ty(Type* ast);
+extern void     struct_cache_put(Arena* a, Type* ast, IR_Type* t);
 
 /* function-form conversion (ast_to_func_type) and the shared chain-clone /
  * signedness helpers live in ir_type_func.c (declared in ir_type.h). */
@@ -98,61 +84,25 @@ ast_to_ir_type_ctx(Arena* a, Type* ast, int pointee)
     }
 }
 
-/* struct/union: dedup by name (named) or by AST pointer (anonymous).
- * Anonymous structs must also be cached so every ast_to_ir_type call
- * for the same typedef returns the same IR_Type — otherwise
- * ir_struct_ast_lookup fails on clones in member chains. */
+/* struct/union: dedup by name (named) or by AST pointer (anonymous),
+ * backed by the hash-map cache in ir_type_struct_cache.c.  Anonymous
+ * structs must also be cached so every ast_to_ir_type call for the same
+ * typedef returns the same IR_Type — otherwise ir_struct_ast_lookup fails
+ * on clones in member chains. */
 static IR_Type*
 ast_to_struct_type(Arena* a, Type* ast)
 {
-    if (cache_enabled) {
-        if (ast->name.data) {
-            for (StructCacheEntry* e = struct_cache; e; e = e->next) {
-                IR_Type* sc = e->ty;
-                /* Exact AST node identity: the entry is cached BEFORE
-                 * its members are built, so a cycle back into this very
-                 * node (self-/mutual recursion through pointers) must
-                 * return the in-flight type — the members/params guard
-                 * below would skip it and recurse forever. */
-                if (e->ast == ast)
-                    return sc;
-                if (sc->name.length == ast->name.length &&
-                    memcmp(sc->name.data, ast->name.data,
-                           ast->name.length) == 0) {
-                    /* A forward-declared (incomplete) struct must not
-                     * shadow its later complete definition of the same
-                     * tag: keep scanning for a complete cached entry. */
-                    if (sc->members || !ast->params)
-                        return sc;
-                    /* In-flight entry of the SAME definition: struct
-                     * references resolved by resolve_struct_refs share
-                     * the definition's field list (same params pointer),
-                     * so a reference nested inside the definition being
-                     * built must map to the in-flight type — a fresh
-                     * clone would duplicate %struct.NAME in the IR. */
-                    if (e->ast->params == ast->params)
-                        return sc;
-                }
-            }
-        } else {
-            for (StructCacheEntry* e = struct_cache; e; e = e->next)
-                if (!e->ty->name.data && e->ast == ast)
-                    return e->ty;
-        }
-    }
+    IR_Type* hit = struct_cache_get_ty(ast);
+
+    if (hit) return hit;
+
     IR_Type* t = ir_type_new(a,
         (ast->kind == TYPE_UNION) ? IR_UNION : IR_STRUCT);
     t->name = ast->name;
     /* Cache BEFORE building members so self-referencing fields
      * (e.g. Arena* prev inside struct Arena) hit the cache and
      * avoid infinite recursion -> stack overflow. */
-    if (cache_enabled) {
-        StructCacheEntry* e = arena_alloc(a, sizeof(StructCacheEntry));
-        e->ty = t;
-        e->ast = ast;
-        e->next = struct_cache;
-        struct_cache = e;
-    }
+    struct_cache_put(a, ast, t);
     register_struct_ast(t, ast);
     if (ast->params) {
         /* structs with bit-fields get the gcc storage-unit layout: a
@@ -177,17 +127,4 @@ ast_to_struct_type(Arena* a, Type* ast)
         }
     }
     return t;
-}
-
-void
-ir_clear_struct_cache(void)
-{
-    cache_enabled = 1;
-}
-
-void
-ir_reset_struct_caches(void)
-{
-    struct_cache = NULL;
-    cache_enabled = 0;
 }
