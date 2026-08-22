@@ -7,30 +7,40 @@
 
 /* ---------------------------------------------------------------
  *  Collect blocks + build predecessor lists. Returns count.
+ *  Predecessor building is a single forward pass: each block's
+ *  position is cached transiently in IR_Block.n_preds (an
+ *  otherwise-unused field, re-zeroed before use by the simplify
+ *  pass), so a terminator's successor IR_Block* maps to its BlkInfo
+ *  index in O(1) instead of a full per-terminator scan.
  * --------------------------------------------------------------- */
 
 int
 collect_blocks(IR_Func* fn, BlkInfo* bi, int cap)
 {
-    int n = 0;
-    for (IR_Block* b = fn->blocks; b && n < cap; b = b->next, n++) {
-        bi[n].blk = b; bi[n].n_preds = 0; bi[n].n_df = 0;
+    int n = 0, i = 0;
+    for (IR_Block* b = fn->blocks; b; b = b->next, i++) {
+        b->n_preds = (i < cap) ? i : -1;   /* transient block index */
+        if (i >= cap) continue;
+        bi[i].blk = b; bi[i].n_preds = 0; bi[i].n_df = 0;
+        n++;
     }
-    for (int i = 0; i < n; i++) {
-        IR_Instr* t = bi[i].blk->last;
+    for (int k = 0; k < n; k++) {
+        IR_Instr* t = bi[k].blk->last;
         if (!t) continue;
 
         if (t->opcode == IROP_BR) {
-            for (int j = 0; j < n; j++)
-                if (bi[j].blk == t->in_blocks[0] &&
-                    bi[j].n_preds < MAX_PRE)
-                    bi[j].preds[bi[j].n_preds++] = i;
+            if (t->in_blocks && t->in_blocks[0]) {
+                int j = t->in_blocks[0]->n_preds;
+                if (j >= 0 && bi[j].n_preds < MAX_PRE)
+                    bi[j].preds[bi[j].n_preds++] = k;
+            }
         } else if (t->opcode == IROP_COND_BR) {
-            for (int k = 0; k < 2; k++)
-                for (int j = 0; j < n; j++)
-                    if (bi[j].blk == t->in_blocks[k] &&
-                        bi[j].n_preds < MAX_PRE)
-                        bi[j].preds[bi[j].n_preds++] = i;
+            for (int s = 0; s < 2; s++) {
+                if (!t->in_blocks || !t->in_blocks[s]) continue;
+                int j = t->in_blocks[s]->n_preds;
+                if (j >= 0 && bi[j].n_preds < MAX_PRE)
+                    bi[j].preds[bi[j].n_preds++] = k;
+            }
         }
     }
     return n;
