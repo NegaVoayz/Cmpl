@@ -12,6 +12,18 @@ static AST_Node* ll_parse_expr_stmt(LR1_Parser* p);
 extern void ll_expect(LR1_Parser* p, TokenKind k);
 extern AST_Node* ll_parse_decl_or_stmt(LR1_Parser* p);
 
+/* begin a statement: capture the keyword token, skip it, and allocate
+ * the AST node whose loc comes from that keyword */
+AST_Node*
+ll_stmt_begin(LR1_Parser* p, AST_Type kind)
+{
+    Token* tok = p->tok;
+
+    p->tok = p->tok->next;    /* skip the statement keyword */
+
+    return ast_node_new(p->arena, kind, tok->loc.line, tok->loc.col);
+}
+
 /* control-flow statement parsers (in ll_stmt_ctrl.c) */
 extern AST_Node* ll_parse_if(LR1_Parser* p);
 extern AST_Node* ll_parse_while(LR1_Parser* p);
@@ -30,11 +42,7 @@ extern AST_Node* ll_parse_default(LR1_Parser* p);
 
 static AST_Node* ll_parse_goto(LR1_Parser* p)
 {
-    Token* tok = p->tok;
-
-    p->tok = p->tok->next;                /* skip 'goto' */
-
-    AST_Node* n = ast_node_new(p->arena, AST_GOTO, tok->loc.line, tok->loc.col);
+    AST_Node* n = ll_stmt_begin(p, AST_GOTO);
 
     n->body.jump.label = p->tok->body.ident;
     p->tok = p->tok->next;
@@ -45,14 +53,11 @@ static AST_Node* ll_parse_goto(LR1_Parser* p)
 
 static AST_Node* ll_parse_label(LR1_Parser* p)
 {
-    Token* tok = p->tok;
-    String name = tok->body.ident;
+    String name = p->tok->body.ident;
 
-    p->tok = p->tok->next;
+    AST_Node* n = ll_stmt_begin(p, AST_LABEL);
+
     ll_expect(p, TOK_COLON);
-
-    AST_Node* n = ast_node_new(p->arena, AST_LABEL, tok->loc.line, tok->loc.col);
-
     n->body.label.name = name;
     /* a label may precede a declaration (`L: int x = 5;`), which
      * ll_parse_stmt cannot parse; use the decl-or-stmt dispatch */
@@ -67,11 +72,7 @@ static AST_Node* ll_parse_label(LR1_Parser* p)
 
 static AST_Node* ll_parse_block(LR1_Parser* p)
 {
-    Token* tok = p->tok;
-
-    p->tok = p->tok->next;                /* skip '{' */
-
-    AST_Node* n = ast_node_new(p->arena, AST_BLOCK, tok->loc.line, tok->loc.col);
+    AST_Node* n = ll_stmt_begin(p, AST_BLOCK);
 
     while (p->tok->kind != TOK_RBRACE && p->tok->kind != TOK_EOF) {
         AST_Node* stmt = ll_parse_decl_or_stmt(p);

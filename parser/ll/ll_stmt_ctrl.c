@@ -17,13 +17,9 @@ extern int is_type_start(Token* tok);
 
 AST_Node* ll_parse_if(LR1_Parser* p)
 {
-    Token* tok = p->tok;
+    AST_Node* n = ll_stmt_begin(p, AST_IF);
 
-    p->tok = p->tok->next;                /* skip 'if' */
     ll_expect(p, TOK_LPAREN);
-
-    AST_Node* n = ast_node_new(p->arena, AST_IF, tok->loc.line, tok->loc.col);
-
     p->allow_unmatched_rparen = 1;
     n->body.if_stmt.condition = ll_parse_expr(p);
     n->body.if_stmt.then_branch = ll_parse_stmt(p);
@@ -43,13 +39,9 @@ AST_Node* ll_parse_if(LR1_Parser* p)
 
 AST_Node* ll_parse_while(LR1_Parser* p)
 {
-    Token* tok = p->tok;
+    AST_Node* n = ll_stmt_begin(p, AST_WHILE);
 
-    p->tok = p->tok->next;                /* skip 'while' */
     ll_expect(p, TOK_LPAREN);
-
-    AST_Node* n = ast_node_new(p->arena, AST_WHILE, tok->loc.line, tok->loc.col);
-
     p->allow_unmatched_rparen = 1;
     n->body.loop.condition = ll_parse_expr(p);
     n->body.loop.body = ll_parse_stmt(p);
@@ -63,11 +55,7 @@ AST_Node* ll_parse_while(LR1_Parser* p)
 
 AST_Node* ll_parse_do_while(LR1_Parser* p)
 {
-    Token* tok = p->tok;
-
-    p->tok = p->tok->next;                /* skip 'do' */
-
-    AST_Node* n = ast_node_new(p->arena, AST_DO_WHILE, tok->loc.line, tok->loc.col);
+    AST_Node* n = ll_stmt_begin(p, AST_DO_WHILE);
 
     n->body.loop.body = ll_parse_stmt(p);
     ll_expect(p, TOK_WHILE);
@@ -85,13 +73,10 @@ AST_Node* ll_parse_do_while(LR1_Parser* p)
 
 AST_Node* ll_parse_for(LR1_Parser* p)
 {
-    Token* tok = p->tok;
-
-    p->tok = p->tok->next;                /* skip 'for' */
-    ll_expect(p, TOK_LPAREN);
-
-    AST_Node* n = ast_node_new(p->arena, AST_FOR, tok->loc.line, tok->loc.col);
+    AST_Node* n = ll_stmt_begin(p, AST_FOR);
     int       init_is_decl = 0;
+
+    ll_expect(p, TOK_LPAREN);
 
     /* init -- may be expression or C99 declaration (int i = 0) */
     if (p->tok->kind != TOK_SEMI) {

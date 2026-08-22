@@ -14,15 +14,21 @@
 /* scan the mantissa of a number literal into buf: hex form (0x... with
  * optional fraction + binary exponent) or decimal (digits, optional
  * fraction, optional decimal exponent).  sets *is_float when a fraction
- * or exponent was seen. */
+ * or exponent was seen; accumulates the integer VALUE into *v during
+ * the integer-part scan (base 16/8/10 by prefix), so read_number need
+ * not re-parse buf with strtoull. */
 static void
-read_number_mantissa(Lexer* lex, char* buf, int* len, int* is_float)
+read_number_mantissa(Lexer* lex, char* buf, int* len, int* is_float,
+                     unsigned long long* v)
 {
     if (peek(lex) == '0' && (peek_next(lex) == 'x' || peek_next(lex) == 'X')) {
         buf[(*len)++] = *lex->cur; advance(lex);
         buf[(*len)++] = *lex->cur; advance(lex);
         while (isxdigit((unsigned char)peek(lex))) {
-            buf[(*len)++] = *lex->cur; advance(lex);
+            char c = *lex->cur;
+
+            buf[(*len)++] = c; advance(lex);
+            *v = *v * 16 + (c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10);
         }
         /* C99 hex float: 0x1.8p3, 0x.8p-2 — fraction + binary exponent.
          * strtod() below already parses this form natively. */
@@ -44,8 +50,18 @@ read_number_mantissa(Lexer* lex, char* buf, int* len, int* is_float)
             }
         }
     } else {
+        int base = (peek(lex) == '0' &&
+                    isdigit((unsigned char)peek_next(lex))) ? 8 : 10;
+        int ok = 1;   /* still inside the valid octal prefix */
+
         while (isdigit((unsigned char)peek(lex))) {
-            buf[(*len)++] = *lex->cur; advance(lex);
+            char c = *lex->cur;
+
+            buf[(*len)++] = c; advance(lex);
+            /* invalid octal digit: strtoull stops the VALUE at it; latch
+             * ok so later valid digits are skipped too */
+            if (base == 8 && (c < '0' || c > '7')) ok = 0;
+            if (ok) *v = *v * base + (c - '0');
         }
         if (peek(lex) == '.') {
             *is_float = 1;
@@ -101,8 +117,9 @@ read_number(Lexer* lex)
     int  is_float = 0;
     TokenKind kind = TOK_INT_LIT;
     int is_unsigned = 0;  /* integer literal u/U suffix */
+    unsigned long long v = 0;
 
-    read_number_mantissa(lex, buf, &len, &is_float);
+    read_number_mantissa(lex, buf, &len, &is_float, &v);
 
     if (is_float) {
         kind = TOK_DOUBLE_LIT;
@@ -127,7 +144,7 @@ read_number(Lexer* lex)
     if (is_float) {
         tok->body.float_val = strtod(buf, NULL);
     } else {
-        tok->body.int_val = (long long)strtoull(buf, NULL, 0);
+        tok->body.int_val = (long long)v;
     }
     return tok;
 }

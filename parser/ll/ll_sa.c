@@ -23,7 +23,8 @@ extern void ll_expect(LR1_Parser* p, TokenKind k);
 AST_Node* ll_parse_static_assert(LR1_Parser* p)
 {
     Token* tok = p->tok;             /* IDENT "_Static_assert" */
-    p->tok = p->tok->next;
+
+    AST_Node* n = ll_stmt_begin(p, AST_STATIC_ASSERT);
 
     ll_expect(p, TOK_LPAREN);
 
@@ -63,9 +64,6 @@ AST_Node* ll_parse_static_assert(LR1_Parser* p)
 
     ll_expect(p, TOK_SEMI);
     if (p->error) return NULL;
-
-    AST_Node* n = ast_node_new(p->arena, AST_STATIC_ASSERT,
-                               tok->loc.line, tok->loc.col);
 
     n->body.static_assert.expr = cond;
     n->body.static_assert.message = msg->body.literal.str_val;
