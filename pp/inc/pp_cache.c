@@ -1,5 +1,7 @@
-/* pp_cache.c -- pp checkpoint cache: probe, verify, replay, store (B-43).
- * Design and soundness notes live in pp_cache.h. */
+/* pp_cache.c -- pp checkpoint cache: probe, verify, store (B-44).
+ * Per-level keys: each header's entry carries only its own probes/ops and
+ * direct-child slots; a hit re-includes children so each verifies its own
+ * entry (pp_cache_replay.c).  Design notes live in pp_cache.h. */
 
 #include "../pp.h"
 
@@ -13,6 +15,8 @@ pp_cache_create(void)
     PP_Cache* c = malloc(sizeof(PP_Cache));
 
     c->arena = arena_new();
+    c->entries = arena_alloc(c->arena, PP_CACHE_MAX * sizeof(PP_Entry*));
+    c->cap_entries = PP_CACHE_MAX;
     c->n_entries = 0; c->seq = 0;
     c->hits = 0; c->misses = 0; c->span_bytes = 0;
     return c;
@@ -25,25 +29,12 @@ pp_cache_free(PP_Cache* c)
     free(c);
 }
 
-static void
-seen_mark(PPCtx* ctx, const char* path)
-{
-    for (int i = 0; i < ctx->seen_count; i++)
-        if (strcmp(ctx->seen[i], path) == 0) return;
-    if (ctx->seen_count >= MAX_INCLUDES) return;
-
-    { int n = (int)strlen(path) + 1;
-      ctx->seen[ctx->seen_count] = arena_alloc(ctx->arena, n);
-      memcpy(ctx->seen[ctx->seen_count], path, n);
-      ctx->seen_count++; }
-}
-
 /* verify an entry against current TU state.  Called with ctx->rec NULL
  * (try_hit suspends recording), so re-checks record nothing. */
 static int
 entry_verify(PPCtx* ctx, PP_Entry* e)
 {
-    if (e->entry_skipping != cond_is_skipping(&ctx->cond) || ctx->seen_count + e->n_mark > MAX_INCLUDES) return 0;
+    if (e->entry_skipping != cond_is_skipping(&ctx->cond)) return 0;
 
     for (int i = 0; i < e->n_probes; i++) {
         PP_Probe* p = &e->probes[i];
@@ -65,38 +56,10 @@ entry_verify(PPCtx* ctx, PP_Entry* e)
     return 1;
 }
 
-/* replay a hit: emit "\n"+span+"\n", replay the ops in order, mark the
- * seen-false paths, apply the clamped cond delta, and merge the replayed
- * entry into a recording parent (nested hits extend its key). */
-static void
-entry_replay(PPCtx* ctx, PP_Entry* e, PP_Rec* parent)
-{
-    buf_append(&ctx->out, "\n", 1);
-    buf_append(&ctx->out, e->span, e->span_len);
-    buf_append(&ctx->out, "\n", 1);
-
-    for (int i = 0; i < e->n_ops; i++) {
-        PP_Op* op = &e->ops[i];
-
-        if (op->is_undef)
-            macro_remove(ctx, op->name);
-        else
-            macro_add(&ctx->macros, op->name, op->body, op->is_func,
-                      op->nparams, op->variadic, op->params);
-    }
-
-    for (int i = 0; i < e->n_seens; i++)
-        if (!e->seens[i].was_seen) seen_mark(ctx, e->seens[i].path);
-
-    if (parent) pp_rec_merge_entry(parent, e, ctx->cache->arena);
-
-    ctx->cond.depth += e->cond_delta;
-    if (ctx->cond.depth < 0) ctx->cond.depth = 0;
-    else if (ctx->cond.depth > COND_STACK_MAX) ctx->cond.depth = COND_STACK_MAX;
-}
-
 /* probe for `path`: replay on a hit, else 0.  Recording is suspended
- * across verify+replay (they re-check, not fresh dependencies). */
+ * across verify+replay (they re-check, not fresh dependencies).  The
+ * matched entry is shallow-copied: a nested miss from a re-include can
+ * evict the very slot we replay, and the copy's pointers are arena-stable. */
 int
 pp_cache_try_hit(PPCtx* ctx, const char* path)
 {
@@ -108,11 +71,13 @@ pp_cache_try_hit(PPCtx* ctx, const char* path)
     ctx->rec = NULL;
 
     for (int i = 0; i < c->n_entries; i++) {
-        PP_Entry* e = &c->entries[i];
+        PP_Entry* e = c->entries[i];
 
         if (strcmp(e->path, path) == 0 && entry_verify(ctx, e)) {
+            PP_Entry copy = *e;
+
             c->hits++;
-            entry_replay(ctx, e, saved);
+            entry_replay(ctx, &copy);
             ctx->rec = saved;
             return 1;
         }
@@ -138,30 +103,36 @@ pp_cache_begin(PPCtx* ctx, const char* path)
     ctx->rec = r;
 }
 
+/* store one entry in the pointer array (FIFO by seq, same-path cap) */
 static void
 pp_cache_store(PP_Cache* c, PP_Entry* e)
 {
     int oldest = -1, same_path = 0; unsigned min_seq = 0;
+    PP_Entry* ne = arena_alloc(c->arena, sizeof(PP_Entry));
+
+    *ne = *e;
 
     for (int i = 0; i < c->n_entries; i++) {
-        PP_Entry* x = &c->entries[i];
+        PP_Entry* x = c->entries[i];
 
         if (strcmp(x->path, e->path) == 0) same_path++;
         if (oldest < 0 || x->seq < min_seq) { oldest = i; min_seq = x->seq; }
     }
 
     if (same_path >= PP_CACHE_PER_PATH || c->n_entries >= PP_CACHE_MAX) {
-        c->entries[oldest] = *e;
-        c->entries[oldest].seq = c->seq++;
+        c->entries[oldest] = ne;
+        c->entries[oldest]->seq = c->seq++;
         return;
     }
 
-    e->seq = c->seq++;
+    ne->seq = c->seq++;
     c->span_bytes += e->span_len;
-    c->entries[c->n_entries++] = *e;
+    c->entries[c->n_entries++] = ne;
 }
 
-/* close a rec: capture span/cond, store child, merge into parent. */
+/* close a rec: capture the span, make slots/ops span-relative, correct the
+ * cond delta to this header's own shift (children apply theirs via their
+ * own replay), store, pop.  No transitive merge (B-44). */
 void
 pp_cache_end(PPCtx* ctx, const char* path, int span_start)
 {
@@ -181,19 +152,28 @@ pp_cache_end(PPCtx* ctx, const char* path, int span_start)
     e.probes = r->probes; e.n_probes = r->n_probes;
     e.seens = r->seens;   e.n_seens = r->n_seens;
     e.ops = r->ops;       e.n_ops = r->n_ops;
+    e.slots = r->slots;   e.n_slots = r->n_slots;
     e.entry_skipping = r->entry_skipping;
-    e.cond_delta = ctx->cond.depth - r->depth_at_entry;
-    e.n_mark = 1;
-    for (int i = 0; i < r->n_seens; i++)
-        if (!r->seens[i].was_seen) e.n_mark++;
+    e.child_cond_delta = r->child_cond_delta;
+    e.cond_delta = (ctx->cond.depth - r->depth_at_entry) - r->child_cond_delta;
+
+    for (int i = 0; i < r->n_slots; i++) {
+        r->slots[i].start -= span_start;
+        r->slots[i].end -= span_start;
+    }
+    for (int i = 0; i < r->n_ops; i++)
+        r->ops[i].offset -= span_start;
 
     pp_cache_store(c, &e);
-    if (r->parent) pp_rec_merge_entry(r->parent, &e, c->arena);
     ctx->rec = r->parent;
 }
 
 void
 pp_cache_stats(PP_Cache* c)
 {
-    fprintf(stderr, "pp cache: %d entries, %d hits, %d misses, %d span bytes\n", c->n_entries, c->hits, c->misses, c->span_bytes);
+    int total = c->hits + c->misses;
+    int pct = total ? (int)((100 * (long long)c->hits) / total) : 0;
+
+    fprintf(stderr, "pp cache: %d entries, %d hits, %d misses (%d%%), %d span bytes\n",
+            c->n_entries, c->hits, c->misses, pct, c->span_bytes);
 }

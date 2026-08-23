@@ -14,6 +14,8 @@ add_library(pp STATIC
     inc/pp_buf.c
     inc/pp_cache.c
     inc/pp_cache_rec.c
+    inc/pp_cache_ctrl.c
+    inc/pp_cache_replay.c
 )
 
 target_include_directories(pp PUBLIC . inc)

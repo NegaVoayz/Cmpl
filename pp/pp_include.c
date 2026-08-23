@@ -2,8 +2,8 @@
  *
  * The path-probing helpers (try_join, search_up_tree, try_include_paths,
  * try_include_subdirs, try_c_include_path, try_sys_dirs) live in
- * inc/pp_include_paths.c; this file drives the search strategy, dedupes
- * already-included files, and recurses into the included source.
+ * inc/pp_include_paths.c; this file drives the search strategy, hands the
+ * resolved path to pp_include_resolved, and recurses into included source.
  */
 
 #include "pp.h"
@@ -12,9 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Resolve #include "..." (local) or #include <...> (system).
- * The included file's content goes into ctx->out after recursive processing.
- * Returns 0 on success, -1 if file cannot be read. */
+/* Resolve #include "..." (local) or #include <...> (system), then hand the
+ * resolved path to pp_include_resolved.
+ * Returns 0 on success, -1 if file cannot be found. */
 int
 include_resolve(PPCtx* ctx, const char* inc_path, int is_local)
 {
@@ -52,7 +52,17 @@ include_resolve(PPCtx* ctx, const char* inc_path, int is_local)
         return -1;
     }
 
-    /* include-once check + cache seen-probe (B-43) */
+    return pp_include_resolved(ctx, full);
+}
+
+/* Include an already-resolved path: include-once check, cache probe, and on
+ * a miss fresh processing wrapped in its "\n"+content+"\n" sandwich.  Every
+ * emitted child records a slot into the active parent rec so a later replay
+ * re-includes it per-level; suppressed children record only a was_seen=1
+ * probe.  Shared by include_resolve and entry_replay's slot walk (B-44). */
+int
+pp_include_resolved(PPCtx* ctx, const char* full)
+{
     int already = 0;
 
     for (int i = 0; i < ctx->seen_count; i++)
@@ -65,21 +75,27 @@ include_resolve(PPCtx* ctx, const char* inc_path, int is_local)
 
     if (ctx->seen_count >= MAX_INCLUDES) return -1;
 
-    pp_cache_note_seen(ctx, full, 0);
+    int cond_before = ctx->cond.depth;
+    int slot_start = ctx->out.len;
 
-    /* probe: replay on a hit, else fall through to fresh processing */
-    if (pp_cache_try_hit(ctx, full)) {
-        { int n = (int)strlen(full) + 1;
-          ctx->seen[ctx->seen_count] = arena_alloc(ctx->arena, n);
-          memcpy(ctx->seen[ctx->seen_count], full, n); }
-        ctx->seen_count++;
-        return 0;
-    }
-
+    /* Mark seen pre-order, before the probe.  Fresh processing marks a
+     * header seen before its body runs, so a re-entrant include of an
+     * in-flight header is suppressed during its own subtree.  A hit's
+     * entry_replay runs inside try_hit, so marking after it would leave the
+     * header unseen during its own replay -> a cycle (cuda.h -> lr1.h)
+     * re-processes and re-emits the ancestor.  Marking here matches fresh
+     * on both the hit and miss paths. */
     { int n = (int)strlen(full) + 1;
       ctx->seen[ctx->seen_count] = arena_alloc(ctx->arena, n);
       memcpy(ctx->seen[ctx->seen_count], full, n); }
     ctx->seen_count++;
+
+    /* probe: replay on a hit, else fall through to fresh processing */
+    if (pp_cache_try_hit(ctx, full)) {
+        pp_cache_note_slot(ctx, full, slot_start, ctx->out.len,
+                           ctx->cond.depth - cond_before);
+        return 0;
+    }
 
     int  inc_len;
     char* inc_src = read_file(full, &inc_len);
@@ -106,5 +122,8 @@ include_resolve(PPCtx* ctx, const char* inc_path, int is_local)
 
     strncpy(ctx->base_dir, saved_dir, MAX_PATH);
     free(inc_src);
+
+    pp_cache_note_slot(ctx, full, slot_start, ctx->out.len,
+                       ctx->cond.depth - cond_before);
     return 0;
 }

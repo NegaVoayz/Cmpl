@@ -18,7 +18,7 @@ char* preprocess(const char* filename);
 /* --- Internal types shared across pp/ files --- */
 
 #define MAX_PATH       512
-#define MAX_INCLUDES   64
+#define MAX_INCLUDES   256
 #define MACRO_TABLE_SIZE 128
 #define COND_STACK_MAX 32
 
@@ -150,6 +150,11 @@ void process_source(PPCtx* ctx, const char* src, int srclen);
 
 /* Include resolution: returns 0 on success, -1 on error */
 int include_resolve(PPCtx* ctx, const char* inc_path, int is_local);
+
+/* Include an already-resolved path (seen-check, cache probe, process, and
+ * child-slot bookkeeping into the active parent rec).  Shared by
+ * include_resolve and entry_replay's slot walk (B-44). */
+int pp_include_resolved(PPCtx* ctx, const char* full);
 
 /* Include-path probes (in inc/pp_include_paths.c), shared with pp_include.c */
 int try_join(const char* dir, const char* inc_path, char* out);
