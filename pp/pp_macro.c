@@ -23,9 +23,13 @@ macro_init(MacroTable* mt, Arena* a)
 }
 
 Macro*
-macro_lookup(MacroTable* mt, const char* name)
+macro_lookup(PPCtx* ctx, const char* name)
 {
-    return hashmap_get(&mt->map, make_key(name));
+    Macro* m = hashmap_get(&ctx->macros.map, make_key(name));
+
+    /* record the probe when an include checkpoint is being recorded */
+    pp_cache_note_lookup_hook(ctx, name, m);
+    return m;
 }
 
 void
@@ -59,14 +63,14 @@ macro_add(MacroTable* mt, const char* name, const char* body,
 }
 
 void
-macro_remove(MacroTable* mt, const char* name)
+macro_remove(PPCtx* ctx, const char* name)
 {
-    Macro* m = macro_lookup(mt, name);
+    Macro* m = macro_lookup(ctx, name);
 
     if (m) {
         /* overwrite with NULL using persistent key from the Macro */
         String pk = { m->name, (int)strlen(m->name) };
-        hashmap_put(&mt->map, pk, NULL);
+        hashmap_put(&ctx->macros.map, pk, NULL);
     }
 }
 

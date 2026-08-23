@@ -35,7 +35,8 @@ handle_undef(PPCtx* ctx, const char** pp, const char* end)
         char name_buf[256];
         memcpy(name_buf, name_start, name_len);
         name_buf[name_len] = '\0';
-        macro_remove(&ctx->macros, name_buf);
+        macro_remove(ctx, name_buf);
+        pp_cache_note_op_undef(ctx, name_buf);
     }
 
     skip_to_eol(&p, end);

@@ -124,6 +124,9 @@ register_macro_body(PPCtx* ctx, const char** pp, const char* end,
 
         macro_add(&ctx->macros, name, body, is_func, nparams, variadic,
                   params_copy);
+        pp_cache_note_op_define(ctx, name, body, is_func, nparams, variadic,
+                                params_copy);
+        if (pp_cache_is_keyword(name)) { ctx->cache = NULL; ctx->rec = NULL; }
     }
 
     *pp = p;

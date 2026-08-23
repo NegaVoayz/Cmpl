@@ -1,9 +1,7 @@
-/* main_batch.c -- compile many translation units in one process (cmpl batch).
- *
- * Reads a list of source files and runs the existing single-TU pipeline per
- * file with a fresh preprocessor context, writing one flat-named .ll per
- * source exactly as build_self_linux.sh names them (src//\//_, strip .c).
- * Kept separate from main.c so the argument parser stays small. */
+/* main_batch.c -- compile many TUs in one process (cmpl batch).
+ * Runs the single-TU pipeline per file with a fresh preprocessor context,
+ * one flat-named .ll each (src//\//_, strip .c) as build_self_linux.sh
+ * names them.  Kept separate from main.c so its parser stays small. */
 
 #include "main_driver.h"
 
@@ -53,11 +51,10 @@ flat_name(const char* src, char* out, int out_sz)
  * frees the PPCtx on every exit path, so we never free it here. */
 static int
 compile_one(const CmdOpts* base, const char* src, const char* outdir,
-            const char** incs, int n_incs)
+            const char** incs, int n_incs, PP_Cache* cache)
 {
     CmdOpts opts = *base;
-    char    flat[512];
-    char    path[1024];
+    char    flat[512], path[1024];
     PPCtx   pp;
 
     flat_name(src, flat, sizeof(flat));
@@ -67,6 +64,7 @@ compile_one(const CmdOpts* base, const char* src, const char* outdir,
     opts.out_file = path;
 
     pp_ctx_init(&pp);
+    pp.cache = cache;
     cmpl_add_default_include_paths(&pp);
 
     for (int i = 0; i < n_incs; i++)
@@ -95,9 +93,9 @@ batch_parse_args(int argc, char** argv, BatchOpts* b)
     for (; i < argc; i++) {
         const char* a = argv[i];
 
-        if (strcmp(a, "-emit-llvm") == 0) {
-            /* default mode; accepted for build-script compatibility */
-        } else if (strcmp(a, "-o") == 0 && i + 1 < argc) {
+        if (strcmp(a, "-emit-llvm") == 0)
+            ;
+        else if (strcmp(a, "-o") == 0 && i + 1 < argc) {
             b->outdir = argv[++i];
         } else if (strncmp(a, "-O", 2) == 0 && a[2] >= '0'
                    && a[2] <= '2' && a[3] == '\0') {
@@ -127,7 +125,7 @@ batch_parse_args(int argc, char** argv, BatchOpts* b)
 static void
 batch_run_list(const char* text, int len, const CmdOpts* opts,
                const char* outdir, const char** incs, int n_incs,
-               int* ok, int* fail)
+               PP_Cache* cache, int* ok, int* fail)
 {
     const char* p = text;
     const char* end = text + len;
@@ -150,7 +148,7 @@ batch_run_list(const char* text, int len, const CmdOpts* opts,
             if (line_len < (int)sizeof(line)) {
                 snprintf(line, sizeof(line), "%.*s", line_len, p);
 
-                if (compile_one(opts, line, outdir, incs, n_incs) != 0) {
+                if (compile_one(opts, line, outdir, incs, n_incs, cache) != 0) {
                     fprintf(stderr, "cmpl:%s\n", line);
                     (*fail)++;
                 } else {
@@ -174,8 +172,7 @@ run_batch(int argc, char** argv)
     if (batch_parse_args(argc, argv, &b) != 0)
         return 1;
 
-    int   len;
-    char* text = read_file(b.listfile, &len);
+    int len; char* text = read_file(b.listfile, &len);
 
     if (!text) {
         fprintf(stderr, "batch: cannot open file list '%s'\n", b.listfile);
@@ -183,6 +180,7 @@ run_batch(int argc, char** argv)
     }
 
     CmdOpts opts;
+    PP_Cache* cache = pp_cache_create();
 
     memset(&opts, 0, sizeof(opts));
     opts.quiet = 1;
@@ -190,9 +188,12 @@ run_batch(int argc, char** argv)
     opts.opt_level = b.opt_level;
 
     batch_run_list(text, len, &opts, b.outdir, b.incs, b.n_incs,
-                   &ok, &fail);
+                   cache, &ok, &fail);
 
     free(text);
+    if (getenv("CMPL_PP_CACHE_STATS"))
+        pp_cache_stats(cache);
+    pp_cache_free(cache);
     fprintf(stderr, "batch: OK %d FAIL %d\n", ok, fail);
     return fail ? 1 : 0;
 }

@@ -94,7 +94,7 @@ copy_verbatim(const char** pp, const char* end, Buffer* out,
 /* expand one identifier if it names an enabled macro; otherwise copy it
  * verbatim.  Returns 1 when a macro expanded (caller sets had_expansion). */
 static int
-expand_ident(MacroTable* mt, const char* work, const char* end,
+expand_ident(PPCtx* ctx, const char* work, const char* end,
              const char** pp, Buffer* out, DisabledSet* ds)
 {
     const char* id_start = *pp;
@@ -108,11 +108,11 @@ expand_ident(MacroTable* mt, const char* work, const char* end,
         memcpy(name_buf, id_start, id_len);
         name_buf[id_len] = '\0';
 
-        Macro* m = macro_lookup(mt, name_buf);
+        Macro* m = macro_lookup(ctx, name_buf);
 
         if (m && !ds_contains(ds, name_buf)) {
             ds_push(ds, name_buf);
-            int consumed = macro_expand(mt, work,
+            int consumed = macro_expand(ctx, work,
                                         (int)(end - work),
                                         id_start, out);
             ds_pop(ds);
@@ -128,10 +128,10 @@ expand_ident(MacroTable* mt, const char* work, const char* end,
 }
 
 void
-expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
+expand_line(PPCtx* ctx, const char* line, Buffer* out)
 {
     int   linelen = (int)strlen(line);
-    char* work = arena_alloc(a, linelen + 1);
+    char* work = arena_alloc(ctx->arena, linelen + 1);
 
     memcpy(work, line, linelen + 1);
 
@@ -168,7 +168,7 @@ expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
                 }
 
                 if (isalpha((unsigned char)*p) || *p == '_') {
-                    if (expand_ident(mt, work, end, &p, &scratch, &ds))
+                    if (expand_ident(ctx, work, end, &p, &scratch, &ds))
                         had_expansion = 1;
                     continue;
                 }
@@ -185,7 +185,7 @@ expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a)
             }
 
             buf_append(&scratch, "\0", 1);
-            work = arena_alloc(a, scratch.len);
+            work = arena_alloc(ctx->arena, scratch.len);
             memcpy(work, scratch.data, scratch.len);  /* incl. trailing NUL */
 
             if (!had_expansion) break;

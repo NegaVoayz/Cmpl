@@ -31,10 +31,24 @@ static int next_pow2(int n)
 static unsigned long long
 hash_key(String key)
 {
-    unsigned long long h = FNV_OFFSET;
+    return hash_fnv_fold(hash_fnv_begin(), key.data, key.length);
+}
 
-    for (int i = 0; i < key.length; i++) {
-        h ^= (unsigned char)key.data[i];
+/* incremental FNV-1a: begin a fold from the offset constant */
+unsigned long long
+hash_fnv_begin(void)
+{
+    return FNV_OFFSET;
+}
+
+/* fold one byte run into a running hash */
+unsigned long long
+hash_fnv_fold(unsigned long long h, const void* data, int len)
+{
+    const unsigned char* p = data;
+
+    for (int i = 0; i < len; i++) {
+        h ^= p[i];
         h *= FNV_PRIME;
     }
     return h;

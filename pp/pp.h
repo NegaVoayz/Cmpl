@@ -3,6 +3,9 @@
 
 #include "arena.h"
 #include "hash.h"
+#include "pp_cache.h"
+
+typedef struct PPCtx PPCtx;
 
 /* --- Public API --- */
 
@@ -47,15 +50,15 @@ typedef struct {
 } MacroTable;
 
 void   macro_init(MacroTable* mt, Arena* a);
-Macro* macro_lookup(MacroTable* mt, const char* name);
+Macro* macro_lookup(PPCtx* ctx, const char* name);
 void   macro_add(MacroTable* mt, const char* name, const char* body,
                  int is_func, int nparams, int variadic, char** params);
-void   macro_remove(MacroTable* mt, const char* name);
+void   macro_remove(PPCtx* ctx, const char* name);
 void   macro_free(MacroTable* mt);
 
 /* Expand one macro occurrence at position `p` in `src`.
  * Writes expansion to `out`. Returns chars consumed from src (0 if none). */
-int macro_expand(MacroTable* mt, const char* src, int srclen,
+int macro_expand(PPCtx* ctx, const char* src, int srclen,
                  const char* p, Buffer* out);
 
 /* Shared scanners (in inc/pp_expand_ops.c): scan_ident / skip_ws scan a
@@ -125,6 +128,8 @@ typedef struct PPCtx {
     char       include_paths[MAX_INCLUDES][MAX_PATH];
     int        n_include_paths;
     Arena*     arena;       /* owns macro entries, directive strings, work bufs */
+    PP_Cache*  cache;       /* batch-mode include checkpoint cache (or NULL) */
+    PP_Rec*    rec;         /* active include recording scope (or NULL) */
 } PPCtx;
 
 /* Two-step API: init context, add include paths, run preprocessing.
@@ -138,7 +143,7 @@ char* pp_preprocess(PPCtx* ctx, const char* filename);
 void  pp_ctx_free(PPCtx* ctx);
 
 /* Expand all macros in a line (fixed-point iteration) */
-void expand_line(MacroTable* mt, const char* line, Buffer* out, Arena* a);
+void expand_line(PPCtx* ctx, const char* line, Buffer* out);
 
 /* Process source text: the main preprocessor loop */
 void process_source(PPCtx* ctx, const char* src, int srclen);

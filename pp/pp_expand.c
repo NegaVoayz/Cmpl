@@ -79,7 +79,7 @@ expand_func_body(Macro* macro, const char** arg_starts, const int* arg_lens,
  * Writes the expansion to `out`.
  * Returns the number of characters consumed from src (0 if no expansion). */
 int
-macro_expand(MacroTable* mt, const char* src, int srclen,
+macro_expand(PPCtx* ctx, const char* src, int srclen,
              const char* p, Buffer* out)
 {
     const char* end = src + srclen;
@@ -94,7 +94,7 @@ macro_expand(MacroTable* mt, const char* src, int srclen,
     memcpy(name_buf, p, ident_len);
     name_buf[ident_len] = '\0';
 
-    Macro* macro = macro_lookup(mt, name_buf);
+    Macro* macro = macro_lookup(ctx, name_buf);
 
     if (!macro) return 0;
 

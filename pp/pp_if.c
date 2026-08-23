@@ -24,7 +24,7 @@ is_cond_directive(const char* name, int len)
  * expanded first).  Copies `src..end` to `out`, replacing `defined`
  * expressions with '1'/'0' and macro names with their replacement text. */
 static void
-resolve_defined(MacroTable* mt, const char* src, const char* end, Buffer* out)
+resolve_defined(PPCtx* ctx, const char* src, const char* end, Buffer* out)
 {
     const char* q = src;
 
@@ -51,7 +51,7 @@ resolve_defined(MacroTable* mt, const char* src, const char* end, Buffer* out)
                     char mbuf[256];
                     memcpy(mbuf, mname, mlen);
                     mbuf[mlen] = '\0';
-                    def = (macro_lookup(mt, mbuf) != NULL);
+                    def = (macro_lookup(ctx, mbuf) != NULL);
                 }
                 char digit = def ? '1' : '0';
                 buf_append(out, &digit, 1);
@@ -63,7 +63,7 @@ resolve_defined(MacroTable* mt, const char* src, const char* end, Buffer* out)
                 if (id_len > 0 && id_len < 256) {
                     memcpy(idbuf, id, id_len);
                     idbuf[id_len] = '\0';
-                    Macro* m = macro_lookup(mt, idbuf);
+                    Macro* m = macro_lookup(ctx, idbuf);
                     if (m && !m->is_func && m->body) {
                         buf_append(out, m->body, (int)strlen(m->body));
                         subst = 1;
@@ -94,7 +94,7 @@ handle_ifdef(PPCtx* ctx, const char** pp, const char* end, int is_ifdef)
         char name_buf[256];
         memcpy(name_buf, name_start, name_len);
         name_buf[name_len] = '\0';
-        defined = (macro_lookup(&ctx->macros, name_buf) != NULL);
+        defined = (macro_lookup(ctx, name_buf) != NULL);
     }
 
     cond_push(&ctx->cond, is_ifdef ? defined : !defined);
@@ -113,7 +113,7 @@ handle_if(PPCtx* ctx, const char** pp, const char* end)
 
     Buffer resolved;
     buf_init(&resolved);
-    resolve_defined(&ctx->macros, p, expr_end, &resolved);
+    resolve_defined(ctx, p, expr_end, &resolved);
     buf_append(&resolved, "\0", 1);
 
     long result = 0;
@@ -144,7 +144,7 @@ handle_elif(PPCtx* ctx, const char** pp, const char* end)
 
     Buffer resolved;
     buf_init(&resolved);
-    resolve_defined(&ctx->macros, p, expr_end, &resolved);
+    resolve_defined(ctx, p, expr_end, &resolved);
     buf_append(&resolved, "\0", 1);
 
     long result = 0;

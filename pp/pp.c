@@ -79,7 +79,7 @@ process_source(PPCtx* ctx, const char* src, int srclen)
         buf_append(&line, "\0", 1);
 
         if (line.len > 0)
-            expand_line(&ctx->macros, line.data, &ctx->out, ctx->arena);
+            expand_line(ctx, line.data, &ctx->out);
 
         buf_free(&line);
     }

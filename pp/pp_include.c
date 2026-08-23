@@ -52,12 +52,29 @@ include_resolve(PPCtx* ctx, const char* inc_path, int is_local)
         return -1;
     }
 
-    /* Check for duplicate includes */
-    for (int i = 0; i < ctx->seen_count; i++) {
-        if (strcmp(ctx->seen[i], full) == 0) return 0; /* already included */
+    /* include-once check + cache seen-probe (B-43) */
+    int already = 0;
+
+    for (int i = 0; i < ctx->seen_count; i++)
+        if (strcmp(ctx->seen[i], full) == 0) { already = 1; break; }
+
+    if (already) {
+        pp_cache_note_seen(ctx, full, 1);
+        return 0;
     }
 
     if (ctx->seen_count >= MAX_INCLUDES) return -1;
+
+    pp_cache_note_seen(ctx, full, 0);
+
+    /* probe: replay on a hit, else fall through to fresh processing */
+    if (pp_cache_try_hit(ctx, full)) {
+        { int n = (int)strlen(full) + 1;
+          ctx->seen[ctx->seen_count] = arena_alloc(ctx->arena, n);
+          memcpy(ctx->seen[ctx->seen_count], full, n); }
+        ctx->seen_count++;
+        return 0;
+    }
 
     { int n = (int)strlen(full) + 1;
       ctx->seen[ctx->seen_count] = arena_alloc(ctx->arena, n);
@@ -81,7 +98,10 @@ include_resolve(PPCtx* ctx, const char* inc_path, int is_local)
     strncpy(ctx->base_dir, inc_dir, MAX_PATH);
 
     buf_append(&ctx->out, "\n", 1);
+    pp_cache_begin(ctx, full);
+    int span_start = ctx->out.len;
     process_source(ctx, inc_src, inc_len);
+    pp_cache_end(ctx, full, span_start);
     buf_append(&ctx->out, "\n", 1);
 
     strncpy(ctx->base_dir, saved_dir, MAX_PATH);

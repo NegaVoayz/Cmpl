@@ -12,6 +12,8 @@ add_library(pp STATIC
     inc/pp_define.c
     inc/pp_expand_ops.c
     inc/pp_buf.c
+    inc/pp_cache.c
+    inc/pp_cache_rec.c
 )
 
 target_include_directories(pp PUBLIC . inc)

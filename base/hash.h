@@ -41,4 +41,8 @@ void* hashmap_get(HashMap* m, String key);
 /* Insert or update.  Resizes automatically at 70 % load. */
 void  hashmap_put(HashMap* m, String key, void* value);
 
+/* FNV-1a incremental hashing, exported for the pp checkpoint cache. */
+unsigned long long hash_fnv_begin(void);
+unsigned long long hash_fnv_fold(unsigned long long h, const void* data, int len);
+
 #endif /* HASH_H */
