@@ -39,12 +39,16 @@ make_int_const(Arena* a, IR_Type* ty, long long v)
 /* ---------------------------------------------------------------
  *  Walk and transform: __cmpl_kl_* → cmpl_vk_launch
  *
- *  Placeholder format:
- *    call void @__cmpl_kl_KERNEL(config[0..n_cfg-1], args[0..n_ka-1])
- *    where config = [grid, block, shared?, stream?]
+ *  Placeholder format (fixed layout set by gen_expr_kernel_launch):
+ *    call void @__cmpl_kl_KERNEL(grid, block, shared, stream, args[0..])
+ *    where the four config slots are always present (0 when absent).
+ *    The split is never guessed from the arg count — every launch with
+ *    >= 2 kernel args was previously corrupted (args 2/3 became
+ *    "shared"/"stream" and the call arity mismatched the declare).
  *
  *  Transformed to:
- *    call void @cmpl_vk_launch(name_str, gx,1,1, bx,1,1, sh, stream, n_ka, args...)
+ *    call void @cmpl_vk_launch(name_str, gx,gy,gz, bx,by,bz, sh, stream,
+ *                              n_ka, args...)   (variadic, see func_type)
  * --------------------------------------------------------------- */
 
 /* Build the transformed argument list for a kernel launch:
@@ -52,12 +56,10 @@ make_int_const(Arena* a, IR_Type* ty, long long v)
  * Writes the array to *out_args and returns the argument count. */
 static int
 build_vk_args(IR_Instr* inst, Arena* a, const char* kname, int name_len,
-              int n_cfg, int n_ka, IR_Value* grid, IR_Value* block,
+              int n_ka, IR_Value* grid, IR_Value* block,
               IR_Value* shared, IR_Value* stream, IR_Value*** out_args)
 {
     IR_Value* one = make_int_const(a, t_i32, 1);
-    IR_Value* zero = make_int_const(a, t_i32, 0);
-    IR_Value* zero64 = make_int_const(a, t_i64, 0);
     IR_Value* nka = make_int_const(a, t_i32, n_ka);
 
     int new_n = 10 + n_ka;
@@ -67,19 +69,19 @@ build_vk_args(IR_Instr* inst, Arena* a, const char* kname, int name_len,
     IR_Type* i8_ptr = ir_ptr_type(a, t_i8, 0);
 
     new_args[idx++] = make_str_const(a, i8_ptr, kname, name_len);
-    new_args[idx++] = grid ? grid : zero;     /* grid_x */
-    new_args[idx++] = one;                     /* grid_y */
-    new_args[idx++] = one;                     /* grid_z */
-    new_args[idx++] = block ? block : zero;    /* block_x */
-    new_args[idx++] = one;                     /* block_y */
-    new_args[idx++] = one;                     /* block_z */
-    new_args[idx++] = shared ? shared : zero;  /* shared_mem */
-    new_args[idx++] = stream ? stream : zero64;/* stream */
-    new_args[idx++] = nka;                     /* n_args */
+    new_args[idx++] = grid;                      /* grid_x */
+    new_args[idx++] = one;                       /* grid_y */
+    new_args[idx++] = one;                       /* grid_z */
+    new_args[idx++] = block;                     /* block_x */
+    new_args[idx++] = one;                       /* block_y */
+    new_args[idx++] = one;                       /* block_z */
+    new_args[idx++] = shared;                    /* shared_mem */
+    new_args[idx++] = stream;                    /* stream */
+    new_args[idx++] = nka;                       /* n_args */
 
     /* copy kernel args */
     for (int i = 0; i < n_ka; i++)
-        new_args[idx++] = inst->call_args[n_cfg + i];
+        new_args[idx++] = inst->call_args[4 + i];
 
     *out_args = new_args;
     return new_n;
@@ -101,27 +103,19 @@ transform_call(IR_Instr* inst, Arena* a)
     memcpy(kname, callee + 10, name_len);
     kname[name_len] = '\0';
 
-    /* build new args: name, (grid_x,1,1), (block_x,1,1), shared, stream, n_ka, ka... */
-    int n_cfg = 0;
-    int n_ka  = 0;
+    /* fixed layout: 4 config slots (grid, block, shared, stream), then
+     * the kernel args.  Absent config entries are i32 0 (from gen). */
+    int n_cfg = 4;
+    int n_ka  = inst->n_call_args - n_cfg;
+    if (n_ka < 0) n_ka = 0;   /* malformed placeholder: treat as no args */
 
-    /* figure out how many config vs kernel args we have.
-     * config is at least 2 (grid, block), at most 4 (+shared, +stream). */
-    if (inst->n_call_args >= 2) {
-        n_cfg = (inst->n_call_args >= 4) ? 4 : 2;
-        n_ka  = inst->n_call_args - n_cfg;
-    } else {
-        n_ka = inst->n_call_args;  /* no config? shouldn't happen */
-    }
-
-    /* config values — use found value or default 0 */
-    IR_Value* grid   = (n_cfg >= 1 && inst->call_args[0]) ? inst->call_args[0] : NULL;
-    IR_Value* block  = (n_cfg >= 2 && inst->call_args[1]) ? inst->call_args[1] : NULL;
-    IR_Value* shared = (n_cfg >= 3 && inst->call_args[2]) ? inst->call_args[2] : NULL;
-    IR_Value* stream = (n_cfg >= 4 && inst->call_args[3]) ? inst->call_args[3] : NULL;
+    IR_Value* grid   = (inst->n_call_args > 0) ? inst->call_args[0] : NULL;
+    IR_Value* block  = (inst->n_call_args > 1) ? inst->call_args[1] : NULL;
+    IR_Value* shared = (inst->n_call_args > 2) ? inst->call_args[2] : NULL;
+    IR_Value* stream = (inst->n_call_args > 3) ? inst->call_args[3] : NULL;
 
     IR_Value** new_args;
-    int new_n = build_vk_args(inst, a, kname, name_len, n_cfg, n_ka,
+    int new_n = build_vk_args(inst, a, kname, name_len, n_ka,
                               grid, block, shared, stream, &new_args);
 
     /* replace callee — old data was arena-allocated, no free needed */
@@ -131,6 +125,12 @@ transform_call(IR_Instr* inst, Arena* a)
     memcpy(new_callee, vk_launch, vk_len + 1);
     inst->callee.data = new_callee;
     inst->callee.length = vk_len;
+
+    /* the runtime entry is variadic: cmpl_vk_launch(ptr, ...).  Different
+     * launch sites carry different kernel-arg counts, so a fixed-arity
+     * declare would mismatch every call but the first. */
+    IR_Type* i8_ptr = ir_ptr_type(a, t_i8, 0);
+    inst->func_type = ir_func_type(a, t_void, i8_ptr, 1);
 
     /* replace args — old call_args was arena-allocated, no free needed */
     inst->call_args = new_args;

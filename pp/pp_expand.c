@@ -140,7 +140,9 @@ macro_expand(PPCtx* ctx, const char* src, int srclen,
         q++;
     }
 
-    if (depth != 0) return (int)((p + ident_len) - src);
+    if (depth != 0) return 0;  /* unclosed invocation on this line: leave
+                                  the text untouched (a line-based pp does
+                                  not join continuation lines) */
 
     int ok = macro->variadic ? (argc >= macro->nparams)
                              : (argc == macro->nparams);

@@ -20,6 +20,22 @@
 /* AST debug dump -- defined in dump_ast.c */
 extern void dump_ast_public(AST_Node* n, int depth);
 
+/* derive the output base name from the input file: basename without the
+ * extension ("dir/kernel.cu" -> "kernel").  Host/device outputs land in
+ * the current directory, like gcc/clang (doc: cmpl -cuda kernel.cu ->
+ * kernel.host.ll + kernel.device.spv). */
+static void
+out_base_name(const char* filename, char* out, int cap)
+{
+    const char* slash = strrchr(filename, '/');
+    const char* base = slash ? slash + 1 : filename;
+    const char* dot = strrchr(base, '.');
+    int len = dot ? (int)(dot - base) : (int)strlen(base);
+    if (len > cap - 1) len = cap - 1;
+    memcpy(out, base, len);
+    out[len] = '\0';
+}
+
 /* CUDA pipeline: split → IR gen → mock → SPIR-V. */
 void
 run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
@@ -49,10 +65,25 @@ run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
     /* insert Vulkan mock calls in host IR */
     vk_mock_insert(host_mod, launches, n_launches);
 
-    /* dump host IR */
+    char outbase[256];
+    out_base_name(filename, outbase, sizeof(outbase));
+
+    /* dump host IR + write it as <base>.host.ll so the program can be
+     * compiled with clang (the doc's "compile the host side" flow) */
     if (host_mod) {
         printf("\n--- Host IR ---\n");
         ir_dump_module(host_mod, stdout);
+
+        char host_name[256];
+        snprintf(host_name, sizeof(host_name), "%s.host.ll", outbase);
+        FILE* hf = fopen(host_name, "w");
+        if (hf) {
+            ir_dump_module(host_mod, hf);
+            fclose(hf);
+            printf("\n--- Host IR written to %s ---\n", host_name);
+        } else {
+            printf("\n--- Failed to write %s ---\n", host_name);
+        }
     }
 
     /* SPIR-V emission for device */
@@ -71,7 +102,7 @@ run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
         /* write .spv file */
         char spv_name[256];
 
-        snprintf(spv_name, sizeof(spv_name), "%s.spv", filename);
+        snprintf(spv_name, sizeof(spv_name), "%s.device.spv", outbase);
         if (spv_write_file(&spv, spv_name))
             printf("\n--- SPIR-V written to %s (%d words) ---\n",
                    spv_name, spv.len);

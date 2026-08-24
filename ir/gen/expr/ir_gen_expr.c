@@ -95,7 +95,10 @@ gen_expr_binary(GenCtx* ctx, AST_Node* n)
 }
 
 /* <<<...>>> kernel launch: emit a call to the mangled host mock
- * __cmpl_kl_<name> with the launch config + kernel args. */
+ * __cmpl_kl_<name> with a FIXED 4-slot config header followed by the
+ * kernel args.  The mock (vk_mock.c) splits on this exact boundary, so
+ * the config count never has to be guessed from the arg count (that
+ * heuristic corrupted every launch with >= 2 kernel args). */
 static IR_Value*
 gen_expr_kernel_launch(GenCtx* ctx, AST_Node* n)
 {
@@ -103,9 +106,19 @@ gen_expr_kernel_launch(GenCtx* ctx, AST_Node* n)
     if (cn && cn->type == AST_IDENT) kn = cn->body.ident.name;
     char pn[128]; int kl = kn.length > 120 ? 120 : kn.length;
     memcpy(pn, "__cmpl_kl_", 10); if (kl>0) memcpy(pn+10, kn.data, kl); pn[10+kl] = '\0';
-    int n_args = 0; IR_Value* ab[16];
-    for (AST_Node* c = n->body.kernel_launch.config; c && n_args < 16; c = c->next) ab[n_args++] = gen_expr(ctx, c);
-    for (AST_Node* a = n->body.kernel_launch.args; a && n_args < 16; a = a->next) ab[n_args++] = gen_expr(ctx, a);
+
+    IR_Value* zero = ir_const_int(ctx->b, t_i32, 0);
+    IR_Value* ab[16];
+    int n_args = 0;
+    AST_Node* c = n->body.kernel_launch.config;
+
+    /* slots: grid, block, shared, stream — absent entries become 0 */
+    for (int slot = 0; slot < 4; slot++) {
+        ab[n_args++] = c ? gen_expr(ctx, c) : zero;
+        if (c) c = c->next;
+    }
+    for (AST_Node* a = n->body.kernel_launch.args; a && n_args < 16; a = a->next)
+        ab[n_args++] = gen_expr(ctx, a);
     return ir_build_call(ctx->b, pn, t_void, ab, n_args);
 }
 

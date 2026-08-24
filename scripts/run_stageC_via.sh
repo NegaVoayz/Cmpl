@@ -19,10 +19,29 @@ for f in test/*.c; do
   base=$(basename "$f" .c)
   grep -q "int main" "$f" || continue
   case "$base" in
-    test_cuda_dual_module|test_gpu|test_kernel)
+    test_cuda_dual_module|test_gpu|test_kernel|test_cuda_host_exec)
       cp "$f" "$TMP/$base.c"
-      if ! "$CMPL" -cuda -Iinclude -I. "$TMP/$base.c" >/dev/null 2>&1; then
-        CFAIL=$((CFAIL+1)); CFAILED+=("$base (cuda)"); fi
+      if ! (cd "$TMP" && "$CMPL" -cuda -I"$PWD/include" -I"$PWD" \
+            "$base.c" >/dev/null 2>&1); then
+        CFAIL=$((CFAIL+1)); CFAILED+=("$base (cuda)")
+        continue
+      fi
+      # host-exec test: link the emitted host IR with the launch stub
+      # and RUN it — the stub asserts the mock's config/kernel-arg split
+      if [ "$base" = test_cuda_host_exec ] &&
+         [ -f "$TMP/$base.host.ll" ]; then
+        if clang "$TMP/$base.host.ll" "$PWD/test/test_vk_launch_stub.c" \
+             -o "$TMP/$base.exe" 2>"$TMP/$base.link.err"; then
+          if "$TMP/$base.exe" >"$TMP/$base.run.out" 2>&1; then
+            CPASS=$((CPASS+1))
+          else
+            CFAIL=$((CFAIL+1)); CFAILED+=("$base (run)")
+            sed 's/^/    /' "$TMP/$base.run.out"
+          fi
+        else
+          CFAIL=$((CFAIL+1)); CFAILED+=("$base (link)")
+        fi
+      fi
       continue ;;
     test_arena_only|test_hash_init|test_main_min|test_pp_init|test_pp_init2|test_pp_step|test_pp_step2) INTERNAL=1 ;;
     *) INTERNAL=0 ;;

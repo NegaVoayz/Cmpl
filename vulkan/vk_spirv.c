@@ -6,35 +6,6 @@
 #include <string.h>
 
 /* ---------------------------------------------------------------
- *  SPIR-V opcode constants
- * --------------------------------------------------------------- */
-
-enum {
-    SpvMagic = 0x07230203, SpvVersion = 0x00010000,
-    SpvOpNop = 0,
-    SpvOpCapability = 17, SpvOpMemoryModel = 14, SpvOpEntryPoint = 15,
-    SpvOpExecutionMode = 16, SpvOpTypeVoid = 19, SpvOpTypeBool = 20,
-    SpvOpTypeInt = 21, SpvOpTypeFloat = 22, SpvOpTypePointer = 32,
-    SpvOpTypeFunction = 33, SpvOpConstant = 43,
-    SpvOpFunction = 54, SpvOpFunctionParameter = 55, SpvOpFunctionEnd = 56,
-    SpvOpFunctionCall = 57, SpvOpVariable = 59,
-    SpvOpLoad = 61, SpvOpStore = 62,
-    SpvOpAccessChain = 65, SpvOpInBoundsAccessChain = 66,
-    SpvOpIAdd = 128, SpvOpISub = 130, SpvOpIMul = 132,
-    SpvOpSDiv = 143, SpvOpSRem = 145, SpvOpShiftLeftLogical = 138,
-    SpvOpBitwiseAnd = 198, SpvOpBitwiseOr = 199, SpvOpBitwiseXor = 200,
-    SpvOpIEqual = 176, SpvOpINotEqual = 177,
-    SpvOpSLessThan = 179, SpvOpSGreaterThan = 181,
-    SpvOpSLessThanEqual = 183, SpvOpSGreaterThanEqual = 185,
-    SpvOpSelect = 169, SpvOpBitcast = 124,
-    SpvOpPhi = 245, SpvOpLabel = 248,
-    SpvOpBranch = 249, SpvOpBranchConditional = 250,
-    SpvOpReturn = 253, SpvOpReturnValue = 254,
-    SpvStorageFunc = 7, SpvStorageCross = 5,
-    SpvStorageWorkgroup = 4, SpvStorageUniformC = 2,
-};
-
-/* ---------------------------------------------------------------
  *  Word emission
  * --------------------------------------------------------------- */
 
@@ -53,17 +24,13 @@ void spv_op(SPV_Writer* w, int op, int n) { spv_w(w, ((n+1)<<16)|op); }
  *  ID management
  * --------------------------------------------------------------- */
 
-#define MAX_TY 64
-#define MAX_VL 256
-#define MAX_FN 32
-
-int map_id(IdMap* m, int* n, int cap, void* key)
+int map_id(IdMap* m, int* n, int cap, void* key, int base)
 {
     for (int i = 0; i < *n; i++)
         if (m[i].key == key) return m[i].id;
 
     if (*n >= cap) return 0;   /* table full — signal overflow */
-    int id = *n + 1;
+    int id = base + *n;
     m[*n].key = key; m[*n].id = id; (*n)++;
     return id;
 }
@@ -81,8 +48,16 @@ extern void collect_ids(IR_Module* mod, IdMap* tm, int* tn, IdMap* vm, int* vn,
 extern void emit_types(SPV_Writer* w, IdMap* tm, int tn);
 extern void emit_consts(SPV_Writer* w, IdMap* vm, int vn, IdMap* tm, int tn);
 extern void emit_entries(SPV_Writer* w, IR_Module* mod, IdMap* fm, int fnc);
-extern void emit_func(SPV_Writer* w, IR_Func* f, IdMap* tm, int tn, IdMap* vm, int vn,
-                       IdMap* fm, int fnc, IdMap* bm, int bn);
+extern void emit_func(SPV_Writer* w, IR_Module* mod, IR_Func* f, IdMap* tm, int tn,
+                      IdMap* vm, int vn, IdMap* fm, int fnc, IdMap* bm, int bn);
+/* CUDA builtin variables (vk_spirv_builtin.c): blockIdx/threadIdx/blockDim/
+ * gridDim reads map to BuiltIn-decorated Input variables.  The decoration
+ * pass MUST run before any type instruction (logical layout section 3);
+ * the variable pass runs after types/constants (section 4). */
+extern void spv_emit_builtins_decor(SPV_Writer* w, IR_Module* mod);
+extern void spv_emit_builtins_vars(SPV_Writer* w, IdMap* tm, int tn);
+extern int  spv_builtin_interface_count(void);
+extern int  spv_builtin_interface_at(int i);
 
 /* ---------------------------------------------------------------
  *  Bound calculation
@@ -105,30 +80,45 @@ static int calc_bound(IdMap* tm, int tn, IdMap* vm, int vn, IdMap* fm, int fnc,
 
 void spv_emit_module(SPV_Writer* w, IR_Module* mod)
 {
-    IdMap tm[MAX_TY] = {{0}}; int tn = 0;
-    IdMap vm[MAX_VL] = {{0}}; int vn = 0;
-    IdMap fm[MAX_FN] = {{0}}; int fnc = 0;
-    IdMap bm[MAX_VL] = {{0}}; int bn = 0;
+    IdMap tm[SPV_MAX_TY] = {{0}}; int tn = 0;
+    IdMap vm[SPV_MAX_VL] = {{0}}; int vn = 0;
+    IdMap fm[SPV_MAX_FN] = {{0}}; int fnc = 0;
+    IdMap bm[SPV_MAX_BL] = {{0}}; int bn = 0;
 
     collect_ids(mod, tm, &tn, vm, &vn, fm, &fnc, bm, &bn);
 
+    /* fresh IDs (function types, builtin vars, array-length constants)
+     * must start ABOVE the collected ids — map_id hands out disjoint
+     * per-table ranges and id 0 is invalid SPIR-V.  The header bound is
+     * patched with the true value after emission. */
     int bound = calc_bound(tm, tn, vm, vn, fm, fnc, bm, bn, w->next_id);
+    w->next_id = bound;
 
-    spv_w(w, SpvMagic);
-    spv_w(w, SpvVersion);
+    spv_w(w, SPV_MAGIC);
+    spv_w(w, SPV_VERSION);
     spv_w(w, 1);           /* generator */
-    spv_w(w, bound);
+    spv_w(w, bound);       /* provisional — patched below */
     spv_w(w, 0);           /* schema */
 
-    spv_op(w, SpvOpCapability, 1); spv_w(w, 1);       /* Shader */
-    spv_op(w, SpvOpMemoryModel, 2); spv_w(w, 0); spv_w(w, 1); /* Logical, GLSL450 */
+    spv_op(w, SPV_OP_CAPABILITY, 1); spv_w(w, 1);       /* Shader */
+    spv_op(w, SPV_OP_MEMORY_MODEL, 2); spv_w(w, 0); spv_w(w, 1); /* Logical, GLSL450 */
+
+    /* annotations (logical-layout section 3) — before any type */
+    spv_emit_builtins_decor(w, mod);
 
     emit_types(w, tm, tn);
     emit_consts(w, vm, vn, tm, tn);
+
+    /* global variables (logical-layout section 4) */
+    spv_emit_builtins_vars(w, tm, tn);
+
     emit_entries(w, mod, fm, fnc);
 
     for (IR_Func* f = mod->funcs; f; f = f->next)
-        emit_func(w, f, tm, tn, vm, vn, fm, fnc, bm, bn);
+        emit_func(w, mod, f, tm, tn, vm, vn, fm, fnc, bm, bn);
+
+    /* true bound: every assigned id is < w->next_id */
+    w->words[3] = (uint32_t)w->next_id;
 }
 
 /* ---------------------------------------------------------------
