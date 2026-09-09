@@ -121,8 +121,27 @@ ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_
     switch (fd->body.func_def.linkage) {
     case LINK_GLOBAL:    func->linkage = IR_LINK_KERNEL;   break;
     case LINK_DEVICE:    func->linkage = IR_LINK_DEVICE;   break;
+    case LINK_HOST_DEVICE:
+        /* gpu_split() clones a __host__ __device__ function into the
+         * device module; that clone IS a device function.  Mapping it to
+         * IR_LINK_EXTERNAL (the old default) made the SPIR-V emitter skip
+         * it, so every call to it referenced an undefined id. */
+        func->linkage = is_device ? IR_LINK_DEVICE : IR_LINK_EXTERNAL;
+        break;
     case LINK_STATIC:    func->linkage = IR_LINK_INTERNAL; break;
-    default:             func->linkage = IR_LINK_EXTERNAL; break; /* host / host_device / extern */
+    default:             func->linkage = IR_LINK_EXTERNAL; break; /* host / extern */
+    }
+
+    /* A __global__ kernel is a compute entry point: it must return void
+     * (GPU rule; SPIR-V/Vulkan also require a void entry point).  Without
+     * this check the emitter produced `define spir_kernel i32 @k()` with an
+     * OpReturnValue inside the entry point — invalid SPIR-V. */
+    if (fd->body.func_def.linkage == LINK_GLOBAL &&
+        func->ret_type && func->ret_type->kind != IR_VOID) {
+        fprintf(stderr, "cmpl: error: __global__ function '%.*s' must return void\n",
+                (int)fd->body.func_def.name.length,
+                fd->body.func_def.name.data);
+        mod->had_error = 1;
     }
 
     b->cur_func = func;

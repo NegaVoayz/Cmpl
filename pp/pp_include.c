@@ -82,7 +82,7 @@ pp_include_resolved(PPCtx* ctx, const char* full)
      * header seen before its body runs, so a re-entrant include of an
      * in-flight header is suppressed during its own subtree.  A hit's
      * entry_replay runs inside try_hit, so marking after it would leave the
-     * header unseen during its own replay -> a cycle (cuda.h -> lr1.h)
+     * header unseen during its own replay -> a cycle (gpu.h -> lr1.h)
      * re-processes and re-emits the ancestor.  Marking here matches fresh
      * on both the hit and miss paths. */
     { int n = (int)strlen(full) + 1;

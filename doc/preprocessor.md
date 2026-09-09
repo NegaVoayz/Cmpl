@@ -60,6 +60,26 @@ until no macro remains. A **persistent scratch Buffer** (reused across iteration
 Work buffers and temporary strings are arena-allocated. The `Buffer` struct supports
 `buffer_append_str` and `buffer_append_fmt` with exponential-growth reallocation.
 
+## Comments
+
+Comments are removed before macro replacement runs (C11 5.1.1.2 phase 3), so a
+comment is never an expansion context and never part of a macro body:
+
+* `expand_line()` copies string/char literals and comments verbatim. A block
+  comment may run past the end of the line, so the open/closed state lives in
+  `PPCtx.in_comment` and is carried to the next line: the interior lines are
+  comment text, a `#` there is not a directive (`process_source` checks the
+  same flag), and no identifier on them is expanded. `pp_comment.c` owns the
+  scan (`pp_skip_block_comment`, `pp_copy_comment`).
+* `#define` bodies are stripped of comments when they are registered
+  (`pp_strip_comments`), so `#define TPB 32 /* threads per block */` defines
+  `TPB` as `32` and expanding it injects nothing.
+
+Both mattered in practice: a multi-line comment that mentioned `TPB` was
+expanded, the macro body's own comment terminator closed the surrounding
+comment early, and the rest of it became garbage tokens — see
+`test/test_pp_multiline_comment_macro.c`.
+
 ## Conditional Compilation
 
 A stack tracks `#if`/`#else`/`#endif` nesting:
@@ -114,4 +134,6 @@ without path prefixes, relying on the subdirectory search to locate them from `-
 | `pp_cond.c` | Condition stack: `cond_init`, `cond_push`, `cond_is_skipping`, `cond_else`, `cond_elif`, `cond_endif` |
 | `pp_eval.c` | Constant expression evaluator: `expr_eval()` |
 | `pp_include.c` | Include resolution: `include_resolve()`, `read_file()`, `dir_of()` |
-| `pp_line.c` | Source location utilities |
+| `pp_line.c` | One line's expansion scan: literals/comments verbatim, identifiers expanded |
+| `pp/inc/pp_comment.c` | Comment removal: cross-line block comments and `#define` bodies |
+| `pp/inc/pp_define.c` | `#define` handler and its logical-line reader |

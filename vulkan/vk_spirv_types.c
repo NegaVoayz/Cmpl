@@ -3,30 +3,25 @@
  * Types are emitted in dependency order (scalars, then pointer/array/
  * struct types once all their members are emitted) so the binary contains
  * no forward type references.  Integer/float widths and 64-bit constant
- * literals must match the IR type exactly — the old emitter printed every
- * integer as 32-bit and truncated 64-bit constants to one word. */
+ * literals must match the IR type exactly.
+ */
 
 #include "vulkan.h"
 
-#include <string.h>
-
-/* numeric constants (SPV_OP_*, SPV_STORAGE_*) come from vulkan.h — the
- * single source of truth */
+/* numeric constants and the SPV_E* emit macros come from vulkan.h */
 
 #define MAX_TY 64
 
-#define SPV_E1(o,a)            do{spv_op(w,o,1);spv_w(w,a);}while(0)
-#define SPV_E2(o,a,b)          do{spv_op(w,o,2);spv_w(w,a);spv_w(w,b);}while(0)
-#define SPV_E3(o,a,b,c)        do{spv_op(w,o,3);spv_w(w,a);spv_w(w,b);spv_w(w,c);}while(0)
-
-/* storage class for a pointer type's address space */
+/* Storage class of a pointer TYPE in the IR type table.  Pointer VALUES
+ * get their type from vk_spirv_ptr.c, which knows whether the value
+ * addresses a local, __shared__ or device memory; these table entries
+ * exist only so the table is complete, and must still be valid Vulkan
+ * storage classes (CrossWorkgroup/UniformConstant are not). */
 static int
 ptr_storage(int addrspace)
 {
-    if (addrspace == ADDR_SHARED)   return SPV_STORAGE_WORKGROUP;
-    if (addrspace == ADDR_CONSTANT) return SPV_STORAGE_UNIFORM_CONSTANT;
-    if (addrspace == ADDR_GLOBAL)   return SPV_STORAGE_CROSS;
-    return SPV_STORAGE_FUNCTION;
+    if (addrspace == ADDR_SHARED) return SPV_STORAGE_WORKGROUP;
+    return SPV_STORAGE_PHYSICAL_BUFFER;
 }
 
 /* all dependencies of a composite type already emitted? */
@@ -100,10 +95,18 @@ emit_types(SPV_Writer* w, IdMap* tm, int tn)
 {
     int emitted[MAX_TY] = {0};
 
-    /* wave 1: scalars */
+    /* wave 1: scalars.  Equivalent scalar IR types share one id, so an
+     * entry whose id was already emitted is skipped (duplicate OpTypeInt
+     * declarations are invalid SPIR-V). */
     for (int i = 0; i < tn; i++) {
         IR_Type* ty = (IR_Type*)tm[i].key;
         int id = tm[i].id;
+        int dup = 0;
+
+        for (int j = 0; j < i; j++)
+            if (tm[j].id == id) { dup = 1; break; }
+
+        if (dup) { emitted[i] = 1; continue; }
 
         switch (ty->kind) {
         case IR_VOID: SPV_E1(SPV_OP_TYPE_VOID, id); break;
@@ -125,6 +128,13 @@ emit_types(SPV_Writer* w, IdMap* tm, int tn)
         progress = 0;
         for (int i = 0; i < tn; i++) {
             if (emitted[i]) continue;
+
+            int dup = 0;
+
+            for (int j = 0; j < i; j++)
+                if (tm[j].id == tm[i].id) { dup = 1; break; }
+            if (dup) { emitted[i] = 1; continue; }
+
             IR_Type* ty = (IR_Type*)tm[i].key;
             if (!deps_ready(ty, emitted, tm, tn)) continue;
             if (emit_composite(w, ty, tm[i].id, tm, tn)) {
@@ -135,65 +145,13 @@ emit_types(SPV_Writer* w, IdMap* tm, int tn)
     }
 
     /* stragglers (self-referential types): force-emit in table order */
-    for (int i = 0; i < tn; i++)
-        if (!emitted[i])
-            emit_composite(w, (IR_Type*)tm[i].key, tm[i].id, tm, tn);
-}
+    for (int i = 0; i < tn; i++) {
+        if (emitted[i]) continue;
 
-/* ---------------------------------------------------------------
- *  Constant emission
- * --------------------------------------------------------------- */
+        int dup = 0;
 
-void
-emit_consts(SPV_Writer* w, IdMap* vm, int vn, IdMap* tm, int tn)
-{
-    for (int i = 0; i < vn; i++) {
-        IR_Value* val = (IR_Value*)vm[i].key;
-        int id = vm[i].id;
-
-        if (val->kind == VAL_CONST_NULL) {
-            SPV_E2(SPV_OP_CONSTANT_NULL, find_id(tm, tn, val->type), id);
-            continue;
-        }
-
-        if (val->kind == VAL_CONST_INT) {
-            IR_Type* ty = val->type;
-            int tid = find_id(tm, tn, ty);
-
-            if (ty && ty->kind == IR_I1) {
-                SPV_E1(val->body.int_val ? SPV_OP_CONSTANT_TRUE : SPV_OP_CONSTANT_FALSE, id);
-                continue;
-            }
-            if (ty && ty->kind == IR_I64) {
-                /* 64-bit literal: two words */
-                spv_op(w, SPV_OP_CONSTANT, 4);
-                spv_w(w, tid); spv_w(w, id);
-                spv_w(w, (uint32_t)val->body.int_val);
-                spv_w(w, (uint32_t)((unsigned long long)val->body.int_val >> 32));
-                continue;
-            }
-            SPV_E3(SPV_OP_CONSTANT, tid, id, (uint32_t)val->body.int_val);
-            continue;
-        }
-
-        if (val->kind == VAL_CONST_FLOAT) {
-            IR_Type* ty = val->type;
-            int tid = find_id(tm, tn, ty);
-
-            if (ty && ty->kind == IR_F64) {
-                uint64_t bits;
-                double d = val->body.float_val;
-                memcpy(&bits, &d, 8);
-                spv_op(w, SPV_OP_CONSTANT, 4);
-                spv_w(w, tid); spv_w(w, id);
-                spv_w(w, (uint32_t)bits);
-                spv_w(w, (uint32_t)(bits >> 32));
-                continue;
-            }
-            float f = (float)val->body.float_val;
-            uint32_t bits;
-            memcpy(&bits, &f, 4);
-            SPV_E3(SPV_OP_CONSTANT, tid, id, bits);
-        }
+        for (int j = 0; j < i; j++)
+            if (tm[j].id == tm[i].id) { dup = 1; break; }
+        if (!dup) emit_composite(w, (IR_Type*)tm[i].key, tm[i].id, tm, tn);
     }
 }

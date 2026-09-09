@@ -22,13 +22,13 @@ for f in "$ROOT"/test/*.c; do
     [ -e "$f" ] || continue
     grep -q "int main" "$f" || continue
 
-    # Skip tests with no gcc reference: CUDA (no native link), cmpl-internal
+    # Skip tests with no gcc reference: GPU (no native link), cmpl-internal
     # API tests, test_sizeof (includes cmpl's pp/pp.h), and
     # test_designated_init_oob (exercises the out-of-range-designator
     # extension that gcc rejects by design).
     base="$(basename "$f" .c)"
     case "$base" in
-        test_cuda_dual_module|test_gpu|test_kernel|test_arena_only|test_hash_init|test_main_min|test_pp_init|test_pp_init2|test_pp_step|test_pp_step2|test_sizeof|test_designated_init_oob)
+        test_gpu_dual_module|test_gpu|test_kernel|test_arena_only|test_hash_init|test_main_min|test_pp_init|test_pp_init2|test_pp_step|test_pp_step2|test_sizeof|test_designated_init_oob)
             continue ;;
     esac
 

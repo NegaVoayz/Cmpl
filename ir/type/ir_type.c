@@ -75,7 +75,7 @@ ir_init_types(void)
  *  open-addressing map (reused, not reimplemented): the key is a
  *  packed blob of the three fields, and the map grows past the old
  *  fixed 128 slots at 70 % load.  The map is per-module — reset drops
- *  it between modules (CUDA has two arenas) — so each module's first
+ *  it between modules (GPU has two arenas) — so each module's first
  *  put re-inits it from that module's arena, which also owns the
  *  persistent key blobs.
  * --------------------------------------------------------------- */

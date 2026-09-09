@@ -21,7 +21,7 @@ source "$ROOT/scripts/src_list.sh"
 SOURCES=("${CMPL_SOURCES[@]}")
 
 # must match build_self_linux.sh line 29 exactly (order matters)
-I_ARGS_STR="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen"
+I_ARGS_STR="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Igpu -Ivulkan -Illvm-codegen"
 
 flat() { local s="$1"; s="${s//\//_}"; s="${s%.c}"; echo "$s"; }
 

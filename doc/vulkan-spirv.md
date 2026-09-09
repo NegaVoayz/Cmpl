@@ -202,7 +202,7 @@ ir_module_to_spirv(IR_Module* mod) → uint32_t* binary, size_t len
 
 ### Built-in Variables
 
-Device IR references to CUDA built-ins (`blockIdx.x`, etc.) are emitted as LLVM intrinsic
+Device IR references to GPU built-ins (`blockIdx.x`, etc.) are emitted as LLVM intrinsic
 calls during IR gen. The SPIR-V backend recognizes these intrinsics and emits the
 corresponding SPIR-V `OpVariable` with `BuiltIn` decoration:
 
@@ -319,6 +319,6 @@ compiled program.
 
 ## Related
 
-- [CUDA Bridge](cuda-bridge.md) — full pipeline, where mock gen + SPIR-V fit
+- [GPU Bridge](gpu-bridge.md) — full pipeline, where mock gen + SPIR-V fit
 - [LLVM IR Design](llvm-ir.md) — the IR tree consumed by both mock gen and SPIR-V backend
 - [IR Optimizer](ir-optimizer.md) — optimization passes applied before SPIR-V emission

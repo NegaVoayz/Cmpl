@@ -28,7 +28,7 @@ unrelated rows):
   data.
 - `token_kind_name` (101, main_pp.c): designated-initializer lookup table.
 
-(`walk_launch_children` — formerly PASS at 88, cuda/cuda_launch.c — was split
+(`walk_launch_children` — formerly PASS at 88, gpu/gpu_launch.c — was split
 under 80 in B-21 (`2fb8636`); no longer exempt.)
 
 **Files at 201–236 lines** ("slightly over is acceptable"; the B-29 pass

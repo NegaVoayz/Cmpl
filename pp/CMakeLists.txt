@@ -16,6 +16,7 @@ add_library(pp STATIC
     inc/pp_cache_rec.c
     inc/pp_cache_ctrl.c
     inc/pp_cache_replay.c
+    inc/pp_comment.c
 )
 
 target_include_directories(pp PUBLIC . inc)

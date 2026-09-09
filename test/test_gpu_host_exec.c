@@ -1,4 +1,4 @@
-/* test_cuda_host_exec.c — end-to-end CUDA host path regression.
+/* test_gpu_host_exec.c — end-to-end GPU host path regression.
  *
  * Exercises the kernel-launch mock with launches of DIFFERENT kernel-arg
  * counts (the config/kernel-arg boundary used to be guessed from the
@@ -14,7 +14,7 @@
  * exact config + args each call receives.  The device side is emitted to
  * kernel.device.spv and checked by scripts/spirv_check.py.
  *
- * Run: bash scripts/cuda_check.sh
+ * Run: bash scripts/gpu_check.sh
  */
 
 /* implemented by test_vk_launch_stub.c */

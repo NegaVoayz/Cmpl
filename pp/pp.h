@@ -130,6 +130,7 @@ typedef struct PPCtx {
     Arena*     arena;       /* owns macro entries, directive strings, work bufs */
     PP_Cache*  cache;       /* batch-mode include checkpoint cache (or NULL) */
     PP_Rec*    rec;         /* active include recording scope (or NULL) */
+    int        in_comment;  /* inside a block comment that spans lines */
 } PPCtx;
 
 /* Two-step API: init context, add include paths, run preprocessing.
@@ -144,6 +145,13 @@ void  pp_ctx_free(PPCtx* ctx);
 
 /* Expand all macros in a line (fixed-point iteration) */
 void expand_line(PPCtx* ctx, const char* line, Buffer* out);
+
+/* Comments (inc/pp_comment.c).  C removes comments before macro replacement
+ * runs (C11 5.1.1.2 phase 3), so a block comment that spans lines must stay
+ * comment text on every line and must not be part of a macro body. */
+int  pp_skip_block_comment(const char** pp, const char* end);
+int  pp_copy_comment(PPCtx* ctx, const char** pp, const char* end, Buffer* out);
+void pp_strip_comments(char* buf, int* len, int* open);
 
 /* Process source text: the main preprocessor loop */
 void process_source(PPCtx* ctx, const char* src, int srclen);

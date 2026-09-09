@@ -53,7 +53,7 @@ to avoid collisions with concurrent compilations.
 - No cross-compilation support yet (uses host clang's default target)
 - No link step — only compilation to `.o` or `.s`
 - Debug info not propagated (the IR tree does not carry debug metadata)
-- CUDA path not yet integrated with codegen (host IR still goes to stdout)
+- GPU path not yet integrated with codegen (host IR still goes to stdout)
 
 ## Related
 

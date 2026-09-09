@@ -1,11 +1,11 @@
-/* ir_gen_cuda.c -- two-module IR generation for CUDA device/host split */
+/* ir_gen_gpu.c -- two-module IR generation for GPU device/host split */
 
 #include "ir.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-#include "cuda.h"
+#include "gpu.h"
 
 /* ---------------------------------------------------------------
  *  Wrap a decl chain in a temporary AST_PROGRAM node
@@ -24,7 +24,7 @@ wrap_decls(AST_Node* decls)
  *  Free malloc'd copies in the device decl chain.
  *  Type-def copies (typedef/struct/union/enum) and function
  *  clones (LINK_HOST_DEVICE) are shallow-copied during
- *  cuda_split() and must be freed after IR gen completes.
+ *  gpu_split() and must be freed after IR gen completes.
  * --------------------------------------------------------------- */
 
 static void
@@ -55,7 +55,7 @@ free_device_copies(AST_Node* device_root)
  * --------------------------------------------------------------- */
 
 void
-ir_gen_cuda_modules(AST_Node* host_root, AST_Node* device_root,
+ir_gen_gpu_modules(AST_Node* host_root, AST_Node* device_root,
                     IR_Module** out_host, IR_Module** out_device)
 {
     *out_host = NULL;
@@ -73,6 +73,6 @@ ir_gen_cuda_modules(AST_Node* host_root, AST_Node* device_root,
         free(prog);
     }
 
-    /* free shallow copies created by cuda_split */
+    /* free shallow copies created by gpu_split */
     free_device_copies(device_root);
 }

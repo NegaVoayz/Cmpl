@@ -21,7 +21,7 @@ SOURCES=("${CMPL_SOURCES[@]}")
 
 INCLUDES=(
   -Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll
-  -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen
+  -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Igpu -Ivulkan -Illvm-codegen
 )
 
 # -include stdint.h supplies intptr_t for ir_gen.c; the warning

@@ -8,6 +8,8 @@
 #include "../ir_gen.h"
 #include "ir_gen_init.h"
 
+#include <string.h>
+
 /* char a[N] = "s": copy the string's BYTES into the array element by
  * element, zero-padding the remainder and truncating at N (C11 6.7.9p14,
  * p21).  wchar_t a[N] = L"s" stores each byte as one i32 wchar element.

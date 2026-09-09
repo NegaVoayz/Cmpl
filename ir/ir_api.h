@@ -135,9 +135,9 @@ IR_Module*  ir_gen_program(AST_Node* root);
 IR_Module*  ir_gen_module_ex(AST_Node* root, int is_device);
 IR_Func*    ir_gen_function(IR_Module* mod, AST_Node* func_def, int is_device, HashMap* sig_map);
 
-/* --- CUDA two-module generation (ir_gen_cuda.c) --- */
+/* --- GPU two-module generation (ir_gen_gpu.c) --- */
 
-void        ir_gen_cuda_modules(AST_Node* host_root, AST_Node* device_root,
+void        ir_gen_gpu_modules(AST_Node* host_root, AST_Node* device_root,
                                 IR_Module** out_host, IR_Module** out_device);
 
 #endif /* IR_API_H */

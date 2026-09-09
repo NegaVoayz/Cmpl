@@ -29,7 +29,7 @@ JOBS="${SELF_JOBS:-$(nproc)}"
 [ "$JOBS" -gt 16 ] && JOBS=16
 
 # include flags (no spaces in any value, safe to word-split in the jobs)
-I_ARGS_STR="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen"
+I_ARGS_STR="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Igpu -Ivulkan -Illvm-codegen"
 
 echo "=== Stage 1: cmpl -> .ll -> .o (jobs=$JOBS) ==="
 FAIL_LOG="$OUT/.failures"

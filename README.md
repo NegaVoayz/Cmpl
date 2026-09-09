@@ -6,9 +6,9 @@ Cmpl is a from-scratch C compiler built around a **hybrid parser**:
 
 The pipeline: **tokenizer → preprocessor → hybrid parser → AST → AST optimizer → IR gen → IR optimizer → LLVM codegen (.o/.s/.ll)**.
 
-## CUDA-to-Vulkan Bridge
+## GPU-to-Vulkan Bridge
 
-Cmpl compiles **CUDA-like kernel code** into a **host-side Vulkan dispatch**
+Cmpl compiles **GPU-like kernel code** into a **host-side Vulkan dispatch**
 + **device-side SPIR-V kernel**, going through an **LLVM IR tree** intermediate representation.
 
 ```
@@ -35,11 +35,17 @@ Key design decisions:
 - **Own SPIR-V backend** — device IR converted directly to SPIR-V binary. With `-S` flag,
   intermediate IR text is also dumped (like `gcc -S`).
 
+**[`demo/`](demo/README.md)** runs the whole path for real: a 4x4 matrix multiply
+kernel compiled by cmpl, dispatched on a Vulkan device by the demo runtime, and
+checked against a CPU reference — `bash scripts/gpu_demo.sh` (WSL/Linux) or
+`powershell -File scripts\gpu_demo.ps1` (native Windows).
+
 ## Status
 
 Active development. The compiler parses C source, performs AST and IR optimization,
-invokes `clang` for native codegen (.o/.s), and generates SPIR-V from CUDA kernel code.
-The Vulkan runtime library (`rt/`) is planned but not yet implemented.
+invokes `clang` for native codegen (.o/.s), and generates SPIR-V from GPU kernel code.
+The Vulkan runtime library (`rt/`) is planned but not yet implemented; `demo/vk_rt*.c`
+is a minimal stand-in that runs the emitted SPIR-V on a Vulkan device.
 
 **IR self-hosting: all 122 compiler sources generate valid LLVM IR** (clang -c clean),
 with byte-identical normalized stage-1↔stage-2↔stage-3 IR (full convergence) and a
@@ -82,9 +88,9 @@ installed and in your `PATH` at runtime.
 # Preprocessor only
 ./cmpl-pp file.c
 
-# CUDA compilation
-./cmpl -cuda kernel.cu            # → kernel.cu.spv
-./cmpl -cuda -S kernel.cu         # → also dumps device IR
+# GPU compilation
+./cmpl -gpu kernel.cu            # → kernel.cu.spv
+./cmpl -gpu -S kernel.cu         # → also dumps device IR
 ```
 
 ## Testing
@@ -151,7 +157,7 @@ clang -c --target=x86_64-pc-linux-gnu /tmp/test.ll -o /dev/null
 | `test/test_hex.c` | Hex literal handling |
 | `test/test_lr1_edge.c` | LR(1) parser edge cases |
 | `test/test_parse_recovery.c` | Parser error recovery |
-| `test/test_gpu.c` | CUDA kernel compilation |
+| `test/test_gpu.c` | GPU kernel compilation |
 | `test/test_kernel.c` | Kernel launch syntax |
 
 ## Project Map
@@ -165,7 +171,7 @@ clang -c --target=x86_64-pc-linux-gnu /tmp/test.ll -o /dev/null
 | `parser/` | Hybrid Parser | Glue layer: tokenizes then dispatches LR + LL |
 | `ast-opt/` | AST Optimizer (pre-IR) | Constant folding, propagation, dead code elimination (in-place AST mutations) |
 | `test/` | Tests | Unit tests for tokenizer, preprocessor, parser |
-| `cuda/` | CUDA Bridge | Qualifier parsing, device/host code split |
+| `gpu/` | GPU Bridge | Qualifier parsing, device/host code split |
 | `ir/` | LLVM IR | Own IR tree: types, values, instructions, blocks, functions |
 | `vulkan/` | Vulkan/SPIR-V | Host mock generation, SPIR-V binary emission |
 | `ir-opt/` | IR Optimizer | Post-IR passes: mem2reg, DCE, const fold, CFG simplify, GVN, inlining |
@@ -174,7 +180,7 @@ clang -c --target=x86_64-pc-linux-gnu /tmp/test.ll -o /dev/null
 
 ## Documentation
 
-- **[CUDA-to-Vulkan Bridge](doc/cuda-bridge.md)** — full pipeline: split → IR → mock → SPIR-V → output
+- **[GPU-to-Vulkan Bridge](doc/gpu-bridge.md)** — full pipeline: split → IR → mock → SPIR-V → output
 - **[LLVM IR Design](doc/llvm-ir.md)** — in-memory IR tree: types, values, instructions, blocks, SSA numbering, float ops, array decay, indirect calls, GEP rules, type coercion
 - **[Vulkan & SPIR-V Backend](doc/vulkan-spirv.md)** — mock generation + SPIR-V binary emission
 - **[IR Optimizer](doc/ir-optimizer.md)** — IR-level optimization passes
@@ -187,3 +193,7 @@ clang -c --target=x86_64-pc-linux-gnu /tmp/test.ll -o /dev/null
 - **[LL Statement Parser](doc/parser-ll.md)** — recursive-descent for statements & declarations
 - **[LLVM Codegen](doc/llvm-codegen.md)** — clang subprocess codegen: .ll → .o/.s/.ll
 - **[Hybrid Parser](doc/hybrid-parser.md)** — how LR and LL coordinate
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).

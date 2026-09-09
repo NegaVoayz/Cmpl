@@ -1,11 +1,11 @@
-/* test_cuda_dual_module.c — regression test for cross-module cache pollution
+/* test_gpu_dual_module.c — regression test for cross-module cache pollution
  *
  * Without ir_reset_type_caches(), the second ir_gen_module_ex() call (device)
  * finds stale IR_Type* pointers from the host module's arena in struct_cache
  * and type_slots. This causes GEP to compute wrong struct field offsets,
  * leading to heap corruption and a crash in arena_new().
  *
- * Run: cmpl -cuda test/test_cuda_dual_module.c
+ * Run: cmpl -gpu test/test_gpu_dual_module.c
  */
 
 /* Named struct — will be cached in struct_cache during host module gen.

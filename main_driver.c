@@ -1,4 +1,4 @@
-/* main_driver.c -- the four top-level pipelines (CUDA, codegen, IR dump, AST
+/* main_driver.c -- the four top-level pipelines (GPU, codegen, IR dump, AST
  * dump).  Split out of main.c so the argument parser and dispatcher stay in
  * one place. */
 
@@ -7,7 +7,7 @@
 #include "optimize.h"
 #include "ir.h"
 #include "ir-opt.h"
-#include "cuda.h"
+#include "gpu.h"
 #include "vulkan.h"
 #include "llvm_cg.h"
 #include "arena.h"
@@ -22,7 +22,7 @@ extern void dump_ast_public(AST_Node* n, int depth);
 
 /* derive the output base name from the input file: basename without the
  * extension ("dir/kernel.cu" -> "kernel").  Host/device outputs land in
- * the current directory, like gcc/clang (doc: cmpl -cuda kernel.cu ->
+ * the current directory, like gcc/clang (doc: cmpl -gpu kernel.cu ->
  * kernel.host.ll + kernel.device.spv). */
 static void
 out_base_name(const char* filename, char* out, int cap)
@@ -36,14 +36,17 @@ out_base_name(const char* filename, char* out, int cap)
     out[len] = '\0';
 }
 
-/* CUDA pipeline: split → IR gen → mock → SPIR-V. */
-void
-run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
+/* GPU pipeline: split → IR gen → mock → SPIR-V.
+ * Returns 0 on success; nonzero when host or device IR generation failed
+ * (ir_gen_gpu_modules leaves that module NULL, so nothing is written and
+ * the caller must not report success). */
+int
+run_gpu_pipeline(AST_Node* root, const char* filename, int dump_spv,
                   int opt_level)
 {
-    CudaSplit cs;
+    GpuSplit cs;
 
-    cuda_split(root, &cs);
+    gpu_split(root, &cs);
 
     printf("\n--- Device/Host Split ---\n");
     printf("Host decls: %s\n", cs.host_decls ? "yes" : "none");
@@ -52,7 +55,16 @@ run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
     /* generate two IR modules */
     IR_Module *host_mod = NULL, *device_mod = NULL;
 
-    ir_gen_cuda_modules(cs.host_decls, cs.device_decls, &host_mod, &device_mod);
+    ir_gen_gpu_modules(cs.host_decls, cs.device_decls, &host_mod, &device_mod);
+
+    /* a missing module means IR generation failed (semantic error was
+     * already reported): skip emission and fail the compile */
+    if (!host_mod || !device_mod) {
+        fprintf(stderr, "Codegen failed (IR generation error).\n");
+        if (host_mod)  arena_free(host_mod->arena);
+        if (device_mod) arena_free(device_mod->arena);
+        return 1;
+    }
 
     /* run IR optimizer on both modules */
     if (host_mod)  ir_optimize(host_mod, opt_level);
@@ -60,10 +72,15 @@ run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
 
     /* collect kernel launches from host AST */
     int n_launches = 0;
-    KernelLaunch* launches = cuda_collect_launches(cs.host_decls, &n_launches);
+    KernelLaunch* launches = gpu_collect_launches(cs.host_decls, &n_launches);
 
     /* insert Vulkan mock calls in host IR */
     vk_mock_insert(host_mod, launches, n_launches);
+    vk_emit_device_init(host_mod, device_mod);
+
+    /* the GPU block dimensions of each launch site become that kernel's
+     * SPIR-V LocalSize and blockDim (WorkgroupSize) */
+    spv_local_sizes_from_launches(launches, n_launches);
 
     char outbase[256];
     out_base_name(filename, outbase, sizeof(outbase));
@@ -89,6 +106,7 @@ run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
     /* SPIR-V emission for device */
     if (device_mod) {
         SPV_Writer spv;
+        int spv_ok;
 
         spv_init(&spv);
 
@@ -97,24 +115,32 @@ run_cuda_pipeline(AST_Node* root, const char* filename, int dump_spv,
             ir_dump_module(device_mod, stdout);
         }
 
-        spv_emit_module(&spv, device_mod);
+        spv_ok = spv_emit_module(&spv, device_mod);
 
         /* write .spv file */
         char spv_name[256];
 
         snprintf(spv_name, sizeof(spv_name), "%s.device.spv", outbase);
-        if (spv_write_file(&spv, spv_name))
+        if (spv_ok && spv_write_file(&spv, spv_name))
             printf("\n--- SPIR-V written to %s (%d words) ---\n",
                    spv_name, spv.len);
         else
             printf("\n--- Failed to write %s ---\n", spv_name);
 
         spv_free(&spv);
+
+        if (!spv_ok) {
+            free(launches);
+            if (host_mod)  arena_free(host_mod->arena);
+            if (device_mod) arena_free(device_mod->arena);
+            return 1;
+        }
     }
 
     free(launches);
     if (host_mod)  arena_free(host_mod->arena);
     if (device_mod) arena_free(device_mod->arena);
+    return 0;
 }
 
 /* LLVM codegen path: IR gen → optimize → clang subprocess.

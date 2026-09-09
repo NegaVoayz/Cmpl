@@ -1,6 +1,6 @@
-/* cuda_launch.c -- find and analyze kernel launch sites in host AST */
+/* gpu_launch.c -- find and analyze kernel launch sites in host AST */
 
-#include "cuda.h"
+#include "gpu.h"
 
 #include <stdlib.h>
 
@@ -166,7 +166,7 @@ walk_launches(AST_Node* node, KernelLaunch** buf, int* count, int* cap)
  * --------------------------------------------------------------- */
 
 KernelLaunch*
-cuda_collect_launches(AST_Node* host_root, int* out_count)
+gpu_collect_launches(AST_Node* host_root, int* out_count)
 {
     KernelLaunch* buf = NULL;
     int count = 0, cap = 0;

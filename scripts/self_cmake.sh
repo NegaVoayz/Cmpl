@@ -12,7 +12,7 @@ source "$ROOT/scripts/src_list.sh"
 SOURCES=("${CMPL_SOURCES[@]}")
 
 INCS="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll \
--Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen"
+-Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Igpu -Ivulkan -Illvm-codegen"
 
 PASS=0; FAIL=0
 for src in "${SOURCES[@]}"; do

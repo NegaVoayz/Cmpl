@@ -104,13 +104,19 @@ register_macro_body(PPCtx* ctx, const char** pp, const char* end,
         char  body_buf[8192];
         int   body_len = read_logical_line(&p, end, body_buf,
                                            (int)sizeof(body_buf));
+        int   open = 0;
 
         /* trim trailing whitespace */
         while (body_len > 0 && (body_buf[body_len - 1] == ' '
                                 || body_buf[body_len - 1] == '\t'
                                 || body_buf[body_len - 1] == '\r'))
             body_len--;
-        body_buf[body_len] = '\0';
+
+        /* comments are removed before the macro is defined, so a trailing
+         * comment is not part of the body; an unterminated one leaves the
+         * comment state open for the lines that follow */
+        pp_strip_comments(body_buf, &body_len, &open);
+        if (open) ctx->in_comment = 1;
 
         char* body = arena_alloc(ctx->arena, body_len + 1);
         memcpy(body, body_buf, body_len);

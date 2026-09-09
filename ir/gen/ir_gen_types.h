@@ -48,7 +48,7 @@ typedef struct {
     IR_Block*       cont_blk;   /* target for continue */
     IR_Type*        ret_type;   /* enclosing function return type */
     IR_Module*      mod;        /* for global variable lookup */
-    int             is_device;  /* 1 = device IR gen (CUDA builtins), 0 = host */
+    int             is_device;  /* 1 = device IR gen (GPU builtins), 0 = host */
     struct SymSave* scope_top;  /* saved shadowed symbols for scope restore */
 } GenCtx;
 

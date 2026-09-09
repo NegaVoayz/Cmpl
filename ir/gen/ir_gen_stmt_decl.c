@@ -13,14 +13,14 @@
 #include "ir_gen.h"
 
 /* ---------------------------------------------------------------
- *  Static local: module-level global with a function-mangled name.
- *  C11 6.2.4p3: the object persists across calls, so it must live in
- *  static storage (mod->globals), not in a per-call alloca.  The
- *  initializer is constant by definition (C11 6.7.9p4); a failed
- *  const fold falls back to zero-init.
+ *  Module-scope storage for a block-scope declaration: static locals
+ *  (Private) and __shared__ variables (Workgroup, one copy per
+ *  workgroup shared by every invocation — GPU semantics; a Function
+ *  alloca would give each thread a private copy).
  * --------------------------------------------------------------- */
 
-IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
+static IR_Value*
+make_module_global(GenCtx* ctx, AST_Node* n, int addrspace)
 {
     IR_Builder* b = ctx->b;
     IR_Module*  mod = ctx->mod;
@@ -46,24 +46,45 @@ IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
     sprintf(nm + flen + 1 + vlen, ".%d", n->loc.line);
 
     IR_Value* gv = arena_alloc(b->arena, sizeof(IR_Value));
+
     gv->kind = VAL_GLOBAL;
     gv->name.data = nm;
     gv->name.length = (int)strlen(nm);
     gv->type = vt;
-    gv->linkage = IR_LINK_INTERNAL;   /* static local: internal */
+    gv->linkage = IR_LINK_INTERNAL;   /* static local / __shared__: internal */
+    gv->addrspace = addrspace;
+    gv->next = mod->globals;
+    mod->globals = gv;
+    sym_add(ctx, n->body.var_decl.name, gv);
+    return gv;
+}
+
+/* ---------------------------------------------------------------
+ *  Static local: module-level global with a function-mangled name.
+ *  C11 6.2.4p3: the object persists across calls, so it must live in
+ *  static storage (mod->globals), not in a per-call alloca.  The
+ *  initializer is constant by definition (C11 6.7.9p4); a failed
+ *  const fold falls back to zero-init.
+ * --------------------------------------------------------------- */
+
+IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
+{
+    IR_Builder* b = ctx->b;
+    IR_Module*  mod = ctx->mod;
+    IR_Value*   gv = make_module_global(ctx, n, 0);
 
     if (n->body.var_decl.init) {
         int err = 0;
         gv->body.init_val = gen_const_init(b->arena,
-                                           n->body.var_decl.init, vt,
+                                           n->body.var_decl.init, gv->type,
                                            (TypedefEntry*)mod->enum_vals,
                                            (HashMap*)mod->global_types, &err);
         if (err) mod->had_error = 1;
     }
     if (!gv->body.init_val) {
         IR_Value* init = arena_alloc(b->arena, sizeof(IR_Value));
-        init->kind = (vt->kind == IR_PTR) ? VAL_CONST_NULL : VAL_CONST_INT;
-        init->type = vt;
+        init->kind = (gv->type->kind == IR_PTR) ? VAL_CONST_NULL : VAL_CONST_INT;
+        init->type = gv->type;
         gv->body.init_val = init;
     }
 
@@ -81,11 +102,20 @@ IR_Value* gen_static_local(GenCtx* ctx, AST_Node* n)
         hashmap_put((HashMap*)mod->global_types,
                     n->body.var_decl.name, clone);
     }
-
-    gv->next = mod->globals;
-    mod->globals = gv;
-    sym_add(ctx, n->body.var_decl.name, gv);
     return gv;
+}
+
+/* ---------------------------------------------------------------
+ *  __shared__: workgroup-local storage.  GPU semantics require ONE
+ *  copy per workgroup shared by every invocation, so it cannot be a
+ *  Function alloca (each thread would get a private copy).  The
+ *  initializer is ignored — GPU rejects initializers on __shared__.
+ * --------------------------------------------------------------- */
+
+static void
+gen_shared_global(GenCtx* ctx, AST_Node* n)
+{
+    make_module_global(ctx, n, ADDR_SHARED);
 }
 
 /* ---------------------------------------------------------------
@@ -98,6 +128,11 @@ void gen_stmt_var_decl(GenCtx* ctx, AST_Node* n)
 
     if (n->body.var_decl.linkage == LINK_STATIC) {   /* static local */
         gen_static_local(ctx, n);
+        return;
+    }
+
+    if (n->body.var_decl.addr_space == ADDR_SHARED) {  /* __shared__ */
+        gen_shared_global(ctx, n);
         return;
     }
 

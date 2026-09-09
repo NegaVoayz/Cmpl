@@ -18,5 +18,5 @@ add_library(parser_ll STATIC
     decl/ll_declarator_suffix.c
 )
 
-target_include_directories(parser_ll PUBLIC . ../lr ../../tokenizer ../../cuda)
-target_link_libraries(parser_ll parser_lr tokenizer cuda)
+target_include_directories(parser_ll PUBLIC . ../lr ../../tokenizer ../../gpu)
+target_link_libraries(parser_ll parser_lr tokenizer gpu)

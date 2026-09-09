@@ -6,6 +6,28 @@
 #include <string.h>
 
 /* ---------------------------------------------------------------
+ *  Diagnostics
+ * --------------------------------------------------------------- */
+
+static int spv_err;
+
+/* a single pre-formatted message: cmpl's own <stdarg.h> cannot be used
+ * with gcc's __builtin_va_start, so callers format with snprintf */
+void
+spv_error(const char* msg)
+{
+    spv_err = 1;
+    fprintf(stderr, "cmpl: error: %s\n", msg);
+}
+
+/* one diagnostic per module is enough (see vk_spirv_idmap.c) */
+int
+spv_had_error(void)
+{
+    return spv_err;
+}
+
+/* ---------------------------------------------------------------
  *  Word emission
  * --------------------------------------------------------------- */
 
@@ -20,79 +42,89 @@ void spv_w(SPV_Writer* w, uint32_t x)
 
 void spv_op(SPV_Writer* w, int op, int n) { spv_w(w, ((n+1)<<16)|op); }
 
-/* ---------------------------------------------------------------
- *  ID management
- * --------------------------------------------------------------- */
-
-int map_id(IdMap* m, int* n, int cap, void* key, int base)
-{
-    for (int i = 0; i < *n; i++)
-        if (m[i].key == key) return m[i].id;
-
-    if (*n >= cap) return 0;   /* table full — signal overflow */
-    int id = base + *n;
-    m[*n].key = key; m[*n].id = id; (*n)++;
-    return id;
-}
-
-int find_id(IdMap* m, int n, void* key)
-{
-    for (int i = 0; i < n; i++)
-        if (m[i].key == key) return m[i].id;
-    return 0;
-}
+/* the id tables (map_id/map_id_as/find_id) live in vk_spirv_idmap.c */
 
 /* sub-emission from other vk_spirv_*.c files */
+extern int spv_calc_bound(IdMap* tm, int tn, IdMap* vm, int vn, IdMap* fm, int fnc,
+                        IdMap* bm, int bn, int next_id);
+extern void spv_emit_capabilities(SPV_Writer* w, IR_Module* mod, IdMap* tm, int tn);
 extern void collect_ids(IR_Module* mod, IdMap* tm, int* tn, IdMap* vm, int* vn,
                         IdMap* fm, int* fnc, IdMap* bm, int* bn);
 extern void emit_types(SPV_Writer* w, IdMap* tm, int tn);
 extern void emit_consts(SPV_Writer* w, IdMap* vm, int vn, IdMap* tm, int tn);
-extern void emit_entries(SPV_Writer* w, IR_Module* mod, IdMap* fm, int fnc);
+extern void emit_entries(SPV_Writer* w, IR_Module* mod, IdMap* fm, int fnc,
+                         IdMap* vm, int vn);
 extern void emit_func(SPV_Writer* w, IR_Module* mod, IR_Func* f, IdMap* tm, int tn,
                       IdMap* vm, int vn, IdMap* fm, int fnc, IdMap* bm, int bn);
-/* CUDA builtin variables (vk_spirv_builtin.c): blockIdx/threadIdx/blockDim/
- * gridDim reads map to BuiltIn-decorated Input variables.  The decoration
- * pass MUST run before any type instruction (logical layout section 3);
- * the variable pass runs after types/constants (section 4). */
-extern void spv_emit_builtins_decor(SPV_Writer* w, IR_Module* mod);
+extern void spv_emit_func_types(SPV_Writer* w, IR_Module* mod, IdMap* tm, int tn);
+extern int  func_type_id(IR_Func* f);
+/* GPU builtin objects (vk_spirv_builtin.c): blockIdx/threadIdx/blockDim/
+ * gridDim reads map to BuiltIn-decorated uvec3 objects.  The id pass MUST
+ * run before the entry point (its interface lists the variables), the
+ * decoration pass AFTER it (section 8 follows section 5), and the
+ * type/constant/variable pass in section 9. */
+extern void spv_builtins_prepare(SPV_Writer* w, IR_Module* mod);
+extern void spv_emit_builtins_decor(SPV_Writer* w);
 extern void spv_emit_builtins_vars(SPV_Writer* w, IdMap* tm, int tn);
 extern int  spv_builtin_interface_count(void);
 extern int  spv_builtin_interface_at(int i);
 
 /* ---------------------------------------------------------------
- *  Bound calculation
- * --------------------------------------------------------------- */
-
-static int calc_bound(IdMap* tm, int tn, IdMap* vm, int vn, IdMap* fm, int fnc,
-                      IdMap* bm, int bn, int next_id)
-{
-    int b = next_id;
-    for (int i = 0; i < tn; i++) if (tm[i].id > b) b = tm[i].id;
-    for (int i = 0; i < vn; i++) if (vm[i].id > b) b = vm[i].id;
-    for (int i = 0; i < fnc; i++) if (fm[i].id > b) b = fm[i].id;
-    for (int i = 0; i < bn; i++) if (bm[i].id > b) b = bm[i].id;
-    return b + 1;
-}
-
-/* ---------------------------------------------------------------
  *  Public: emit SPIR-V module
  * --------------------------------------------------------------- */
 
-void spv_emit_module(SPV_Writer* w, IR_Module* mod)
-{
-    IdMap tm[SPV_MAX_TY] = {{0}}; int tn = 0;
-    IdMap vm[SPV_MAX_VL] = {{0}}; int vn = 0;
-    IdMap fm[SPV_MAX_FN] = {{0}}; int fnc = 0;
-    IdMap bm[SPV_MAX_BL] = {{0}}; int bn = 0;
+/* The id tables are heap-allocated: SPV_MAX_VL must hold every SSA value
+ * of a real kernel, which is far more than a stack frame should carry. */
+typedef struct { IdMap *tm, *vm, *fm, *bm; } IdTables;
 
+static int
+tables_alloc(IdTables* t)
+{
+    t->tm = calloc(SPV_MAX_TY, sizeof(IdMap));
+    t->vm = calloc(SPV_MAX_VL, sizeof(IdMap));
+    t->fm = calloc(SPV_MAX_FN, sizeof(IdMap));
+    t->bm = calloc(SPV_MAX_BL, sizeof(IdMap));
+    return t->tm && t->vm && t->fm && t->bm;
+}
+
+static void
+tables_free(IdTables* t)
+{
+    free(t->tm); free(t->vm); free(t->fm); free(t->bm);
+}
+
+int spv_emit_module(SPV_Writer* w, IR_Module* mod)
+{
+    IdTables t;
+    IdMap* tm; IdMap* vm; IdMap* fm; IdMap* bm;
+    int tn = 0, vn = 0, fnc = 0, bn = 0;
+
+    if (!tables_alloc(&t)) {
+        spv_error("out of memory for the SPIR-V id tables");
+        return 0;
+    }
+    tm = t.tm; vm = t.vm; fm = t.fm; bm = t.bm;
+
+    spv_err = 0;
     collect_ids(mod, tm, &tn, vm, &vn, fm, &fnc, bm, &bn);
 
-    /* fresh IDs (function types, builtin vars, array-length constants)
-     * must start ABOVE the collected ids — map_id hands out disjoint
-     * per-table ranges and id 0 is invalid SPIR-V.  The header bound is
-     * patched with the true value after emission. */
-    int bound = calc_bound(tm, tn, vm, vn, fm, fnc, bm, bn, w->next_id);
+    /* fresh IDs (function types, builtin objects, global pointer types,
+     * array-length constants) must start ABOVE the collected ids — map_id
+     * hands out disjoint per-table ranges and id 0 is invalid SPIR-V.
+     * The header bound is patched with the true value after emission. */
+    int bound = spv_calc_bound(tm, tn, vm, vn, fm, fnc, bm, bn, w->next_id);
     w->next_id = bound;
+
+    /* id pre-passes: builtin objects must exist before the entry point
+     * lists them, block structs before their decorations, push-constant
+     * blocks before the parameter prologues, pointer types before the
+     * decorations that decorate them */
+    spv_builtins_prepare(w, mod);
+    spv_globals_prepare(w, mod, vm, vn);
+    spv_params_prepare(w, mod, tm, tn);
+    spv_ptr_scan(w, mod, tm, tn);
+    spv_u64_zero_prepare(w, tm, tn);
+    spv_u64_consts_scan(w, mod);
 
     spv_w(w, SPV_MAGIC);
     spv_w(w, SPV_VERSION);
@@ -100,25 +132,45 @@ void spv_emit_module(SPV_Writer* w, IR_Module* mod)
     spv_w(w, bound);       /* provisional — patched below */
     spv_w(w, 0);           /* schema */
 
-    spv_op(w, SPV_OP_CAPABILITY, 1); spv_w(w, 1);       /* Shader */
-    spv_op(w, SPV_OP_MEMORY_MODEL, 2); spv_w(w, 0); spv_w(w, 1); /* Logical, GLSL450 */
+    spv_emit_capabilities(w, mod, tm, tn);
 
-    /* annotations (logical-layout section 3) — before any type */
-    spv_emit_builtins_decor(w, mod);
+    /* physical storage buffer addressing: pointer values are buffer
+     * device addresses, so no per-argument descriptor is needed */
+    spv_op(w, SPV_OP_MEMORY_MODEL, 2);
+    spv_w(w, SPV_ADDRESSING_PSB64); spv_w(w, 1);  /* GLSL450 */
 
+    /* entry points (section 5) + execution modes (section 6) */
+    emit_entries(w, mod, fm, fnc, vm, vn);
+
+    /* annotations (section 8) — after entry points, before types */
+    spv_emit_builtins_decor(w);
+    spv_emit_global_decor(w, mod, vm, vn, tm, tn);
+    spv_params_decor(w, tm, tn);
+    spv_ptr_decor(w, tm, tn);
+
+    /* types, constants and global variables (section 9) */
     emit_types(w, tm, tn);
+    spv_ptr_emit_types(w);
     emit_consts(w, vm, vn, tm, tn);
-
-    /* global variables (logical-layout section 4) */
+    spv_u64_zero_emit(w, tm, tn);
+    spv_u64_consts_emit(w, tm, tn);
     spv_emit_builtins_vars(w, tm, tn);
+    spv_params_emit(w, tm, tn);
+    spv_emit_globals(w, mod, tm, tn);
+    spv_emit_func_types(w, mod, tm, tn);
 
-    emit_entries(w, mod, fm, fnc);
-
+    /* function declarations and definitions (sections 10-11) */
     for (IR_Func* f = mod->funcs; f; f = f->next)
         emit_func(w, mod, f, tm, tn, vm, vn, fm, fnc, bm, bn);
 
     /* true bound: every assigned id is < w->next_id */
     w->words[3] = (uint32_t)w->next_id;
+
+    tables_free(&t);
+
+    /* 0 when a diagnostic was emitted: the driver must not write a .spv
+     * that no Vulkan implementation would accept */
+    return !spv_err;
 }
 
 /* ---------------------------------------------------------------

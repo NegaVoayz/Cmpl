@@ -101,6 +101,10 @@ emit_global(Arena* a, AST_Node* decl, IR_Module* mod, HashMap* global_map,
     gv->kind = VAL_GLOBAL;
     gv->name = decl->body.var_decl.name;
     gv->type = ir_type_from_ast(a, decl->body.var_decl.var_type);
+    /* address space of the module-scope object: 0 host/private, 1 device
+     * global (__device__), 2 shared, 3 constant.  The SPIR-V emitter picks
+     * the storage class from it. */
+    gv->addrspace = decl->body.var_decl.addr_space;
 
     /* fix up: if the IR type is an array-of-i32 but the AST element
      * type is a named typedef (likely fn ptr), use ptr elements */

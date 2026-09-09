@@ -81,7 +81,7 @@ Type* ll_parse_declarator(LR1_Parser* p, Type* base, String* out_name);
 ## Expression Delegation
 
 `ll_parse_expr()` is the bridge to the LR parser. It detects the **kernel launch** syntax
-`f<<<grid,block>>>(args)` — a CUDA extension — by looking for `<<<` after the LR parser
+`f<<<grid,block>>>(args)` — a GPU extension — by looking for `<<<` after the LR parser
 returns a primary expression.
 
 ```c

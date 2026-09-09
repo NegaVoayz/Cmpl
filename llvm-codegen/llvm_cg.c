@@ -11,6 +11,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Windows spells the pipe helpers with a leading underscore (UCRT); the
+ * macro must come after <stdio.h> so the header's own declarations are
+ * untouched. */
+#ifdef _WIN32
+#define popen  _popen
+#define pclose _pclose
+#endif
+
 /* ---------------------------------------------------------------
  *  Internal helpers
  * --------------------------------------------------------------- */

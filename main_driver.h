@@ -16,7 +16,7 @@ typedef struct AST_Node AST_Node;
 typedef struct {
     const char* filename;
     int         dump_ir;
-    int         cuda_mode;
+    int         gpu_mode;
     int         dump_spv;
     int         opt_level;
     int         codegen_mode;
@@ -36,8 +36,11 @@ int  compile_source(PPCtx* pp_ctx, const CmdOpts* opts);
 /* Batch subcommand (cmpl batch <filelist> / cmpl @filelist). */
 int  run_batch(int argc, char** argv);
 
-/* Pipeline drivers -- defined in main_driver.c */
-void run_cuda_pipeline(AST_Node* root, const char* filename,
+/* Pipeline drivers -- defined in main_driver.c.  run_gpu_pipeline returns
+ * 0 on success and nonzero when host or device IR generation failed (the
+ * failed module is NULL and no output is written), so a broken GPU
+ * compile cannot exit 0. */
+int  run_gpu_pipeline(AST_Node* root, const char* filename,
                        int dump_spv, int opt_level);
 int  run_codegen_pipeline(AST_Node* root, const char* filename,
                           const char* out_file, int codegen_mode,

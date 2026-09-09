@@ -26,7 +26,9 @@ process_source(PPCtx* ctx, const char* src, int srclen)
     const char* end = src + srclen;
 
     while (p < end) {
-        if (*p == '#' && at_line_begin(p, src)) {
+        /* a '#' inside a block comment that started on an earlier line is
+         * comment text, not a directive (pp_line.c carries the state) */
+        if (*p == '#' && !ctx->in_comment && at_line_begin(p, src)) {
             handle_directive(ctx, &p, end);
             continue;
         }
@@ -47,7 +49,7 @@ process_source(PPCtx* ctx, const char* src, int srclen)
 
             /* scan the plain-text run up to a directive or a splice */
             while (p < end && *p != '\n') {
-                if (*p == '#' && at_line_begin(p, src))
+                if (*p == '#' && !ctx->in_comment && at_line_begin(p, src))
                     break;   /* directive (possibly indented) */
                 if (*p == '\\' && p + 1 < end && p[1] == '\n')
                     break;   /* backslash-newline splice */

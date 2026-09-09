@@ -322,5 +322,5 @@ This gives two optimization opportunities:
 ## Related
 
 - [LLVM IR Design](llvm-ir.md) — the IR data structures being optimized
-- [CUDA Bridge](cuda-bridge.md) — where the optimizer fits in the pipeline
+- [GPU Bridge](gpu-bridge.md) — where the optimizer fits in the pipeline
 - [Vulkan & SPIR-V](vulkan-spirv.md) — device-specific optimizations before SPIR-V emission

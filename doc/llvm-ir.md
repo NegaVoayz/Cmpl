@@ -576,9 +576,9 @@ merge:
 
 ## Built-in Variables for Device Code
 
-Device code references CUDA built-in variables. These become calls to LLVM SPIR-V intrinsics:
+Device code references GPU built-in variables. These become calls to LLVM SPIR-V intrinsics:
 
-| CUDA Built-in | SPIR-V Mapping |
+| GPU Built-in | SPIR-V Mapping |
 |---|---|
 | `blockIdx.x/y/z` | `call @llvm.spirv.builtin.workgroup.id(i32 dim)` |
 | `blockDim.x/y/z` | `call @llvm.spirv.builtin.workgroup.size(i32 dim)` |
@@ -625,7 +625,7 @@ within each function scope.
 | `ir/gen/ir_gen.c` | Module/function generation: global vars, function defs, symbol tables |
 | `ir/gen/expr/ir_gen_expr.c` | Expression AST → IR (literal, ident, binary, unary, call, cast, ternary, ...) |
 | `ir/gen/ir_gen_stmt.c` | Statement AST → IR (block, if, while, for, return, var decl, ...) |
-| `ir/ir_gen_cuda.c` | CUDA two-module generation (host + device IR split) |
+| `ir/ir_gen_gpu.c` | GPU two-module generation (host + device IR split) |
 | `ir/dump/ir_dump.c` | Type printer, value printer, condition string tables, module entry |
 | `ir/dump/instr/ir_dump_instr.c` | Instruction text printer (all IROP_* cases) |
 | `ir/dump/ir_dump_func.c` | Block, function, and module printers; vreg renumbering; declare stubs |
@@ -633,7 +633,7 @@ within each function scope.
 
 ## Related
 
-- [CUDA Bridge](cuda-bridge.md) — full pipeline, how IR fits in the stages
+- [GPU Bridge](gpu-bridge.md) — full pipeline, how IR fits in the stages
 - [Vulkan & SPIR-V Backend](vulkan-spirv.md) — SPIR-V emission from device IR
 - [IR Optimizer](ir-optimizer.md) — IR-level optimization passes
 - [AST & Type System](ast.md) — C type representation (source of IR type conversion)

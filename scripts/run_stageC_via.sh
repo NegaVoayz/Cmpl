@@ -19,16 +19,16 @@ for f in test/*.c; do
   base=$(basename "$f" .c)
   grep -q "int main" "$f" || continue
   case "$base" in
-    test_cuda_dual_module|test_gpu|test_kernel|test_cuda_host_exec)
+    test_gpu_dual_module|test_gpu|test_kernel|test_gpu_host_exec)
       cp "$f" "$TMP/$base.c"
-      if ! (cd "$TMP" && "$CMPL" -cuda -I"$PWD/include" -I"$PWD" \
+      if ! (cd "$TMP" && "$CMPL" -gpu -I"$PWD/include" -I"$PWD" \
             "$base.c" >/dev/null 2>&1); then
-        CFAIL=$((CFAIL+1)); CFAILED+=("$base (cuda)")
+        CFAIL=$((CFAIL+1)); CFAILED+=("$base (gpu)")
         continue
       fi
       # host-exec test: link the emitted host IR with the launch stub
       # and RUN it — the stub asserts the mock's config/kernel-arg split
-      if [ "$base" = test_cuda_host_exec ] &&
+      if [ "$base" = test_gpu_host_exec ] &&
          [ -f "$TMP/$base.host.ll" ]; then
         if clang "$TMP/$base.host.ll" "$PWD/test/test_vk_launch_stub.c" \
              -o "$TMP/$base.exe" 2>"$TMP/$base.link.err"; then

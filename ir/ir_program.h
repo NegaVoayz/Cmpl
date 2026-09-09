@@ -83,10 +83,10 @@ struct IR_Block {
 };
 
 /* ---------------------------------------------------------------
- *  Function linkage (extended for CUDA)
+ *  Function linkage (extended for GPU)
  *
  *  IR-side linkage for emitted functions.  Members carry the IR_LINK_
- *  prefix because the CUDA node-tag enum (cuda.h, LINK_HOST/DEVICE/...)
+ *  prefix because the GPU node-tag enum (gpu.h, LINK_HOST/DEVICE/...)
  *  is visible in every translation unit via ast_node.h, and two enums
  *  cannot share enumerator names in the same scope.
  * --------------------------------------------------------------- */

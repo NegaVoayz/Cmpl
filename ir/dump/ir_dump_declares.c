@@ -58,7 +58,7 @@ void
 dump_extern_declares(FILE* out, IR_Module* mod)
 {
     /* per-module reset: the fnptr pass reads this list in the same
-     * module dump; the next module (CUDA dual gen) starts fresh */
+     * module dump; the next module (GPU dual gen) starts fresh */
     n_extern_seen = 0;
 
     for (IR_Func* f = mod->funcs; f; f = f->next) {

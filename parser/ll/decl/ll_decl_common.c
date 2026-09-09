@@ -15,7 +15,7 @@ extern AST_Node* ll_parse_stmt(LR1_Parser* p);
 
 AST_Node*
 decl_build_func_def(LR1_Parser* p, Token* start, Type* full, String dname,
-                    CudaLinkage linkage, int is_constructor)
+                    GpuLinkage linkage, int is_constructor)
 {
     Type* scan = full;
     int n_ptr = 0;

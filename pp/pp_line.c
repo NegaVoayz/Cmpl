@@ -64,21 +64,12 @@ skip_literal(const char** pp, const char* end)
 }
 
 static void
-skip_block_comment(const char** pp, const char* end)
-{
-    *pp += 2;
-    while (*pp + 1 < end && !((*pp)[0] == '*' && (*pp)[1] == '/')) (*pp)++;
-    if (*pp + 1 < end) *pp += 2;
-    else if (*pp < end) (*pp)++;
-}
-
-static void
 skip_line_comment(const char** pp, const char* end)
 {
     while (*pp < end) (*pp)++;
 }
 
-/* copy a verbatim span (literal/comment) without macro expansion */
+/* copy a verbatim span (literal) without macro expansion */
 static void
 copy_verbatim(const char** pp, const char* end, Buffer* out,
               void (*skip)(const char**, const char*))
@@ -132,6 +123,7 @@ expand_line(PPCtx* ctx, const char* line, Buffer* out)
 {
     int   linelen = (int)strlen(line);
     char* work = arena_alloc(ctx->arena, linelen + 1);
+    int   in_comment0 = ctx->in_comment;   /* state when this line starts */
 
     memcpy(work, line, linelen + 1);
 
@@ -149,6 +141,7 @@ expand_line(PPCtx* ctx, const char* line, Buffer* out)
 
             scratch.len = 0;  /* reset without free/realloc */
             ds_init(&ds);
+            ctx->in_comment = in_comment0;   /* rescan from the same state */
 
             while (p < end) {
                 /* string/char literal: copy verbatim — one preprocessing
@@ -158,12 +151,13 @@ expand_line(PPCtx* ctx, const char* line, Buffer* out)
                     continue;
                 }
 
-                /* comments: copy verbatim so macro expansion cannot
-                 * inject comment delimiters (gcc does not expand here) */
-                if (*p == '/' && p + 1 < end && (p[1] == '*' || p[1] == '/')) {
-                    copy_verbatim(&p, end, &scratch,
-                                  p[1] == '*' ? skip_block_comment
-                                              : skip_line_comment);
+                /* comments: copy verbatim so macro expansion cannot inject
+                 * comment delimiters.  A block comment may run past the end
+                 * of the line: the interior lines are comment text, and a
+                 * '#' there is not a directive (see process_source). */
+                if (ctx->in_comment ||
+                    (*p == '/' && p + 1 < end && (p[1] == '*' || p[1] == '/'))) {
+                    ctx->in_comment = pp_copy_comment(ctx, &p, end, &scratch);
                     continue;
                 }
 

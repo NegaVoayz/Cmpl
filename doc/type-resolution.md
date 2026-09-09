@@ -133,7 +133,7 @@ Clears all three static IR type caches in `ir_type.c`:
 - `ast_map[]` — IR_Type* → AST Type* field lookup (cleared: `n_ast_map = 0`)
 
 Called at the start of every `ir_gen_module_ex()` call. This is critical for
-CUDA dual-module generation (`ir_gen_cuda_modules`), which calls
+GPU dual-module generation (`ir_gen_gpu_modules`), which calls
 `ir_gen_module_ex()` twice sequentially (host then device). Without the reset,
 `IR_Type*` pointers from the host module's arena would leak into the device
 module's type resolution via the static caches.

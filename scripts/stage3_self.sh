@@ -11,11 +11,11 @@ mkdir -p "$OUT"
 # remove stale artifacts from earlier file layouts (see rebuild_self2.sh)
 rm -f "$OUT"/*.o "$OUT"/*.ll "$OUT"/*.err "$OUT/cmpl_self3"
 INCS="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll \
--Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen"
+-Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Igpu -Ivulkan -Illvm-codegen"
 
 echo "########## stage-3 compile (cmpl_self2 -> IR) ##########"
 P=0; F=0
-for src in main.c main_driver.c main_batch.c dump_ast.c dump_ast_decl.c base/*.c tokenizer/*.c pp/*.c parser/lr/*.c parser/lr/table/*.c parser/lr/reduce/*.c parser/ll/*.c parser/ll/decl/*.c parser/parse.c ast-opt/*.c ast-opt/fold/*.c ast-opt/propagate/*.c ir/*.c ir/builder/*.c ir/type/*.c ir/gen/*.c ir/gen/expr/*.c ir/gen/expr/va/*.c ir/gen/expr/lval/*.c ir/gen/init/*.c ir/gen/init/desig/*.c ir/gen/resolve/*.c ir/gen/sa/*.c ir/dump/*.c ir/dump/instr/*.c pp/inc/*.c ir-opt/*.c cuda/*.c vulkan/*.c llvm-codegen/*.c; do
+for src in main.c main_driver.c main_batch.c dump_ast.c dump_ast_decl.c base/*.c tokenizer/*.c pp/*.c parser/lr/*.c parser/lr/table/*.c parser/lr/reduce/*.c parser/ll/*.c parser/ll/decl/*.c parser/parse.c ast-opt/*.c ast-opt/fold/*.c ast-opt/propagate/*.c ir/*.c ir/builder/*.c ir/type/*.c ir/gen/*.c ir/gen/expr/*.c ir/gen/expr/va/*.c ir/gen/expr/lval/*.c ir/gen/init/*.c ir/gen/init/desig/*.c ir/gen/resolve/*.c ir/gen/sa/*.c ir/dump/*.c ir/dump/instr/*.c pp/inc/*.c ir-opt/*.c gpu/*.c vulkan/*.c llvm-codegen/*.c; do
     [ -f "$src" ] || continue
     b="$(echo "$src" | tr '/' '_')"
     "$C" -emit-llvm $INCS -o "$OUT/$b.c.ll" "$src" 2>/dev/null || { F=$((F+1)); continue; }
@@ -26,7 +26,7 @@ echo "stage-3 compile: PASS=$P FAIL=$F"
 echo "########## stage-3 clang + link ##########"
 rm -f "$OUT"/*.o
 P=0; F=0
-for src in main.c main_driver.c main_batch.c dump_ast.c dump_ast_decl.c base/*.c tokenizer/*.c pp/*.c parser/lr/*.c parser/lr/table/*.c parser/lr/reduce/*.c parser/ll/*.c parser/ll/decl/*.c parser/parse.c ast-opt/*.c ast-opt/fold/*.c ast-opt/propagate/*.c ir/*.c ir/builder/*.c ir/type/*.c ir/gen/*.c ir/gen/expr/*.c ir/gen/expr/va/*.c ir/gen/expr/lval/*.c ir/gen/init/*.c ir/gen/init/desig/*.c ir/gen/resolve/*.c ir/gen/sa/*.c ir/dump/*.c ir/dump/instr/*.c pp/inc/*.c ir-opt/*.c cuda/*.c vulkan/*.c llvm-codegen/*.c; do
+for src in main.c main_driver.c main_batch.c dump_ast.c dump_ast_decl.c base/*.c tokenizer/*.c pp/*.c parser/lr/*.c parser/lr/table/*.c parser/lr/reduce/*.c parser/ll/*.c parser/ll/decl/*.c parser/parse.c ast-opt/*.c ast-opt/fold/*.c ast-opt/propagate/*.c ir/*.c ir/builder/*.c ir/type/*.c ir/gen/*.c ir/gen/expr/*.c ir/gen/expr/va/*.c ir/gen/expr/lval/*.c ir/gen/init/*.c ir/gen/init/desig/*.c ir/gen/resolve/*.c ir/gen/sa/*.c ir/dump/*.c ir/dump/instr/*.c pp/inc/*.c ir-opt/*.c gpu/*.c vulkan/*.c llvm-codegen/*.c; do
     [ -f "$src" ] || continue
     b="$(echo "$src" | tr '/' '_')"
     clang -c "$OUT/$b.c.ll" -o "$OUT/$b.o" 2>/dev/null || { F=$((F+1)); continue; }

@@ -24,7 +24,7 @@ mkdir -p "$OUT1" "$OUT2"
 rm -f "$OUT1"/*.o "$OUT1"/*.ll "$OUT1"/*.err "$OUT1"/cmpl_self_o1
 rm -f "$OUT2"/*.o "$OUT2"/*.ll "$OUT2"/*.err "$OUT2"/cmpl_self_o2
 
-INCS="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Icuda -Ivulkan -Illvm-codegen"
+INCS="-Iinclude -Ibase -I. -Itokenizer -Ipp -Ipp/inc -Iparser -Iparser/lr -Iparser/ll -Iast-opt -Iir -Iir/builder -Iir/type -Iir/dump -Iir/dump/instr -Iir-opt -Igpu -Ivulkan -Illvm-codegen"
 
 echo "=== stage1-O1: bootstrap cmpl -O1 -> IR -> .o ==="
 failed=0

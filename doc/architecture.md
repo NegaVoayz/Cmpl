@@ -30,13 +30,13 @@ source.c  →  [Preprocessor]  →  preprocessed text  →  [Tokenizer]  →  to
 | *(none)* | Preprocess → Tokenize → Parse → AST dump |
 | `-ir` | ... → Parser → AST Optimizer → IR Gen → IR Optimizer → `.ll` dump |
 | `-c` / `-S` / `-emit-llvm` | ... → IR Gen → IR Optimizer → LLVM Codegen → `.o` / `.s` / `.ll` |
-| `-cuda` | ... → Parser → AST Optimizer → CUDA Split → IR Gen (host + device) → IR Optimizer → VK Mock Insert + SPIR-V Emit → `.ll` + `.spv` |
+| `-gpu` | ... → Parser → AST Optimizer → GPU Split → IR Gen (host + device) → IR Optimizer → VK Mock Insert + SPIR-V Emit → `.ll` + `.spv` |
 
 ### Pipeline Stages
 
 1. **Preprocessor** (`pp/`) — Resolves `#include`, expands `#define` macros, evaluates `#if`/`#else`/`#endif` conditionals. Produces a single flat source buffer.
 
-2. **Tokenizer** (`tokenizer/`) — Scans the preprocessed text into a linked list of `Token` structs. Handles keywords, identifiers, literals, operators, separators, and CUDA qualifiers.
+2. **Tokenizer** (`tokenizer/`) — Scans the preprocessed text into a linked list of `Token` structs. Handles keywords, identifiers, literals, operators, separators, and GPU qualifiers.
 
 3. **Hybrid Parser** (`parser/`) — Consumes the token chain and produces an `AST_Node*` tree:
    - **LL parser** drives the top level: `ll_parse_program()` iterates declarations and statements.
@@ -51,11 +51,11 @@ source.c  →  [Preprocessor]  →  preprocessed text  →  [Tokenizer]  →  to
 
 7. **LLVM Codegen** (`llvm-codegen/`) — Dumps the IR tree as `.ll` text and shells out to system `clang` for native compilation (`.o` / `.s`).
 
-### CUDA-Specific Pipeline
+### GPU-Specific Pipeline
 
-When `-cuda` is passed, stages 4–7 change:
+When `-gpu` is passed, stages 4–7 change:
 
-4. **CUDA Split** (`cuda/`) — Separates `__global__`/`__device__`/`__host__` functions into host and device ASTs.
+4. **GPU Split** (`gpu/`) — Separates `__global__`/`__device__`/`__host__` functions into host and device ASTs.
 5. **IR Gen** (`ir/`) — Generates two separate IR modules (host + device).
 6. **IR Optimizer** — Runs SSA passes on both modules.
 7a. **Vulkan Mock Insert** (`vulkan/`) — Host IR: replaces kernel launch sites with `cmpl_vk_launch()` calls.
@@ -82,20 +82,20 @@ ast-opt/       →  libast_opt.a     (optimize.c, ast_walk.c, opt_enum.c, opt_de
                                      propagate/opt_propagate.c, propagate/opt_propagate_scan.c,
                                      propagate/opt_propagate_replace.c)
 ir/            →  libir.a          (ir_type.c, ir_builder.c, ir_builder_ops.c,
-                                     ir_gen.c, ir_gen_expr.c, ir_gen_stmt.c, ir_gen_cuda.c,
+                                     ir_gen.c, ir_gen_expr.c, ir_gen_stmt.c, ir_gen_gpu.c,
                                      ir_dump.c, ir_dump_instr.c, ir_dump_func.c, ir_dump_str.c)
 ir-opt/        →  libir-opt.a      (ir_opt.c, ir_opt_mem2reg.c, ir_opt_mem2reg_cfg.c,
                                      ir_opt_mem2reg_rename.c, ir_opt_dce.c, ir_opt_const.c,
                                      ir_opt_simplify.c, ir_opt_gvn.c, ir_opt_inline.c)
 llvm-codegen/  →  libllvm-codegen.a (llvm_cg.c)
-cuda/          →  libcuda.a        (cuda_qual.c, cuda_split.c, cuda_launch.c)
+gpu/          →  libgpu.a        (gpu_qual.c, gpu_split.c, gpu_launch.c)
 vulkan/        →  libvulkan.a      (vk_mock.c, vk_spirv.c, vk_spirv_collect.c,
                                      vk_spirv_emit.c, vk_spirv_func.c)
 ```
 
 ## Executables
 
-- **`cmpl`** — Full compiler: `main.c` links all libraries above. Supports `-E`, `-ir`, `-c`, `-S`, `-emit-llvm`, `-cuda`, `-O0`/`-O1`/`-O2`, `-o`, `-I`.
+- **`cmpl`** — Full compiler: `main.c` links all libraries above. Supports `-E`, `-ir`, `-c`, `-S`, `-emit-llvm`, `-gpu`, `-O0`/`-O1`/`-O2`, `-o`, `-I`.
 - **`cmpl-pp`** — Preprocessor only: `main_pp.c` → tokenizer + pp.
 
 ## Key Data Structures (base/)
@@ -129,7 +129,7 @@ From [CLAUDE.md](../CLAUDE.md):
 - **Token chain**: Tokens form a singly-linked list via `Token.next`. No array — the parser walks the chain. All tokens are arena-allocated; teardown is a single `arena_free()`.
 - **AST with parent-stores-tail**: Chain-owning AST/IR nodes have both `head` and `last` pointers. The last child's `next` points to the parent for upward traversal. Append is O(1): `parent->last->next = node; parent->last = node`.
 - **Hybrid reduction**: LR(1) handles expressions (operator precedence is natural as shift/reduce rules). LL handles everything else (statements, declarations, blocks) — structural constructs that are awkward to express as LR productions.
-- **Memory model**: A single arena per compilation unit owns all Token, AST_Node, IR_Value, IR_Instr, IR_Type, and IR_Block objects. No `free()` calls — teardown is `arena_free()`. HashMaps provide O(1) name lookup throughout. **CUDA exception**: Two arenas exist (host + device modules). `ir_reset_type_caches()` at the start of each `ir_gen_module_ex()` prevents cross-arena IR_Type* pollution via static caches.
+- **Memory model**: A single arena per compilation unit owns all Token, AST_Node, IR_Value, IR_Instr, IR_Type, and IR_Block objects. No `free()` calls — teardown is `arena_free()`. HashMaps provide O(1) name lookup throughout. **GPU exception**: Two arenas exist (host + device modules). `ir_reset_type_caches()` at the start of each `ir_gen_module_ex()` prevents cross-arena IR_Type* pollution via static caches.
 - **Own IR tree**: In-memory LLVM IR data structures with no external LLVM dependency. The `.ll` text bridge connects to the LLVM ecosystem when needed. Def-use chains on IR_Value enable O(n) DCE and correct GVN user redirection.
 - **Per-file limits**: ≤ 200 lines per file, ≤ 80 lines per function, K&R braces.
 - **Self-hosting**: Cmpl can compile its own source files (77/77 pass IR gen; 76/77 pass clang `.ll` → `.o`; link succeeds; runtime smoke test in progress via `build_self.ps1`).

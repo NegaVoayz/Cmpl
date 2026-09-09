@@ -6,9 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct { const char *name, *member; int dim; const char* fn; } CudaBuiltin;
+typedef struct { const char *name, *member; int dim; const char* fn; } GpuBuiltin;
 
-static const CudaBuiltin cuda_builtins[] = {
+static const GpuBuiltin gpu_builtins[] = {
     {"blockIdx","x",0,"__spv_workgroup_id"},{"blockIdx","y",1,"__spv_workgroup_id"},
     {"blockIdx","z",2,"__spv_workgroup_id"},{"threadIdx","x",0,"__spv_local_invocation_id"},
     {"threadIdx","y",1,"__spv_local_invocation_id"},{"threadIdx","z",2,"__spv_local_invocation_id"},
@@ -23,10 +23,10 @@ static int match_str(const char* a, const String* b)
     return len == b->length && memcmp(a, b->data, len) == 0;
 }
 
-/* CUDA builtin check (device IR only): blockIdx.x etc. map to SPIR-V
+/* GPU builtin check (device IR only): blockIdx.x etc. map to SPIR-V
  * builtin calls.  Returns NULL when the member is not a builtin. */
 static IR_Value*
-gen_cuda_builtin(GenCtx* ctx, AST_Node* n)
+gen_gpu_builtin(GenCtx* ctx, AST_Node* n)
 {
     IR_Builder* b = ctx->b;
 
@@ -35,10 +35,10 @@ gen_cuda_builtin(GenCtx* ctx, AST_Node* n)
     String *rn = &n->body.member.record->body.ident.name,
            *mb = &n->body.member.member;
     for (int i = 0; i < 12; i++)
-        if (match_str(cuda_builtins[i].name, rn) &&
-            match_str(cuda_builtins[i].member, mb))
-            { IR_Value* d = ir_const_int(b, t_i32, cuda_builtins[i].dim);
-              return ir_build_call(b, cuda_builtins[i].fn, t_i32,
+        if (match_str(gpu_builtins[i].name, rn) &&
+            match_str(gpu_builtins[i].member, mb))
+            { IR_Value* d = ir_const_int(b, t_i32, gpu_builtins[i].dim);
+              return ir_build_call(b, gpu_builtins[i].fn, t_i32,
                                    (IR_Value*[]){d}, 1); }
     return NULL;
 }
@@ -95,7 +95,7 @@ emit_member_load(GenCtx* ctx, IR_Value* struct_ptr, IR_Type* struct_ty,
 IR_Value*
 gen_member_expr(GenCtx* ctx, AST_Node* n)
 {
-    IR_Value* builtin = gen_cuda_builtin(ctx, n);
+    IR_Value* builtin = gen_gpu_builtin(ctx, n);
     if (builtin) return builtin;
 
     /* bit-field structs: load + extract the field's bits */

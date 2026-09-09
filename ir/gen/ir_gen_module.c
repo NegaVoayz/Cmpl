@@ -24,7 +24,7 @@ static HashMap*
 module_prepare(Arena* a, AST_Node* root, IR_Module* mod)
 {
     /* reset static caches so no IR_Type* from a previous module's arena
-     * leaks into this one (critical for CUDA host→device dual gen) */
+     * leaks into this one (critical for GPU host→device dual gen) */
     ir_reset_type_caches();
 
     TypedefEntry* typedefs = collect_typedefs(a, root);

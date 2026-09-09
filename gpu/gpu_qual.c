@@ -1,13 +1,13 @@
-/* cuda_qual.c -- GPU qualifier parser for the LL parser */
+/* gpu_qual.c -- GPU qualifier parser for the LL parser */
 
-#include "cuda.h"
+#include "gpu.h"
 
 /* ---------------------------------------------------------------
  *  Function qualifiers: __global__ / __device__ / __host__
  * --------------------------------------------------------------- */
 
-CudaLinkage
-cuda_parse_qualifiers(LR1_Parser* p)
+GpuLinkage
+gpu_parse_qualifiers(LR1_Parser* p)
 {
     int has_host = 0, has_device = 0, has_global = 0;
 
@@ -39,13 +39,33 @@ cuda_parse_qualifiers(LR1_Parser* p)
 }
 
 /* ---------------------------------------------------------------
+ *  Declaration qualifiers: consume what is at the cursor and fold it
+ *  into the caller's linkage / address space.  Called BEFORE and AFTER
+ *  the C storage-class keywords, because both orders are legal GPU
+ *  (`__device__ static int x;` and `static __device__ int x;`) and the
+ *  AST carries a single linkage field.
+ * --------------------------------------------------------------- */
+
+void
+gpu_fold_decl_quals(LR1_Parser* p, GpuLinkage* linkage,
+                     GpuAddrSpace* addr_space, int* device_qual)
+{
+    GpuLinkage l = gpu_parse_qualifiers(p);
+    GpuAddrSpace a = gpu_parse_var_qualifiers(p);
+
+    if (l != LINK_HOST) *linkage = l;
+    if (l == LINK_DEVICE) *device_qual = 1;
+    if (a != ADDR_HOST) *addr_space = a;
+}
+
+/* ---------------------------------------------------------------
  *  Variable qualifiers: __shared__ / __constant__
  * --------------------------------------------------------------- */
 
-CudaAddrSpace
-cuda_parse_var_qualifiers(LR1_Parser* p)
+GpuAddrSpace
+gpu_parse_var_qualifiers(LR1_Parser* p)
 {
-    CudaAddrSpace addr = ADDR_HOST;
+    GpuAddrSpace addr = ADDR_HOST;
 
     while (p->tok->kind == TOK_KW_SHARED ||
            p->tok->kind == TOK_KW_CONSTANT) {

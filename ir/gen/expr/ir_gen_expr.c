@@ -98,17 +98,26 @@ gen_expr_binary(GenCtx* ctx, AST_Node* n)
  * __cmpl_kl_<name> with a FIXED 4-slot config header followed by the
  * kernel args.  The mock (vk_mock.c) splits on this exact boundary, so
  * the config count never has to be guessed from the arg count (that
- * heuristic corrupted every launch with >= 2 kernel args). */
+ * heuristic corrupted every launch with >= 2 kernel args).
+ *
+ * The arg list is arena-allocated and sized from the actual arg count:
+ * the old fixed IR_Value* ab[16] silently DROPPED every kernel arg past
+ * the 12th (4 config slots + 12) while still passing the truncated
+ * count to cmpl_vk_launch. */
 static IR_Value*
 gen_expr_kernel_launch(GenCtx* ctx, AST_Node* n)
 {
     AST_Node* cn = n->body.kernel_launch.callee; String kn = {0,0};
     if (cn && cn->type == AST_IDENT) kn = cn->body.ident.name;
-    char pn[128]; int kl = kn.length > 120 ? 120 : kn.length;
+    /* buffer fits "__cmpl_kl_" + the longest C identifier (255 chars) */
+    char pn[256]; int kl = kn.length > 240 ? 240 : kn.length;
     memcpy(pn, "__cmpl_kl_", 10); if (kl>0) memcpy(pn+10, kn.data, kl); pn[10+kl] = '\0';
 
     IR_Value* zero = ir_const_int(ctx->b, t_i32, 0);
-    IR_Value* ab[16];
+    int n_ka = 0;
+    for (AST_Node* a = n->body.kernel_launch.args; a; a = a->next) n_ka++;
+
+    IR_Value** ab = arena_alloc(ctx->b->arena, (4 + n_ka) * sizeof(IR_Value*));
     int n_args = 0;
     AST_Node* c = n->body.kernel_launch.config;
 
@@ -117,7 +126,7 @@ gen_expr_kernel_launch(GenCtx* ctx, AST_Node* n)
         ab[n_args++] = c ? gen_expr(ctx, c) : zero;
         if (c) c = c->next;
     }
-    for (AST_Node* a = n->body.kernel_launch.args; a && n_args < 16; a = a->next)
+    for (AST_Node* a = n->body.kernel_launch.args; a; a = a->next)
         ab[n_args++] = gen_expr(ctx, a);
     return ir_build_call(ctx->b, pn, t_void, ab, n_args);
 }

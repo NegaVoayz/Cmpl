@@ -1,6 +1,6 @@
-/* cuda_split.c -- split program AST into host and device declaration lists */
+/* gpu_split.c -- split program AST into host and device declaration lists */
 
-#include "cuda.h"
+#include "gpu.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -40,7 +40,7 @@ append_node(AST_Node** head, AST_Node** tail, AST_Node* node)
  * --------------------------------------------------------------- */
 
 void
-cuda_split(AST_Node* root, CudaSplit* out)
+gpu_split(AST_Node* root, GpuSplit* out)
 {
     AST_Node *host_head = NULL, *host_tail = NULL;
     AST_Node *dev_head = NULL, *dev_tail = NULL;
@@ -57,7 +57,7 @@ cuda_split(AST_Node* root, CudaSplit* out)
         AST_Node* next = decl->next;  /* save before append_node clobbers it */
 
         if (decl->type == AST_FUNC_DEF) {
-            CudaLinkage linkage = decl->body.func_def.linkage;
+            GpuLinkage linkage = decl->body.func_def.linkage;
 
             if (linkage == LINK_GLOBAL || linkage == LINK_DEVICE) {
                 append_node(&dev_head, &dev_tail, decl);
@@ -71,7 +71,7 @@ cuda_split(AST_Node* root, CudaSplit* out)
             }
 
         } else if (decl->type == AST_VAR_DECL) {
-            CudaAddrSpace addr_space = decl->body.var_decl.addr_space;
+            GpuAddrSpace addr_space = decl->body.var_decl.addr_space;
 
             if (addr_space != ADDR_HOST)
                 append_node(&dev_head, &dev_tail, decl);

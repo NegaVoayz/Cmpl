@@ -4,3 +4,4 @@ build2/
 *.exe
 *.ll
 *.spv
+__pycache__/

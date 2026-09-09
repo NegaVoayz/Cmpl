@@ -1,7 +1,7 @@
 /* test_vk_launch_stub.c — runtime stub for cmpl_vk_launch().
  *
  * The real Vulkan runtime (rt/) is planned; this stub is the host-side
- * counterpart for test_cuda_host_exec.c.  It reads the variadic launch
+ * counterpart for test_gpu_host_exec.c.  It reads the variadic launch
  * record — name, (gx,gy,gz), (bx,by,bz), shared, stream, nka, args —
  * and asserts each call against the expected sequence, so the test fails
  * (nonzero exit / FAIL report) when the mock emitted the wrong config or

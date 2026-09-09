@@ -2,7 +2,7 @@
 
 Hand-written C compiler: tokenizer → preprocessor → hybrid parser (LR(1) + LL) →
 AST optimizer → own LLVM IR tree → IR optimizer → `clang` subprocess for .o/.s,
-plus SPIR-V emission for CUDA kernels.
+plus SPIR-V emission for GPU kernels.
 
 Full design docs live in `doc/` and `README.md` — read those for pipeline details.
 This file covers only the coding rules the AI must follow.
@@ -28,6 +28,6 @@ This file covers only the coding rules the AI must follow.
 | `ir/` | Own LLVM IR tree: types, values, builder, dump |
 | `ir-opt/` | IR passes: mem2reg, DCE, const fold, CFG, GVN, inline |
 | `vulkan/` | SPIR-V binary emission, host mock insertion |
-| `cuda/` | CUDA qualifiers, device/host split |
+| `gpu/` | GPU qualifiers, device/host split |
 | `llvm-codegen/` | `clang` subprocess: .ll → .o/.s |
 | `rt/` | Vulkan runtime library *(planned)* |

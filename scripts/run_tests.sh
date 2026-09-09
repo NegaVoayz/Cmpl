@@ -22,6 +22,10 @@ echo "########## Stage B: test/*.c IR validation ##########"
 PASS=0; FAIL=0; FAILED_FILES=()
 for f in "$ROOT"/test/*.c; do
   base=$(basename "$f" .c)
+
+  # expected-failure GPU tests: scripts/gpu_check.sh asserts the rejection
+  case "$base" in test_gpu_err_*) continue ;; esac
+
   if ! "$CMPL" -emit-llvm -I"$ROOT/include" -I"$ROOT" -o "$TMP/$base.ll" "$f" >/dev/null 2>"$TMP/$base.cmpl.err"; then
     echo "FAIL (cmpl): $base"
     tail -3 "$TMP/$base.cmpl.err" | sed 's/^/    /'
@@ -43,8 +47,8 @@ echo
 echo "########## Stage C: runnable tests ##########"
 
 # Compiler-internal unit tests call module APIs (arena/hash/pp); link them
-# against the compiler's own objects (built by Stage A).  CUDA tests run the
-# -cuda pipeline (no native link).  test_full/test_lr1_edge return a known
+# against the compiler's own objects (built by Stage A).  GPU tests run the
+# -gpu pipeline (no native link).  test_full/test_lr1_edge return a known
 # non-zero exit code that matches gcc.
 MODOBJS=()
 for o in "$ROOT"/build/self/*.o; do
@@ -60,17 +64,20 @@ for f in "$ROOT"/test/*.c; do
   grep -q "int main" "$f" || continue
 
   case "$base" in
-    test_cuda_dual_module|test_gpu|test_kernel|test_cuda_host_exec)
+    test_gpu_err_*)
+      # expected-failure GPU tests: asserted by scripts/gpu_check.sh
+      continue ;;
+    test_gpu_dual_module|test_gpu|test_kernel|test_gpu_host_exec|test_gpu_device_global_block|test_gpu_shared_workgroup|test_gpu_host_device_helper|test_gpu_undef_missing_device_call|test_gpu_many_kernel_args|test_gpu_qualifier_order|test_gpu_kernel_args_push_constant|test_gpu_struct_pointer_index|test_gpu_structured_control_flow|test_gpu_device_global_init_blob|test_gpu_local_size|test_gpu_builtin_types|test_gpu_device_helper_blockdim|test_gpu_spirv_id_table)
       cp "$f" "$TMP/$base.c"
-      if ! (cd "$TMP" && "$CMPL" -cuda -I"$ROOT/include" -I"$ROOT" \
+      if ! (cd "$TMP" && "$CMPL" -gpu -I"$ROOT/include" -I"$ROOT" \
             "$base.c" >/dev/null 2>&1); then
-        CFAIL=$((CFAIL+1)); CFAILED_FILES+=("$base (cuda)")
+        CFAIL=$((CFAIL+1)); CFAILED_FILES+=("$base (gpu)")
       else
         CPASS=$((CPASS+1))
       fi
       # host-exec test: link the emitted host IR with the launch stub
       # and RUN it — the stub asserts the mock's config/kernel-arg split
-      if [ "$base" = test_cuda_host_exec ] &&
+      if [ "$base" = test_gpu_host_exec ] &&
          [ -f "$TMP/$base.host.ll" ]; then
         if clang "$TMP/$base.host.ll" "$ROOT/test/test_vk_launch_stub.c" \
              -o "$TMP/$base.exe" 2>"$TMP/$base.link.err"; then

@@ -108,6 +108,10 @@ struct IR_Value {
         } aggregate;
     } body;
     int          linkage;    /* for globals: 0=internal(static), 1=external */
+    int          addrspace;  /* for VAL_GLOBAL: GpuAddrSpace (0=host,
+                                1=device global, 2=shared, 3=constant) — the
+                                SPIR-V storage class of a module-scope
+                                OpVariable.  Always 0 for non-globals. */
     unsigned     is_wide : 1; /* VAL_CONST_STRING with 4-byte wchar (i32)
                                  elements (L"..." literal) */
     IR_Instr*    def_instr;   /* instruction that defines this value (or NULL) */

@@ -2,7 +2,7 @@
  * struct/union/enum, type-spec, and declarator-list parsers. */
 
 #include "../ll.h"
-#include "cuda.h"
+#include "gpu.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -11,11 +11,11 @@
 extern void ll_expect(LR1_Parser* p, TokenKind k);
 extern AST_Node* ll_parse_enum_def(LR1_Parser* p);
 extern AST_Node* parse_struct_union_decl(LR1_Parser* p, Token* stok, int is_struct,
-                                          CudaLinkage linkage,
-                                          CudaAddrSpace addr_space);
+                                          GpuLinkage linkage,
+                                          GpuAddrSpace addr_space);
 extern AST_Node* parse_var_list_decl(LR1_Parser* p, Token* start, Type* base,
-                                     int is_typedef, CudaLinkage linkage,
-                                     CudaAddrSpace addr_space,
+                                     int is_typedef, GpuLinkage linkage,
+                                     GpuAddrSpace addr_space,
                                      int is_constructor);
 
 /* ---------------------------------------------------------------
@@ -82,7 +82,7 @@ enum_is_definition(Token* tok)
 /* struct/union definition or reference, with optional typedef wrap */
 static AST_Node*
 parse_struct_union_decl_wrapped(LR1_Parser* p, int is_typedef,
-                                CudaLinkage linkage, CudaAddrSpace addr_space)
+                                GpuLinkage linkage, GpuAddrSpace addr_space)
 {
     int is_struct = (p->tok->kind == TOK_STRUCT);
     Token* stok = p->tok;
@@ -155,8 +155,12 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
     Token* start = p->tok;
     int is_typedef = 0;
     int is_constructor = parse_attribute(p);
-    CudaLinkage linkage = cuda_parse_qualifiers(p);
-    CudaAddrSpace addr_space = cuda_parse_var_qualifiers(p);
+    GpuLinkage linkage = LINK_HOST;
+    GpuAddrSpace addr_space = ADDR_HOST;
+    int device_qual = 0;
+
+    /* GPU qualifiers before the C storage-class keywords ... */
+    gpu_fold_decl_quals(p, &linkage, &addr_space, &device_qual);
 
     while (p->tok->kind == TOK_TYPEDEF || p->tok->kind == TOK_STATIC ||
            p->tok->kind == TOK_EXTERN  || p->tok->kind == TOK_REGISTER ||
@@ -166,6 +170,15 @@ AST_Node* ll_parse_decl(LR1_Parser* p)
         if (p->tok->kind == TOK_EXTERN) linkage = LINK_EXTERN;
         p->tok = p->tok->next;
     }
+
+    /* ... and after them (`static __device__ int x;`).  Without this a
+     * __device__ variable became a host static that kernels read as
+     * `undef`.  `__device__` on a VARIABLE means global device memory
+     * (addrspace 1, doc/gpu-bridge.md); __shared__/__constant__ win. */
+    gpu_fold_decl_quals(p, &linkage, &addr_space, &device_qual);
+
+    if (device_qual && addr_space == ADDR_HOST)
+        addr_space = ADDR_GLOBAL;
 
     if (p->tok->kind == TOK_STRUCT || p->tok->kind == TOK_UNION)
         return parse_struct_union_decl_wrapped(p, is_typedef, linkage, addr_space);

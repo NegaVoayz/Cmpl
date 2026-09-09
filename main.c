@@ -3,7 +3,7 @@
 #include "optimize.h"
 #include "ir.h"
 #include "ir-opt.h"
-#include "cuda.h"
+#include "gpu.h"
 #include "vulkan.h"
 #include "llvm_cg.h"
 #include "arena.h"
@@ -30,7 +30,7 @@ cmpl_add_default_include_paths(PPCtx* pp_ctx)
     pp_add_include_path(pp_ctx, "../ast-opt");
     pp_add_include_path(pp_ctx, "../ir-opt");
     pp_add_include_path(pp_ctx, "../vulkan");
-    pp_add_include_path(pp_ctx, "../cuda");
+    pp_add_include_path(pp_ctx, "../gpu");
     pp_add_include_path(pp_ctx, "../llvm-codegen");
 }
 
@@ -46,11 +46,11 @@ parse_args(int argc, char** argv, PPCtx* pp_ctx, CmdOpts* opts)
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ir") == 0) {
             opts->dump_ir = 1;
-        } else if (strcmp(argv[i], "-cuda") == 0) {
-            opts->cuda_mode = 1;
+        } else if (strcmp(argv[i], "-gpu") == 0) {
+            opts->gpu_mode = 1;
         } else if (strcmp(argv[i], "-S") == 0) {
-            /* -S: SPIR-V dump in CUDA mode, native asm in normal mode */
-            if (opts->cuda_mode)
+            /* -S: SPIR-V dump in GPU mode, native asm in normal mode */
+            if (opts->gpu_mode)
                 opts->dump_spv = 1;
             else
                 opts->codegen_mode = CG_OUT_ASM;
@@ -90,7 +90,7 @@ main(int argc, char** argv)
     parse_args(argc, argv, &pp_ctx, &opts);
 
     if (!opts.filename) {
-        fprintf(stderr, "Usage: %s [-E] [-I dir]... [-ir] [-cuda] [-c|-S|-emit-llvm] [-o outfile]\n              [-O0|-O1|-O2] <source-file>\n",
+        fprintf(stderr, "Usage: %s [-E] [-I dir]... [-ir] [-gpu] [-c|-S|-emit-llvm] [-o outfile]\n              [-O0|-O1|-O2] <source-file>\n",
                 argv[0]);
         pp_ctx_free(&pp_ctx);
         return 1;
@@ -146,9 +146,15 @@ compile_source(PPCtx* pp_ctx, const CmdOpts* opts)
     if (!opts->quiet) printf("\n--- Optimizing ---\n");
     root = optimize(root);
 
-    if (opts->cuda_mode)
-        run_cuda_pipeline(root, opts->filename, opts->dump_spv, opts->opt_level);
-    else if (opts->codegen_mode) {
+    if (opts->gpu_mode) {
+        if (run_gpu_pipeline(root, opts->filename, opts->dump_spv,
+                              opts->opt_level) != 0) {
+            pp_ctx_free(pp_ctx);
+            arena_free(ast_arena);
+            free(code);
+            return 1;
+        }
+    } else if (opts->codegen_mode) {
         if (run_codegen_pipeline(root, opts->filename, opts->out_file,
                                  opts->codegen_mode, opts->opt_level,
                                  opts->quiet) != 0) {

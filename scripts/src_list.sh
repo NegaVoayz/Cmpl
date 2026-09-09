@@ -19,7 +19,7 @@ CMPL_SOURCES=(
   tokenizer/parse.c tokenizer/lexer.c tokenizer/number.c tokenizer/charstring.c tokenizer/ast.c
   pp/pp.c pp/pp_expand.c pp/pp_if.c pp/pp_eval.c pp/pp_cond.c
   pp/pp_macro.c pp/pp_directive.c pp/pp_include.c pp/pp_line.c
-  pp/inc/pp_include_paths.c pp/inc/pp_define.c pp/inc/pp_expand_ops.c pp/inc/pp_buf.c pp/inc/pp_cache.c pp/inc/pp_cache_rec.c pp/inc/pp_cache_ctrl.c pp/inc/pp_cache_replay.c
+  pp/inc/pp_include_paths.c pp/inc/pp_define.c pp/inc/pp_expand_ops.c pp/inc/pp_buf.c pp/inc/pp_cache.c pp/inc/pp_cache_rec.c pp/inc/pp_cache_ctrl.c pp/inc/pp_cache_replay.c pp/inc/pp_comment.c
   parser/lr/lr1.c parser/lr/lr1_cast.c parser/lr/lr1_cast_apply.c parser/lr/lr1_cast_pending.c parser/lr/lr1_shift.c
   parser/lr/lr1_generic.c parser/lr/lr1_va_arg.c parser/lr/lr1_save.c
   parser/lr/reduce/lr1_reduce.c parser/lr/reduce/lr1_reduce_binary.c parser/lr/reduce/lr1_reduce_ctx.c
@@ -33,13 +33,14 @@ CMPL_SOURCES=(
   ast-opt/fold/opt_fold.c ast-opt/fold/opt_fold_walk.c ast-opt/fold/opt_fold_try.c ast-opt/fold/opt_fold_cast.c ast-opt/fold/opt_fold_generic.c
   ast-opt/propagate/opt_propagate.c ast-opt/propagate/opt_propagate_scan.c
   ast-opt/propagate/opt_propagate_replace.c
-  ir/builder/ir_builder.c ir/builder/ir_builder_block.c ir/builder/ir_builder_const.c ir/builder/ir_builder_cast.c ir/builder/ir_builder_ops.c ir/builder/ir_builder_mem.c ir/type/ir_type.c ir/type/ir_type_ast.c ir/type/ir_type_struct_cache.c ir/type/ir_type_func.c ir/type/ir_type_struct.c ir/type/ir_type_layout.c ir/type/ir_type_bf.c ir/type/ir_type_bf_emit.c ir/type/ir_type_bfq.c ir/ir_gen_cuda.c
+  ir/builder/ir_builder.c ir/builder/ir_builder_block.c ir/builder/ir_builder_const.c ir/builder/ir_builder_cast.c ir/builder/ir_builder_ops.c ir/builder/ir_builder_mem.c ir/type/ir_type.c ir/type/ir_type_ast.c ir/type/ir_type_struct_cache.c ir/type/ir_type_func.c ir/type/ir_type_struct.c ir/type/ir_type_layout.c ir/type/ir_type_bf.c ir/type/ir_type_bf_emit.c ir/type/ir_type_bfq.c ir/ir_gen_gpu.c
   ir/gen/ir_gen.c ir/gen/ir_gen_module.c ir/gen/ir_gen_module_collect.c ir/gen/ir_gen_module_emit.c ir/gen/ir_gen_func.c ir/gen/resolve/ir_gen_resolve.c ir/gen/resolve/ir_gen_resolve_arrays.c ir/gen/resolve/ir_gen_resolve_ast.c ir/gen/resolve/ir_gen_resolve_struct.c ir/gen/resolve/ir_gen_resolve_refs.c ir/gen/sa/ice_addr.c ir/gen/sa/ice_addr_member.c ir/gen/sa/ice_eval.c ir/gen/sa/ice_binary.c ir/gen/sa/ice_binary_int.c ir/gen/sa/ice_cast_sizeof.c ir/gen/sa/ice_type.c ir/gen/sa/sa_walk.c ir/gen/init/ir_gen_const.c ir/gen/init/ir_gen_const_scalar.c ir/gen/expr/ir_gen_expr.c ir/gen/expr/ir_gen_sizeof.c ir/gen/expr/ir_gen_cast.c ir/gen/expr/lval/ir_gen_member.c ir/gen/expr/lval/ir_gen_bf.c ir/gen/expr/lval/ir_gen_bf_piece.c ir/gen/expr/lval/ir_gen_addr.c ir/gen/init/ir_gen_init.c ir/gen/ir_gen_stmt.c ir/gen/ir_gen_stmt_decl.c ir/gen/ir_gen_stmt_ctrl.c ir/gen/ir_gen_stmt_jump.c ir/gen/expr/ir_gen_logical.c ir/gen/expr/ir_gen_binary.c ir/gen/expr/ir_gen_unary.c ir/gen/expr/ir_gen_call.c ir/gen/expr/ir_gen_ternary.c ir/gen/expr/lval/ir_gen_lval.c ir/gen/expr/lval/ir_gen_index.c ir/gen/expr/ir_gen_generic.c ir/gen/expr/va/ir_gen_va_arg.c ir/gen/expr/va/ir_gen_va_intrinsic.c ir/gen/init/desig/ir_gen_init_desig.c ir/gen/init/desig/ir_gen_init_pos.c ir/gen/init/desig/ir_gen_const_desig.c ir/gen/init/desig/ir_gen_const_union.c ir/gen/init/desig/ir_gen_const_absorb.c ir/gen/init/desig/ir_gen_const_cont.c ir/gen/init/desig/ir_gen_const_list.c ir/gen/init/desig/ir_gen_const_desig_elem.c ir/gen/init/desig/ir_gen_const_elem.c ir/gen/init/ir_gen_const_bytes.c ir/gen/init/ir_gen_const_bf.c ir/gen/init/ir_gen_const_generic.c ir/gen/init/ir_gen_const_ice.c
   ir/dump/ir_dump.c ir/dump/ir_dump_const.c ir/dump/ir_dump_type.c ir/dump/instr/ir_dump_instr.c ir/dump/instr/ir_dump_instr_extra.c ir/dump/instr/ir_dump_instr_gep.c ir/dump/ir_dump_func.c ir/dump/ir_dump_module.c ir/dump/ir_dump_declares.c ir/dump/ir_dump_struct.c ir/dump/ir_dump_str.c
-  cuda/cuda_qual.c cuda/cuda_split.c cuda/cuda_launch.c
-  vulkan/vk_spirv.c vulkan/vk_spirv_collect.c vulkan/vk_spirv_emit.c vulkan/vk_spirv_instr.c
-  vulkan/vk_spirv_types.c vulkan/vk_spirv_builtin.c
-  vulkan/vk_spirv_func.c vulkan/vk_mock.c
+  gpu/gpu_qual.c gpu/gpu_split.c gpu/gpu_launch.c gpu/gpu_launch_dim.c
+  vulkan/vk_spirv.c vulkan/vk_spirv_idmap.c vulkan/vk_spirv_header.c vulkan/vk_spirv_collect.c vulkan/vk_spirv_emit.c vulkan/vk_spirv_instr.c vulkan/vk_spirv_cmp.c
+  vulkan/vk_spirv_gep.c vulkan/vk_spirv_types.c vulkan/vk_spirv_consts.c vulkan/vk_spirv_globals.c
+  vulkan/vk_spirv_builtin.c vulkan/vk_spirv_builtin_iface.c vulkan/vk_spirv_builtin_wgs.c vulkan/vk_spirv_builtin_read.c vulkan/vk_spirv_func.c vulkan/vk_mock.c vulkan/vk_devinit.c
+  vulkan/vk_spirv_ptr.c vulkan/vk_spirv_type_size.c vulkan/vk_spirv_ptr_sc.c vulkan/vk_spirv_sc.c vulkan/vk_spirv_ptr_scan.c vulkan/vk_spirv_params.c vulkan/vk_spirv_params_emit.c vulkan/vk_spirv_cfg.c vulkan/vk_spirv_cfg_dom.c vulkan/vk_spirv_cfg_query.c vulkan/vk_spirv_cfg_phi.c vulkan/vk_spirv_entry.c vulkan/vk_spirv_ftype.c vulkan/vk_spirv_consts_pool.c vulkan/vk_spirv_localsize.c
   ir-opt/ir_opt.c ir-opt/support/ir_opt_count.c ir-opt/ir_opt_mem2reg.c ir-opt/ir_opt_mem2reg_cfg.c
   ir-opt/ir_opt_mem2reg_rename.c ir-opt/ir_opt_dce.c ir-opt/ir_opt_const.c
   ir-opt/ir_opt_simplify.c ir-opt/support/ir_opt_simplify_work.c ir-opt/ir_opt_gvn.c ir-opt/support/ir_opt_gvn_tab.c ir-opt/ir_opt_inline.c

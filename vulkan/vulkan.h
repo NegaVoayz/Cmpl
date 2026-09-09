@@ -7,7 +7,7 @@
 #include <stdio.h>
 
 #include "ir.h"
-#include "cuda.h"
+#include "gpu.h"
 
 /* ---------------------------------------------------------------
  *  SPIR-V writer
@@ -22,87 +22,53 @@ typedef struct {
 
 void spv_init(SPV_Writer* w);
 void spv_free(SPV_Writer* w);
-void spv_emit_module(SPV_Writer* w, IR_Module* mod);
+int  spv_emit_module(SPV_Writer* w, IR_Module* mod);
 int  spv_write_file(SPV_Writer* w, const char* filename);
+void spv_error(const char* msg);
+int  spv_had_error(void);
 
-/* CUDA builtin Input variables (vk_spirv_builtin.c): returns the SPIR-V
- * id of the BuiltIn-decorated variable for a __spv_* call (0 = none). */
-int  spv_builtin_var_id(const char* data, int len, long long dim);
+/* GPU builtin Input variables (vk_spirv_builtin.c): returns the SPIR-V
+ * id of the BuiltIn-decorated variable for a __spv_* call (0 = none).
+ * blockIdx/threadIdx/gridDim are Input variables of type uvec3 (the
+ * SPIR-V-required type) — the component is selected with OpCompositeExtract
+ * at the use site; blockDim (WorkgroupSize) must be a CONSTANT decorated
+ * BuiltIn, not a variable, so it has its own accessor. */
+#define SPV_BK_WORKGROUP_ID   0   /* blockIdx */
+#define SPV_BK_LOCAL_ID       1   /* threadIdx */
+#define SPV_BK_WORKGROUP_SIZE 2   /* blockDim — constant */
+#define SPV_BK_NUM_WORKGROUPS 3   /* gridDim */
 
-/* ---------------------------------------------------------------
- *  SPIR-V numeric constants (single source of truth — the per-file
- *  enums used to duplicate these and drifted; keep everything here)
- *
- *  Opcode numbers are the SPIR-V 1.0 values from the Khronos grammar
- *  (spirv.core.grammar.json).  They MUST match exactly.
- * --------------------------------------------------------------- */
+int  spv_builtin_kind(const char* data, int len);
+int  spv_builtin_var_id(int kind);
+int  spv_builtin_vec3_type(void);
 
-enum {
-    SPV_MAGIC = 0x07230203, SPV_VERSION = 0x00010000,
-    SPV_OP_NOP = 0,
-    SPV_OP_CAPABILITY = 17, SPV_OP_MEMORY_MODEL = 14,
-    SPV_OP_ENTRY_POINT = 15, SPV_OP_EXECUTION_MODE = 16,
-    SPV_OP_TYPE_VOID = 19, SPV_OP_TYPE_BOOL = 20, SPV_OP_TYPE_INT = 21,
-    SPV_OP_TYPE_FLOAT = 22, SPV_OP_TYPE_VECTOR = 23,
-    SPV_OP_TYPE_ARRAY = 28, SPV_OP_TYPE_STRUCT = 30,
-    SPV_OP_TYPE_POINTER = 32, SPV_OP_TYPE_FUNCTION = 33,
-    SPV_OP_CONSTANT_TRUE = 41, SPV_OP_CONSTANT_FALSE = 42,
-    SPV_OP_CONSTANT = 43, SPV_OP_CONSTANT_NULL = 46,
-    SPV_OP_FUNCTION = 54, SPV_OP_FUNCTION_PARAMETER = 55,
-    SPV_OP_FUNCTION_END = 56, SPV_OP_FUNCTION_CALL = 57,
-    SPV_OP_VARIABLE = 59, SPV_OP_LOAD = 61, SPV_OP_STORE = 62,
-    SPV_OP_ACCESS_CHAIN = 65, SPV_OP_INBOUNDS_ACCESS_CHAIN = 66,
-    SPV_OP_PTR_ACCESS_CHAIN = 67,
-    SPV_OP_DECORATE = 71, SPV_OP_MEMBER_DECORATE = 72,
-    SPV_OP_BITCAST = 124,
-    SPV_OP_IADD = 128, SPV_OP_FADD = 129, SPV_OP_ISUB = 130,
-    SPV_OP_FSUB = 131, SPV_OP_IMUL = 132, SPV_OP_FMUL = 133,
-    SPV_OP_UDIV = 134, SPV_OP_SDIV = 135, SPV_OP_FDIV = 136,
-    SPV_OP_UMOD = 137, SPV_OP_SREM = 138,
-    SPV_OP_CONVERT_F_TO_U = 109, SPV_OP_CONVERT_F_TO_S = 110,
-    SPV_OP_CONVERT_S_TO_F = 111, SPV_OP_CONVERT_U_TO_F = 112,
-    SPV_OP_U_CONVERT = 113, SPV_OP_S_CONVERT = 114,
-    SPV_OP_S_NEGATE = 126, SPV_OP_F_NEGATE = 127,
-    SPV_OP_IEQUAL = 170, SPV_OP_INOT_EQUAL = 171,
-    SPV_OP_U_GREATER_THAN = 172, SPV_OP_S_GREATER_THAN = 173,
-    SPV_OP_U_GREATER_THAN_EQUAL = 174, SPV_OP_S_GREATER_THAN_EQUAL = 175,
-    SPV_OP_U_LESS_THAN = 176, SPV_OP_S_LESS_THAN = 177,
-    SPV_OP_U_LESS_THAN_EQUAL = 178, SPV_OP_S_LESS_THAN_EQUAL = 179,
-    SPV_OP_F_ORD_EQUAL = 180, SPV_OP_F_UNORD_EQUAL = 181,
-    SPV_OP_F_ORD_NOT_EQUAL = 182, SPV_OP_F_UNORD_NOT_EQUAL = 183,
-    SPV_OP_F_ORD_LESS_THAN = 184, SPV_OP_F_UNORD_LESS_THAN = 185,
-    SPV_OP_F_ORD_GREATER_THAN = 186, SPV_OP_F_UNORD_GREATER_THAN = 187,
-    SPV_OP_F_ORD_LESS_THAN_EQUAL = 188, SPV_OP_F_UNORD_LESS_THAN_EQUAL = 189,
-    SPV_OP_F_ORD_GREATER_THAN_EQUAL = 190,
-    SPV_OP_F_UNORD_GREATER_THAN_EQUAL = 191,
-    SPV_OP_SHIFT_RIGHT_LOGICAL = 194, SPV_OP_SHIFT_RIGHT_ARITHMETIC = 195,
-    SPV_OP_SHIFT_LEFT_LOGICAL = 196, SPV_OP_BITWISE_OR = 197,
-    SPV_OP_BITWISE_XOR = 198, SPV_OP_BITWISE_AND = 199, SPV_OP_NOT = 200,
-    SPV_OP_SELECT = 169, SPV_OP_PHI = 245, SPV_OP_LABEL = 248,
-    SPV_OP_BRANCH = 249, SPV_OP_BRANCH_CONDITIONAL = 250,
-    SPV_OP_RETURN = 253, SPV_OP_RETURN_VALUE = 254,
-    SPV_OP_UNREACHABLE = 255,
-    /* storage classes */
-    SPV_STORAGE_INPUT = 1, SPV_STORAGE_UNIFORM_CONSTANT = 2,
-    SPV_STORAGE_WORKGROUP = 4, SPV_STORAGE_CROSS = 5,
-    SPV_STORAGE_FUNCTION = 7,
-    /* decorations + builtins */
-    SPV_DECORATION_BUILTIN = 11,
-    SPV_BUILTIN_LOCAL_INVOCATION_ID = 21,
-    SPV_BUILTIN_WORKGROUP_ID = 22, SPV_BUILTIN_WORKGROUP_SIZE = 24,
-    SPV_BUILTIN_NUM_WORKGROUPS = 25,
-};
+/* the blockDim (WorkgroupSize) constant per entry point
+ * (vk_spirv_builtin_wgs.c) */
+void spv_wgs_reset(void);
+void spv_wgs_set_func(IR_Func* f);
+void spv_wgs_prepare(SPV_Writer* w, IR_Module* mod);
+void spv_wgs_decor(SPV_Writer* w);
+int  spv_wgs_any(void);
+int  spv_wgs_id_of(IR_Func* f);
+int  spv_wgs_id_cur(void);
+void spv_wgs_emit(SPV_Writer* w, int u32, int vec3_ty);
+
+#include "vulkan_spv.h"
 
 /* internal SPIR-V helpers (shared across vk_spirv_*.c) */
 typedef struct { void* key; int id; } IdMap;
 
 /* ID-space layout: every object kind gets a disjoint id range so the
  * emitted binary has no colliding ids (types 1.., values, functions,
- * blocks).  map_id assigns base + n. */
-#define SPV_MAX_TY 64
-#define SPV_MAX_VL 256
-#define SPV_MAX_FN 32
-#define SPV_MAX_BL 256
+ * blocks).  map_id assigns base + n.  A register-tiled kernel produces
+ * thousands of SSA values (16 accumulators + address arithmetic per
+ * store), so the tables are sized for real kernels and allocated on the
+ * heap; overflowing one is reported as an error instead of silently
+ * emitting the invalid id 0 (vk_spirv.c). */
+#define SPV_MAX_TY 256
+#define SPV_MAX_VL 8192
+#define SPV_MAX_FN 256
+#define SPV_MAX_BL 1024
 #define SPV_ID_BASE_TY 1
 #define SPV_ID_BASE_VL (SPV_ID_BASE_TY + SPV_MAX_TY)
 #define SPV_ID_BASE_FN (SPV_ID_BASE_VL + SPV_MAX_VL)
@@ -111,7 +77,94 @@ typedef struct { void* key; int id; } IdMap;
 void spv_w(SPV_Writer* w, uint32_t x);
 void spv_op(SPV_Writer* w, int op, int n);
 int  map_id(IdMap* m, int* n, int cap, void* key, int base);
+int  map_id_as(IdMap* m, int* n, int cap, void* key, int id);
 int  find_id(IdMap* m, int n, void* key);
+
+/* emit one component read of a compute builtin; the object is an unsigned
+ * uvec3, so the result is bitcast to the IR type id `ty` (vk_spirv_builtin.c) */
+int  spv_emit_builtin_read(SPV_Writer* w, int kind, int dim, int rid, int ty,
+                           IdMap* tm, int tn);
+
+/* the BuiltIn-decorated objects an entry point must list (vk_spirv_builtin_iface.c) */
+int  spv_builtin_interface_count(void);
+int  spv_builtin_interface_at(int i);
+
+/* the deduplicated OpTypeFunction id of a function (vk_spirv_ftype.c) */
+int  func_type_id(IR_Func* f);
+
+/* struct-pointer member access by address arithmetic (vk_spirv_gep.c) */
+int  emit_gep_struct_ptr(SPV_Writer* w, IR_Instr* inst, int rid, int v0,
+                         int v1, IdMap* tm, int tn);
+
+/* module-scope variables (vk_spirv_globals.c): __device__/__constant__/
+ * __shared__ globals and static locals of the device module */
+void spv_globals_prepare(SPV_Writer* w, IR_Module* mod, IdMap* vm, int vn);
+void spv_emit_global_decor(SPV_Writer* w, IR_Module* mod, IdMap* vm, int vn,
+                           IdMap* tm, int tn);
+void spv_emit_globals(SPV_Writer* w, IR_Module* mod, IdMap* tm, int tn);
+
+/* block-wrapped global (__device__/__constant__) access helpers: the
+ * pointer type id for a payload type (0 = not a block global) and the
+ * member-0 index constant */
+int  spv_global_is_block(IR_Value* gv);
+int  spv_global_block_zero(void);
+
+/* storage-class-aware pointer types (vk_spirv_ptr.c) */
+void spv_ptr_reset(void);
+void spv_ptr_scan(SPV_Writer* w, IR_Module* mod, IdMap* tm, int tn);
+void spv_ptr_decor(SPV_Writer* w, IdMap* tm, int tn);
+void spv_ptr_set_defer(int on);
+void spv_ptr_emit_types(SPV_Writer* w);
+void spv_u64_zero_prepare(SPV_Writer* w, IdMap* tm, int tn);
+void spv_u64_zero_emit(SPV_Writer* w, IdMap* tm, int tn);
+void spv_u64_consts_scan(SPV_Writer* w, IR_Module* mod);
+void spv_u64_consts_emit(SPV_Writer* w, IdMap* tm, int tn);
+int  spv_u64_const(long long v);
+int  spv_ptr_type(SPV_Writer* w, IR_Type* pointee, int storage, IdMap* tm, int tn);
+int  spv_ptr_type_id(SPV_Writer* w, int pointee_id, int storage);
+void spv_ptr_register(int inner, int storage, int id, IR_Type* pointee);
+void spv_ptr_mark_layout(IR_Type* t);
+void spv_mark_layouts(IR_Module* mod);
+int  spv_u64_zero(void);
+int  spv_type_of(SPV_Writer* w, IR_Type* t, IR_Value* v, IdMap* tm, int tn);
+IR_Type* spv_value_pointee(IR_Value* v);
+void spv_decor_layout(SPV_Writer* w, IR_Type* t, IdMap* tm, int tn);
+void spv_ptr_param_reset(void);
+void spv_ptr_param_add(IR_Value* p, int sc);
+int  spv_value_sc(IR_Value* v);
+int  spv_ptr_align(IR_Value* ptr);
+int  spv_type_size(IR_Type* t);
+int  spv_type_align(IR_Type* t);
+int  spv_needs_varpointers(void);
+void spv_ptr_mark_varpointers(void);
+
+/* kernel parameters (vk_spirv_params.c): lowered into a PushConstant
+ * block, because an entry point may not take parameters */
+void spv_params_prepare(SPV_Writer* w, IR_Module* mod, IdMap* tm, int tn);
+void spv_params_decor(SPV_Writer* w, IdMap* tm, int tn);
+void spv_params_emit(SPV_Writer* w, IdMap* tm, int tn);
+void spv_params_prologue(SPV_Writer* w, IR_Func* f, IdMap* tm, int tn,
+                         IdMap* vm, int vn);
+int  spv_params_count(void);
+int  spv_params_var_of(IR_Func* f);
+
+/* structured control flow (vk_spirv_cfg.c): selection/loop merge blocks */
+void spv_cfg_enter(SPV_Writer* w, IR_Func* f, IdMap* bm, int bn);
+int  spv_cfg_synth(SPV_Writer* w, int to);
+int  spv_cfg_synth_count(void);
+int  spv_cfg_synth_at(int i);
+int  spv_cfg_synth_to(int i);
+void spv_cfg_synth_emit(SPV_Writer* w, int i, IdMap* tm, int tn,
+                        IdMap* vm, int vn);
+void spv_cfg_set_block(IR_Block* b);
+int  spv_cfg_redirect(int lbl);
+int  spv_cfg_phi_emit(SPV_Writer* w, IR_Instr* inst, int rid, int tt,
+                      IdMap* vm, int vn, IdMap* bm, int bn);
+void spv_cfg_synth_phis(SPV_Writer* w, int i, IdMap* tm, int tn,
+                        IdMap* vm, int vn);
+int  spv_cfg_merge(IR_Block* b);
+int  spv_cfg_is_loop(IR_Block* b);
+int  spv_cfg_continue(IR_Block* b);
 
 /* single-instruction emit helpers (used by vk_spirv_emit.c and
  * vk_spirv_instr.c; `w` is the SPV_Writer* in scope) */
@@ -126,5 +179,16 @@ int  find_id(IdMap* m, int n, void* key);
  * --------------------------------------------------------------- */
 
 void vk_mock_insert(IR_Module* host_mod, KernelLaunch* launches, int n);
+
+/* per-kernel workgroup size (vk_spirv_localsize.c): the GPU block
+ * dimensions of a launch become the LocalSize execution mode and the
+ * blockDim (WorkgroupSize) constant of that kernel's entry point */
+void spv_local_size_reset(void);
+void spv_local_size_set(const char* name, int len, int bx, int by, int bz);
+int  spv_local_size_of(IR_Func* f, int out[3]);
+void spv_local_sizes_from_launches(KernelLaunch* launches, int n);
+
+/* device-global initializer blobs in the host module (vk_devinit.c) */
+void vk_emit_device_init(IR_Module* host, IR_Module* dev);
 
 #endif /* VULKAN_H */
